@@ -1,6 +1,6 @@
 import tkinter as tk
-from ui.molecule.section import Section
-from ui.template.lost import Lots
+from ui.widgets.section import Section
+from ui.screens.lost import Lots
 
 
 class SideBar(tk.Frame):
