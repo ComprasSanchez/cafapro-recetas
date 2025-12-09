@@ -9,6 +9,7 @@ class App(tk.Tk):
 
         self.title("Cafapro Recetas")
         self.state("zoomed")
+        self.iconbitmap("public/logo.ico")
 
         # --- SOLO ESTO ---
         layout = Layout(self)
