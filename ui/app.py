@@ -1,5 +1,6 @@
 import tkinter as tk
 
+from config.config_manager import ConfigManager
 from ui.layout.layout import Layout
 
 
@@ -11,6 +12,12 @@ class App(tk.Tk):
         self.state("zoomed")
         self.iconbitmap("public/logo.ico")
 
+        # Configuración
+        self.config_manager = ConfigManager()
+
+        if not self.config_manager.load():
+            # Si no existe, la pide al usuario
+            self.config_manager.ask_for_folders()
         # --- SOLO ESTO ---
         layout = Layout(self)
         layout.pack(fill="both", expand=True)

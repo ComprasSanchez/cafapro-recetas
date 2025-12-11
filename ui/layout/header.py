@@ -5,14 +5,16 @@ class Header(tk.Frame):
         super().__init__(master, bg="#E6E6E6", height=28)
         self.pack_propagate(False)
 
-        # Lista de menús a mostrar
-        menus = [
-            "Sistema", "Archivo", "Recepción", "Presentaciones", "Compras",
-            "Ventas", "Caja y bancos", "Contabilidad", "Auditoría", "Varios", "Ayuda"
-        ]
+        # ESTRUCTURA REAL DEL MENÚ
+        menus = {
+            "Auditoría": [
+                "Lotes Temporales",
+            ],
+        }
 
-        for menu_name in menus:
-            # Crear Menubutton
+        for menu_name, opciones in menus.items():
+
+            # Crear menú desplegable
             mb = tk.Menubutton(
                 self,
                 text=menu_name,
@@ -25,7 +27,6 @@ class Header(tk.Frame):
                 font=("Segoe UI", 9)
             )
 
-            # Crear el menú asociado
             menu = tk.Menu(
                 mb,
                 tearoff=0,
@@ -35,14 +36,14 @@ class Header(tk.Frame):
                 font=("Segoe UI", 9)
             )
 
-            # Agregar items ficticios (para que los veas funcionar)
-            menu.add_command(label=f"{menu_name} - Opción 1")
-            menu.add_command(label=f"{menu_name} - Opción 2")
-            menu.add_separator()
-            menu.add_command(label=f"{menu_name} - Salir")
+            # Agregar todas las opciones dinámicamente
+            for opcion in opciones:
+                if opcion == "Salir":
+                    menu.add_separator()
+                    menu.add_command(label="Salir")
+                else:
+                    menu.add_command(label=opcion)
 
-            # Asociar el menú al Menubutton
             mb.config(menu=menu)
-
-            # Agregar al header
             mb.pack(side="left")
+
