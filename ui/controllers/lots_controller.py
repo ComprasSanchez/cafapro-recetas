@@ -1,0 +1,100 @@
+from __future__ import annotations
+
+from typing import Callable, Optional
+
+from tkinter import messagebox
+
+from ui.shared.filter_state import FilterState
+
+
+class LotsController:
+
+    def __init__(self, images_handler, imed_handler):
+        self.images_handler = images_handler
+        self.imed_handler = imed_handler
+
+        # Estado de filtros (GENERAL)
+        self.filters = FilterState()
+
+        # Data que consume la vista
+        self.list_images_tif: list[dict] = []
+        self.recetas_imed: dict = {}
+        self.detalles_imed: dict = {}
+
+        # Callback para que la UI se actualice
+        self._on_update: Optional[Callable[[], None]] = None
+
+        # Contexto base (para recargas)
+        self._imed: str = "99029498005"
+        self._obs: str = self.filters.obra_social
+        self._fecha_imed_base: str = ""
+        self._fecha_imgs_base: str = ""
+
+    def bind_on_update(self, cb: Callable[[], None]) -> None:
+        self._on_update = cb
+
+    def set_filter(self, **kwargs) -> None:
+        """Permite setear filtros desde cualquier clase."""
+        for k, v in kwargs.items():
+            if hasattr(self.filters, k):
+                setattr(self.filters, k, v)
+
+    def load_initial(self, imed: str, fecha_imgs: str, obs: str, fecha_imed: str) -> None:
+        """Carga inicial (o recarga completa)."""
+        self._imed = imed
+        self._fecha_imgs_base = fecha_imgs
+        self._obs = obs
+        self._fecha_imed_base = fecha_imed
+
+        self._reload_images(fecha_imgs)
+        self._reload_imed(fecha_imed)
+
+        self._notify()
+
+    def apply_filters(self) -> None:
+        fecha_imgs = self.filters.filtro_img_fecha or self._fecha_imgs_base
+        fecha_imed = self.filters.filtro_aut_fecha or self._fecha_imed_base
+
+        self._reload_images(fecha_imgs)
+        self._reload_imed(fecha_imed)
+
+        self._notify()
+
+    # ─────────────────────────────────────
+    # Internal helpers
+    # ─────────────────────────────────────
+    def _reload_images(self, fecha_imgs: str) -> None:
+        try:
+            self.list_images_tif = self.images_handler.get_images_tif(self._imed, fecha_imgs, self._obs)
+        except FileNotFoundError:
+            messagebox.showwarning(
+                "Imágenes",
+                f"No se encuentra la ruta de imágenes para:\nIMED: {self._imed}\nFecha: {fecha_imgs}\nObs: {self._obs}",
+            )
+            self.list_images_tif = []
+        except Exception as e:
+            messagebox.showwarning(
+                "Imágenes",
+                f"Error al cargar imágenes:\n{e}",
+            )
+            self.list_images_tif = []
+
+    def _reload_imed(self, fecha_imed: str) -> None:
+        try:
+            self.recetas_imed, self.detalles_imed = self.imed_handler.read_cvs_by_imed_and_date(self._imed, fecha_imed)
+        except FileNotFoundError:
+            messagebox.showwarning(
+                "IMED",
+                f"No se encuentra el archivo IMED para:\nIMED: {self._imed}\nFecha: {fecha_imed}",
+            )
+            self.recetas_imed, self.detalles_imed = {}, {}
+        except Exception as e:
+            messagebox.showwarning(
+                "IMED",
+                f"Error al leer archivo IMED:\n{e}",
+            )
+            self.recetas_imed, self.detalles_imed = {}, {}
+
+    def _notify(self) -> None:
+        if self._on_update:
+            self._on_update()

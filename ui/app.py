@@ -2,11 +2,14 @@ import tkinter as tk
 
 from config.config_manager import ConfigManager
 from ui.layout.layout import Layout
+from ui.theme.styles import apply_theme
 
 
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
+
+        apply_theme(self)
 
         self.title("Cafapro Recetas")
         self.state("zoomed")
