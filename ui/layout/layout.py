@@ -6,12 +6,12 @@ from ui.layout.header import Header
 from ui.layout.main import Main
 from ui.layout.side_bar import SideBar
 
-
+from ui.theme.colors import BG_APP
 
 
 class Layout(tk.Frame):
     def __init__(self, master):
-        super().__init__(master, bg="#DDDDDD")
+        super().__init__(master, bg=BG_APP)
 
         # GRID PRINCIPAL
         self.rowconfigure(0, weight=0)  # header

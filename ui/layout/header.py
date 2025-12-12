@@ -1,8 +1,9 @@
 import tkinter as tk
+from ui.theme.colors import BG_PANEL
 
 class Header(tk.Frame):
     def __init__(self, master):
-        super().__init__(master, bg="#E6E6E6", height=28)
+        super().__init__(master, bg=BG_PANEL, height=28)
         self.pack_propagate(False)
 
         # ESTRUCTURA REAL DEL MENÚ
@@ -18,7 +19,7 @@ class Header(tk.Frame):
             mb = tk.Menubutton(
                 self,
                 text=menu_name,
-                bg="#E6E6E6",
+                bg=BG_PANEL,
                 fg="black",
                 activebackground="#D0D0D0",
                 activeforeground="black",

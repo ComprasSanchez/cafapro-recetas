@@ -1,6 +1,5 @@
 import tkinter as tk
-
-
+from ui.theme.colors import BG_PANEL, BG_CARD
 class Main(tk.Frame):
     def __init__(self, master):
         super().__init__(master, bg="#DDDDDD")
@@ -11,12 +10,12 @@ class Main(tk.Frame):
         self.columnconfigure(0, weight=1)
 
         # Barra de pestañas
-        self.tab_bar = tk.Frame(self, bg="#E6E6E6", height=28)
+        self.tab_bar = tk.Frame(self, bg=BG_PANEL, height=28)
         self.tab_bar.grid(row=0, column=0, sticky="ew")
         self.tab_bar.grid_propagate(False)
 
         # Contenedor de páginas (frames)
-        self.content = tk.Frame(self, bg="#FFFFFF")
+        self.content = tk.Frame(self, bg=BG_CARD)
         self.content.grid(row=1, column=0, sticky="nsew")
         self.content.rowconfigure(0, weight=1)
         self.content.columnconfigure(0, weight=1)
@@ -60,18 +59,18 @@ class Main(tk.Frame):
         # Quitar selección visual de la pestaña anterior
         if self.current and self.current in self.tabs:
             old_tab = self.tabs[self.current]
-            old_tab.config(bg="#E6E6E6")
+            old_tab.config(bg=BG_PANEL)
             for child in old_tab.winfo_children():
-                child.config(bg="#E6E6E6")
+                child.config(bg=BG_PANEL)
 
         # Levantar el frame de la página
         self.pages[name].tkraise()
 
         # Marcar pestaña como activa
         new_tab = self.tabs[name]
-        new_tab.config(bg="#FFFFFF")
+        new_tab.config(bg=BG_CARD)
         for child in new_tab.winfo_children():
-            child.config(bg="#FFFFFF")
+            child.config(bg=BG_CARD)
 
         self.current = name
 
@@ -100,16 +99,16 @@ class Main(tk.Frame):
 
     def _create_tab(self, name: str) -> tk.Frame:
         """Crea la pestañita (nombre + botón cerrar) en la barra."""
-        tab = tk.Frame(self.tab_bar, bg="#E6E6E6", bd=1, relief="solid")
+        tab = tk.Frame(self.tab_bar, bg=BG_PANEL, bd=1, relief="solid")
         tab.pack(side="left", padx=(0, 1))
 
-        lbl = tk.Label(tab, text=name, bg="#E6E6E6", padx=8, pady=3)
+        lbl = tk.Label(tab, text=name, bg=BG_PANEL, padx=8, pady=3)
         lbl.pack(side="left")
 
         btn = tk.Button(
             tab,
             text="✕",
-            bg="#E6E6E6",
+            bg=BG_PANEL,
             relief="flat",
             padx=4,
             command=lambda n=name: self.close_page(n),

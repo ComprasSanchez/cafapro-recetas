@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import messagebox
 
 from ui.widgets.section import Section
-from ui.screens.lost import Lots
+from ui.screens.lots.lost import Lots
 
 
 class SideBar(tk.Frame):
