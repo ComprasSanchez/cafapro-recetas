@@ -13,7 +13,7 @@ class App(tk.Tk):
 
         self.title("Cafapro Recetas")
         self.state("zoomed")
-        self.iconbitmap("public/logo.ico")
+        self.iconbitmap(default="public/logo.ico")
 
         # Configuración
         self.config_manager = ConfigManager()

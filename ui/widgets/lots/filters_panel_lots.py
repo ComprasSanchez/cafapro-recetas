@@ -69,9 +69,9 @@ class LotsFiltersPanel(tk.Frame):
         content.grid(row=0, column=0, sticky="ew")
         content.grid_columnconfigure(11, weight=1)
 
-        def label(text, r, c):
+        def label(text, r, column):
             ttk.Label(content, text=text, style="Panel.TLabel").grid(
-                row=r, column=c, sticky="e", padx=(3, 4), pady=3
+                row=r, column=column, sticky="e", padx=(3, 4), pady=3
             )
 
         def section_title(text, r):
@@ -83,7 +83,7 @@ class LotsFiltersPanel(tk.Frame):
                 font=("Segoe UI", 9, "bold"),
             ).grid(row=r, column=0, sticky="w", pady=(4, 2))
 
-        def ro_value(var: tk.StringVar, r: int, c: int, width: int = 16):
+        def ro_value(var: tk.StringVar, r: int, column: int, width: int = 16):
             """Chip/valor de solo lectura (look desktop)."""
             tk.Label(
                 content,
@@ -98,7 +98,7 @@ class LotsFiltersPanel(tk.Frame):
                 pady=3,
                 width=width,
                 anchor="w",
-            ).grid(row=r, column=c, sticky="w", pady=3)
+            ).grid(row=r, column=column, sticky="w", pady=3)
 
         # ───────── Row 0 ─────────
         label("N° Recepción", 0, 0)
@@ -166,18 +166,11 @@ class LotsFiltersPanel(tk.Frame):
         self._wire_date_entry(self.var_filtro_img_fecha, self.entry_img_fecha)
         self._wire_date_entry(self.var_filtro_aut_fecha, self.entry_aut_fecha)
 
-        # Primary action right
-        ttk.Button(
-            content,
-            text="Aplicar filtros",
-            style="Primary.TButton",
-            command=self._on_apply,
-        ).grid(row=4, column=10, sticky="e", pady=3)
-
     # ─────────────────────────────────────────
     # Date helpers
     # ─────────────────────────────────────────
-    def _normalize_date(self, raw: str) -> str | None:
+    @staticmethod
+    def _normalize_date(raw: str) -> str | None:
         """Normaliza a DD/MM/YYYY.
 
         Acepta:
@@ -273,10 +266,6 @@ class LotsFiltersPanel(tk.Frame):
     # ─────────────────────────────────────────
     # Handlers
     # ─────────────────────────────────────────
-    def _on_apply(self):
-        if not self._sync_filters_to_controller():
-            return
-        self.controller.apply_filters()
 
     def _on_new_recepcion(self):
         self._sync_filters_to_controller()
@@ -289,9 +278,9 @@ class LotsFiltersPanel(tk.Frame):
     def _on_add_image_filter(self):
         if not self._sync_filters_to_controller():
             return
-        self.controller.apply_filters()
+        self.controller.reload_images()
 
     def _on_add_authorization_filter(self):
         if not self._sync_filters_to_controller():
             return
-        self.controller.apply_filters()
+        self.controller.reload_imed()

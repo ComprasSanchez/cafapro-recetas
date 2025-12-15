@@ -46,24 +46,16 @@ class LotsController:
         self._obs = obs
         self._fecha_imed_base = fecha_imed
 
-        self._reload_images(fecha_imgs)
-        self._reload_imed(fecha_imed)
-
-        self._notify()
-
-    def apply_filters(self) -> None:
-        fecha_imgs = self.filters.filtro_img_fecha or self._fecha_imgs_base
-        fecha_imed = self.filters.filtro_aut_fecha or self._fecha_imed_base
-
-        self._reload_images(fecha_imgs)
-        self._reload_imed(fecha_imed)
+        self.reload_images()
+        self.reload_imed()
 
         self._notify()
 
     # ─────────────────────────────────────
     # Internal helpers
     # ─────────────────────────────────────
-    def _reload_images(self, fecha_imgs: str) -> None:
+    def reload_images(self) -> None:
+        fecha_imgs = self.filters.filtro_img_fecha or self._fecha_imgs_base
         try:
             self.list_images_tif = self.images_handler.get_images_tif(self._imed, fecha_imgs, self._obs)
         except FileNotFoundError:
@@ -78,8 +70,10 @@ class LotsController:
                 f"Error al cargar imágenes:\n{e}",
             )
             self.list_images_tif = []
+        self._notify()
 
-    def _reload_imed(self, fecha_imed: str) -> None:
+    def reload_imed(self) -> None:
+        fecha_imed = self.filters.filtro_aut_fecha or self._fecha_imed_base
         try:
             self.recetas_imed, self.detalles_imed = self.imed_handler.read_cvs_by_imed_and_date(self._imed, fecha_imed)
         except FileNotFoundError:
@@ -94,6 +88,7 @@ class LotsController:
                 f"Error al leer archivo IMED:\n{e}",
             )
             self.recetas_imed, self.detalles_imed = {}, {}
+        self._notify()
 
     def _notify(self) -> None:
         if self._on_update:
