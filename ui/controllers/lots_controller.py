@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import os
 from typing import Callable, Optional
 
 from tkinter import messagebox
 
+from core.process_tif import TiffProcessor
 from ui.shared.filter_state import FilterState
 
 
@@ -89,6 +91,17 @@ class LotsController:
             )
             self.recetas_imed, self.detalles_imed = {}, {}
         self._notify()
+
+    def process_tif(self):
+        processed_images = TiffProcessor()
+        if len(self.list_images_tif) == 0:
+            messagebox.showwarning(
+                "Procesado de Imágenes",
+                "No hay imágenes agregadas.",
+            )
+            return
+        for image in self.list_images_tif:
+            processed_images.process(image["full_path"], os.path.dirname(image["full_path"]))
 
     def _notify(self) -> None:
         if self._on_update:

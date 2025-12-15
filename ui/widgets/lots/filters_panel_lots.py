@@ -166,6 +166,14 @@ class LotsFiltersPanel(tk.Frame):
         self._wire_date_entry(self.var_filtro_img_fecha, self.entry_img_fecha)
         self._wire_date_entry(self.var_filtro_aut_fecha, self.entry_aut_fecha)
 
+        # Primary action right
+        ttk.Button(
+            content,
+            text="Procesar",
+            style="Primary.TButton",
+            command=self.controller.process_tif
+        ).grid(row=4, column=10, sticky="e", pady=3)
+
     # ─────────────────────────────────────────
     # Date helpers
     # ─────────────────────────────────────────

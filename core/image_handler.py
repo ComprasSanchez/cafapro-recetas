@@ -98,6 +98,7 @@ class ImageHandler:
                     "name": file,
                     "date": file_date_str,  # ← AHORA ES LA FECHA REAL DEL ARCHIVO
                     "time": time_str,
+                    "full_path": full_path
                 }
             )
 
