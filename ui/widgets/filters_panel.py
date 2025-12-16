@@ -6,7 +6,7 @@ from tkinter import ttk, messagebox
 from ui.theme.colors import BG_PANEL, BG_CARD, BG_BORDER, TEXT_PRIMARY, TEXT_SECONDARY
 
 
-class LotsFiltersPanel(tk.Frame):
+class FiltersPanel(tk.Frame):
     """Panel de filtros de Lotes.
 
     - Metadata (solo lectura): obra social, prestador, presentación, periodo, quincena

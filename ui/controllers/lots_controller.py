@@ -100,8 +100,19 @@ class LotsController:
                 "No hay imágenes agregadas.",
             )
             return
+        if not self.recetas_imed:
+            messagebox.showwarning(
+                "Procesado de Imágenes",
+                "No hay un listado de IMED cargado.",
+            )
+            return
+        tif_processor = []
         for image in self.list_images_tif:
-            processed_images.process(image["full_path"], os.path.dirname(image["full_path"]))
+            res = processed_images.process(image["full_path"], os.path.dirname(image["full_path"]))
+            tif_processor.append(res)
+
+
+
 
     def _notify(self) -> None:
         if self._on_update:

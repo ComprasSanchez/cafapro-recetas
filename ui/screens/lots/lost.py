@@ -4,7 +4,7 @@ from core.image_handler import ImageHandler
 from core.imed_cvs_handler import ImedCvsHandler
 
 from ui.controllers.lots_controller import LotsController
-from ui.widgets.lots.filters_panel_lots import LotsFiltersPanel
+from ui.widgets.filters_panel import FiltersPanel
 from ui.widgets.lots.tables_container import LotsTablesContainer
 
 from ui.theme.colors import BG_APP
@@ -22,7 +22,7 @@ class Lots(tk.Frame):
         self.columnconfigure(0, weight=1)
 
         # Header / filtros
-        self.filters_panel = LotsFiltersPanel(self, controller=self.controller)
+        self.filters_panel = FiltersPanel(self, controller=self.controller)
         self.filters_panel.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 6))
 
         # Tablas

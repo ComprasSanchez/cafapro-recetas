@@ -1,6 +1,7 @@
 import tkinter as tk
 from tkinter import messagebox
 
+from ui.screens.audit import Audit
 from ui.widgets.section import Section
 from ui.screens.lots.lost import Lots
 
@@ -39,6 +40,8 @@ class SideBar(tk.Frame):
     def handle_sidebar_click(self, option):
         if option == "Lotes Temporales":
             self.show_page("Lotes Temporales", Lots)
+        if option == "Auditoria":
+            self.show_page("Auditoria", Audit)
         else:
             messagebox.showinfo(
                 "No implementado",
