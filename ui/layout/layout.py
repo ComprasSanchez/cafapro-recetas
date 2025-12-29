@@ -37,8 +37,8 @@ class Layout(tk.Frame):
         # SIDEBAR (le pasamos el callback directo a main)
         sidebar = SideBar(central, show_page=self.main.open_page)
         sidebar.grid(row=0, column=0, sticky="nsw")
-        sidebar.handle_sidebar_click("Lotes Temporales")
-        sidebar.handle_sidebar_click("Auditoria")
+        sidebar.handle_sidebar_click("audit")
+        sidebar.handle_sidebar_click("lots")
 
         # FOOTER
         footer = Footer(self)

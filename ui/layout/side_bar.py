@@ -38,9 +38,9 @@ class SideBar(tk.Frame):
         section.grid(row=row, column=0, sticky="nsew", padx=5, pady=8)
 
     def handle_sidebar_click(self, option):
-        if option == "Lotes Temporales":
+        if option == "lots":
             self.show_page("Lotes Temporales", Lots)
-        if option == "Auditoria":
+        if option == "audit":
             self.show_page("Auditoria", Audit)
         else:
             messagebox.showinfo(

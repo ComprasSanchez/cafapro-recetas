@@ -28,8 +28,7 @@ class Audit(ttk.Frame):
         self._build_subtabs()
 
     def _build_header(self):
-        self.controller = LotsController(ImageHandler(), ImedCvsHandler())
-        self.controller.bind_on_update(self._render)
+        pass
     # ---------------- Sub-tabs (Carga / Auditoría) ----------------
     def _build_subtabs(self):
         sub = ttk.Notebook(self)
@@ -138,6 +137,8 @@ class Audit(ttk.Frame):
         yscroll = ttk.Scrollbar(frame, orient="vertical", command=self.canvas.yview)
         yscroll.grid(row=0, column=1, sticky="ns")
         self.canvas.configure(yscrollcommand=yscroll.set)
+        self.set_preview(r"C:\Users\Usuario\sucursales\99029498005\pami_20251209132701009_f.jpg")
+
 
     # ---------------- API para usar desde tu controller ----------------
     def set_count(self, identified: int, total: int):
