@@ -99,15 +99,16 @@ class EstadoSeguimiento(Base):
 class Plan(Base):
     __tablename__ = "plan"
     __table_args__ = (
-        sa.UniqueConstraint("obra_social_id", "periodo_id", name="uq_plan_obra_periodo"),
+        sa.UniqueConstraint("obra_social_id", "nombre", "codigo", name="uq_plan_obra"),
     )
 
     plan_id: Mapped[int] = mapped_column(sa.Integer, sa.Identity(), primary_key=True)
 
     obra_social_id: Mapped[int] = mapped_column(sa.ForeignKey("obra_social.obra_social_id"), nullable=False)
-    periodo_id: Mapped[int] = mapped_column(sa.ForeignKey("periodo.periodo_id"), nullable=False)
 
+    codigo: Mapped[str | None] = mapped_column(sa.String, nullable=True)
     nombre: Mapped[str | None] = mapped_column(sa.String, nullable=True)
+    activo: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=True)
     creado_en: Mapped[sa.DateTime] = mapped_column(
         sa.DateTime,
         nullable=False,
@@ -122,7 +123,7 @@ class Roles(Base):
     __tablename__ = "roles"
 
     rol_id: Mapped[int] = mapped_column(sa.Integer, sa.Identity(), primary_key=True)
-    descripcion: Mapped[str] = mapped_column(sa.String, nullable=False)
+    descripcion: Mapped[str] = mapped_column(sa.String, nullable=False, unique=True)
 
 
 class Usuarios(Base):
