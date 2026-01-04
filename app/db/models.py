@@ -3,6 +3,7 @@ from __future__ import annotations
 from enum import Enum as PyEnum
 import sqlalchemy as sa
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from datetime import date
 
 
 # Nombres consistentes (Alembic)
@@ -63,9 +64,7 @@ class Periodo(Base):
     anio: Mapped[int] = mapped_column(sa.Integer, nullable=False)
     mes: Mapped[int] = mapped_column(sa.Integer, nullable=False)
     quincena: Mapped[int] = mapped_column(sa.Integer, nullable=False)
-    fecha_inicio: Mapped[sa.Date] = mapped_column(sa.Date, nullable=False)
-    fecha_fin: Mapped[sa.Date] = mapped_column(sa.Date, nullable=False)
-    creado_en: Mapped[sa.DateTime] = mapped_column(
+    creado_en: Mapped[date] = mapped_column(
         sa.DateTime,
         nullable=False,
         server_default=sa.func.now(),

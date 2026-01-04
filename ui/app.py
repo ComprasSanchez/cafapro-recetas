@@ -1,26 +1,18 @@
-import tkinter as tk
+import sys
+from pathlib import Path
 
-from config.config_manager import ConfigManager
-from ui.layout.layout import Layout
-from ui.theme.styles import apply_theme
+from PySide6.QtGui import QIcon
+from PySide6.QtWidgets import QApplication
+from ui.main_window import MainWindow
 
+def main():
+    app = QApplication(sys.argv)
+    app.setWindowIcon(QIcon("public/logo.ico"))
+    qss_path = Path(__file__).parent / "styles" / "style.qss"
+    if qss_path.exists():
+        app.setStyleSheet(qss_path.read_text(encoding="utf-8"))
 
-class App(tk.Tk):
-    def __init__(self):
-        super().__init__()
+    w = MainWindow()
+    w.show()
+    sys.exit(app.exec())
 
-        apply_theme(self)
-
-        self.title("Cafapro Recetas")
-        self.state("zoomed")
-        self.iconbitmap(default="public/logo.ico")
-
-        # Configuración
-        self.config_manager = ConfigManager()
-
-        if not self.config_manager.load():
-            # Si no existe, la pide al usuario
-            self.config_manager.ask_for_folders()
-        # --- SOLO ESTO ---
-        layout = Layout(self)
-        layout.pack(fill="both", expand=True)

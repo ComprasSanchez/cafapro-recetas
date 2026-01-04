@@ -11,8 +11,7 @@ from app.db.engine import engine
 SessionLocal = sessionmaker(
     bind=engine,
     autoflush=False,
-    autocommit=False,
-    future=True,
+    expire_on_commit=False,
 )
 
 
