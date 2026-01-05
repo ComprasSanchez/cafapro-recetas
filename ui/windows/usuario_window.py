@@ -45,7 +45,7 @@ class UsuariosWindow(QDialog):
 
         root.addWidget(header)
 
-        # ===== Tabla (SIN ID visible) =====
+        # ===== Tabla  =====
         self.table = QTableWidget(0, 4)
         self.table.setHorizontalHeaderLabels(["Nombre", "Rol", "Activo", "Últ. login"])
         self.table.setSelectionBehavior(QTableWidget.SelectRows)

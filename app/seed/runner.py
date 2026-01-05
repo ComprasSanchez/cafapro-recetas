@@ -7,6 +7,7 @@ from app.seed.obra_social_seed import run as run_obra_social
 from app.seed.plan_seed import run as run_plan
 from app.seed.estado_seguimiento_seed import run as run_estado_seguimiento
 from app.seed.motivos_debitos import run as run_motivos_debitos
+from app.seed.prestadores_seed import run as run_prestadores
 
 
 def seed_all() -> None:
@@ -16,6 +17,7 @@ def seed_all() -> None:
         run_plan(s)
         run_estado_seguimiento(s)
         run_motivos_debitos(s)
+        run_prestadores(s)
 
 
     print("✅ Seed OK")

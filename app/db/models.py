@@ -19,6 +19,7 @@ NAMING_CONVENTION = dict(
 class Base(DeclarativeBase):
     metadata = sa.MetaData(naming_convention=NAMING_CONVENTION)
 
+recepcion_numero_seq = sa.Sequence("recepcion_numero_seq", metadata=Base.metadata)
 
 # =========================
 # ENUMS (DBML)
@@ -149,9 +150,16 @@ class Recepcion(Base):
     __table_args__ = (
         sa.Index("ix_recepcion_prestador_obra_periodo", "prestador_id", "obra_social_id", "periodo_id"),
         sa.Index("ix_recepcion_estado_recepcion", "estado_recepcion"),
+        sa.UniqueConstraint("numero", name="uq_recepcion_numero"),
     )
 
     recepcion_id: Mapped[int] = mapped_column(sa.Integer, sa.Identity(), primary_key=True)
+
+    numero: Mapped[int] = mapped_column(
+        sa.BigInteger,
+        nullable=False,
+        server_default=recepcion_numero_seq.next_value(),
+    )
 
     obra_social_id: Mapped[int] = mapped_column(sa.ForeignKey("obra_social.obra_social_id"), nullable=False)
     periodo_id: Mapped[int] = mapped_column(sa.ForeignKey("periodo.periodo_id"), nullable=False)
