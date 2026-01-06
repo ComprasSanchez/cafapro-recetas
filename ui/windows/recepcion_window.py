@@ -53,15 +53,15 @@ class RecepcionesWindow(QDialog):
         self.table.setHorizontalHeaderLabels([
             "Número Recepcion", "Obra social", "Período", "Prestador", "Estado", "Fecha recepción"
         ])
-        self.table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.table.setSelectionMode(QTableWidget.SingleSelection)
-        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
 
         hh = self.table.horizontalHeader()
-        hh.setSectionResizeMode(QHeaderView.Stretch)
+        hh.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         hh.setStretchLastSection(True)
-        hh.setDefaultAlignment(Qt.AlignCenter)
+        hh.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
 
         root.addWidget(self.table)
 
@@ -82,7 +82,7 @@ class RecepcionesWindow(QDialog):
         it = self.table.item(row, 0)  # Número
         if not it:
             return None
-        rid = it.data(Qt.UserRole)
+        rid = it.data(Qt.ItemDataRole.UserRole)
         return int(rid) if rid is not None else None
 
     def _fmt_dt(self, value) -> str:
@@ -109,7 +109,7 @@ class RecepcionesWindow(QDialog):
             self.table.insertRow(i)
 
             it_num = QTableWidgetItem(str(r.numero))
-            it_num.setData(Qt.UserRole, r.recepcion_id)
+            it_num.setData(Qt.ItemDataRole.UserRole, r.recepcion_id)
             it_num.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.table.setItem(i, 0, it_num)
 
@@ -126,7 +126,7 @@ class RecepcionesWindow(QDialog):
 
     def open_create_dialog(self):
         dlg = RecepcionCreateDialog(self, creado_por_usuario_id=self.creado_por_usuario_id)
-        if dlg.exec() == QDialog.Accepted:
+        if dlg.exec() == QDialog.DialogCode.Accepted:
             self.load_data()
 
     def on_delete(self):
@@ -139,9 +139,9 @@ class RecepcionesWindow(QDialog):
             self,
             "Confirmar",
             "¿Eliminar la recepción seleccionada? (eliminación física)",
-            QMessageBox.Yes | QMessageBox.No
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
-        if resp != QMessageBox.Yes:
+        if resp != QMessageBox.StandardButton.Yes:
             return
 
         try:

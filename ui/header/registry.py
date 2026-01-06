@@ -35,5 +35,13 @@ def build_header_actions(main_window) -> dict[str, list[HeaderAction]]:
                 kind="window",
                 window_factory=lambda: UsuariosWindow(main_window),
             )
+        ],
+        "Auditoria": [
+            HeaderAction(
+                key="lotes_temporales_tab",
+                text="Lotes Temporales",
+                kind="tab",
+                tab_key="lotes-temporales-handler",
+            )
         ]
     }

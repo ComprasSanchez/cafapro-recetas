@@ -77,14 +77,14 @@ class PeriodosWindow(QDialog):
         # ===== Tabla (SIN ID visible) =====
         self.table = QTableWidget(0, 3)
         self.table.setHorizontalHeaderLabels(["Año", "Mes", "Quincena"])
-        self.table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.table.setSelectionMode(QTableWidget.SingleSelection)
-        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
         hh = self.table.horizontalHeader()
-        hh.setSectionResizeMode(QHeaderView.Stretch)
+        hh.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         hh.setStretchLastSection(True)
-        hh.setDefaultAlignment(Qt.AlignCenter)
+        hh.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
 
         root.addWidget(self.table)
 
@@ -102,7 +102,7 @@ class PeriodosWindow(QDialog):
         item = self.table.item(row, 0)  # año
         if not item:
             return None
-        pid = item.data(Qt.UserRole)
+        pid = item.data(Qt.ItemDataRole.UserRole)
         return int(pid) if pid is not None else None
 
     def load_data(self):
@@ -117,7 +117,7 @@ class PeriodosWindow(QDialog):
 
             # col 0: año (guardamos periodo_id oculto)
             it_anio = QTableWidgetItem(str(p.anio))
-            it_anio.setData(Qt.UserRole, p.periodo_id)
+            it_anio.setData(Qt.ItemDataRole.UserRole, p.periodo_id)
             self.table.setItem(r, 0, it_anio)
 
             # col 1: mes (texto)
@@ -158,9 +158,9 @@ class PeriodosWindow(QDialog):
             self,
             "Confirmar",
             "¿Eliminar el período seleccionado?",
-            QMessageBox.Yes | QMessageBox.No
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
-        if resp != QMessageBox.Yes:
+        if resp != QMessageBox.StandardButton.Yes:
             return
 
         try:

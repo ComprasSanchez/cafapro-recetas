@@ -45,7 +45,7 @@ class RecepcionService:
             (rid, numero, os_nombre, anio, mes, quin, pres_cod, pres_nom,
              estado, fecha_rec, creado_en) = r
             periodo_txt = f"{anio}-{mes:02d} Q{quin}"
-            prestador_txt = f"{pres_cod} - {pres_nom or ''}".strip(" -")
+            prestador_txt = f"{pres_nom or ''}"
             out.append(
                 RecepcionListItem(
                     recepcion_id=rid,

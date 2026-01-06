@@ -128,6 +128,8 @@ class RecepcionCreateDialog(QDialog):
                     observaciones=obs,
                     creado_por_usuario_id=self.creado_por_usuario_id,
                 )
+                self.created_recepcion_id = rec.recepcion_id
+                self.accept()
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
             return

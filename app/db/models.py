@@ -19,6 +19,7 @@ NAMING_CONVENTION = dict(
 class Base(DeclarativeBase):
     metadata = sa.MetaData(naming_convention=NAMING_CONVENTION)
 
+
 recepcion_numero_seq = sa.Sequence("recepcion_numero_seq", metadata=Base.metadata)
 
 # =========================
@@ -48,28 +49,18 @@ class ObraSocial(Base):
     codigo: Mapped[str] = mapped_column(sa.String, nullable=False, unique=True)
     nombre: Mapped[str] = mapped_column(sa.String, nullable=False)
     activo: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, server_default=sa.true())
-    creado_en: Mapped[sa.DateTime] = mapped_column(
-        sa.DateTime,
-        nullable=False,
-        server_default=sa.func.now(),
-    )
+    creado_en: Mapped[sa.DateTime] = mapped_column(sa.DateTime, nullable=False, server_default=sa.func.now())
 
 
 class Periodo(Base):
     __tablename__ = "periodo"
-    __table_args__ = (
-        sa.UniqueConstraint("anio", "mes", "quincena", name="uq_periodo_anio"),
-    )
+    __table_args__ = (sa.UniqueConstraint("anio", "mes", "quincena", name="uq_periodo_anio"),)
 
     periodo_id: Mapped[int] = mapped_column(sa.Integer, sa.Identity(), primary_key=True)
     anio: Mapped[int] = mapped_column(sa.Integer, nullable=False)
     mes: Mapped[int] = mapped_column(sa.Integer, nullable=False)
     quincena: Mapped[int] = mapped_column(sa.Integer, nullable=False)
-    creado_en: Mapped[date] = mapped_column(
-        sa.DateTime,
-        nullable=False,
-        server_default=sa.func.now(),
-    )
+    creado_en: Mapped[date] = mapped_column(sa.DateTime, nullable=False, server_default=sa.func.now())
 
 
 class Prestador(Base):
@@ -79,11 +70,7 @@ class Prestador(Base):
     codigo: Mapped[str] = mapped_column(sa.String, nullable=False, unique=True)
     nombre: Mapped[str | None] = mapped_column(sa.String, nullable=True)
     activo: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, server_default=sa.true())
-    creado_en: Mapped[sa.DateTime] = mapped_column(
-        sa.DateTime,
-        nullable=False,
-        server_default=sa.func.now(),
-    )
+    creado_en: Mapped[sa.DateTime] = mapped_column(sa.DateTime, nullable=False, server_default=sa.func.now())
 
 
 class EstadoSeguimiento(Base):
@@ -98,22 +85,15 @@ class EstadoSeguimiento(Base):
 # =========================
 class Plan(Base):
     __tablename__ = "plan"
-    __table_args__ = (
-        sa.UniqueConstraint("obra_social_id", "nombre", "codigo", name="uq_plan_obra"),
-    )
+    __table_args__ = (sa.UniqueConstraint("obra_social_id", "nombre", "codigo", name="uq_plan_obra"),)
 
     plan_id: Mapped[int] = mapped_column(sa.Integer, sa.Identity(), primary_key=True)
-
     obra_social_id: Mapped[int] = mapped_column(sa.ForeignKey("obra_social.obra_social_id"), nullable=False)
 
     codigo: Mapped[str | None] = mapped_column(sa.String, nullable=True)
     nombre: Mapped[str | None] = mapped_column(sa.String, nullable=True)
     activo: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=True)
-    creado_en: Mapped[sa.DateTime] = mapped_column(
-        sa.DateTime,
-        nullable=False,
-        server_default=sa.func.now(),
-    )
+    creado_en: Mapped[sa.DateTime] = mapped_column(sa.DateTime, nullable=False, server_default=sa.func.now())
 
 
 # =========================
@@ -134,16 +114,12 @@ class Usuarios(Base):
     hash_contrasena: Mapped[str] = mapped_column(sa.String, nullable=False)
     rol_id: Mapped[int] = mapped_column(sa.ForeignKey("roles.rol_id"), nullable=False)
     activo: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, server_default=sa.true())
-    creado_en: Mapped[sa.DateTime] = mapped_column(
-        sa.DateTime,
-        nullable=False,
-        server_default=sa.func.now(),
-    )
+    creado_en: Mapped[sa.DateTime] = mapped_column(sa.DateTime, nullable=False, server_default=sa.func.now())
     ultimo_login_en: Mapped[sa.DateTime | None] = mapped_column(sa.DateTime, nullable=True)
 
 
 # =========================
-# RECEPCION -> LOTE TEMPORAL
+# RECEPCION (absorbe lo de LoteTemporal)
 # =========================
 class Recepcion(Base):
     __tablename__ = "recepcion"
@@ -165,34 +141,15 @@ class Recepcion(Base):
     periodo_id: Mapped[int] = mapped_column(sa.ForeignKey("periodo.periodo_id"), nullable=False)
     prestador_id: Mapped[int] = mapped_column(sa.ForeignKey("prestador.prestador_id"), nullable=False)
 
+    # antes estaba en lote_temporal
+    cantidad_imagenes: Mapped[int] = mapped_column(sa.Integer, nullable=False, server_default=sa.text("0"))
+
     estado_recepcion: Mapped[str] = mapped_column(sa.String, nullable=False)
     fecha_recepcion: Mapped[sa.DateTime] = mapped_column(sa.DateTime, nullable=False)
     observaciones: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
 
     creado_por_usuario_id: Mapped[int | None] = mapped_column(sa.ForeignKey("usuarios.usuario_id"), nullable=True)
-    creado_en: Mapped[sa.DateTime] = mapped_column(
-        sa.DateTime,
-        nullable=False,
-        server_default=sa.func.now(),
-    )
-
-
-class LoteTemporal(Base):
-    __tablename__ = "lote_temporal"
-    __table_args__ = (
-        sa.Index("ix_lote_temporal_plan_id", "plan_id"),
-    )
-
-    lote_temporal_id: Mapped[int] = mapped_column(sa.Integer, sa.Identity(), primary_key=True)
-
-    plan_id: Mapped[int] = mapped_column(sa.ForeignKey("plan.plan_id"), nullable=False)
-    recepcion_id: Mapped[int] = mapped_column(sa.ForeignKey("recepcion.recepcion_id"), nullable=False, unique=True)
-
-    codigo_lote: Mapped[str] = mapped_column(sa.String, nullable=False, unique=True)
-    cantidad_imagenes: Mapped[int] = mapped_column(sa.Integer, nullable=False, server_default=sa.text("0"))
-
-    fecha_creacion: Mapped[sa.DateTime] = mapped_column(sa.DateTime, nullable=False)
-    actualizado_en: Mapped[sa.DateTime | None] = mapped_column(sa.DateTime, nullable=True)
+    creado_en: Mapped[sa.DateTime] = mapped_column(sa.DateTime, nullable=False, server_default=sa.func.now())
 
 
 # =========================
@@ -201,12 +158,12 @@ class LoteTemporal(Base):
 class Archivo(Base):
     __tablename__ = "archivo"
     __table_args__ = (
-        sa.Index("ix_archivo_lote_temporal_id", "lote_temporal_id"),
+        sa.Index("ix_archivo_recepcion_id", "recepcion_id"),
         sa.Index("ix_archivo_nro_referencia", "nro_referencia"),
     )
 
     archivo_id: Mapped[int] = mapped_column(sa.Integer, sa.Identity(), primary_key=True)
-    lote_temporal_id: Mapped[int] = mapped_column(sa.ForeignKey("lote_temporal.lote_temporal_id"), nullable=False)
+    recepcion_id: Mapped[int] = mapped_column(sa.ForeignKey("recepcion.recepcion_id"), nullable=False)
 
     afiliado: Mapped[str | None] = mapped_column(sa.String, nullable=True)
     fecha: Mapped[sa.Date | None] = mapped_column(sa.Date, nullable=True)
@@ -219,11 +176,7 @@ class Archivo(Base):
     nro_recetas: Mapped[int] = mapped_column(sa.Integer, nullable=False, server_default=sa.text("0"))
     orden_lote: Mapped[str | None] = mapped_column(sa.String, nullable=True)
 
-    creado_en: Mapped[sa.DateTime] = mapped_column(
-        sa.DateTime,
-        nullable=False,
-        server_default=sa.func.now(),
-    )
+    creado_en: Mapped[sa.DateTime] = mapped_column(sa.DateTime, nullable=False, server_default=sa.func.now())
 
 
 class ArchivoDetalle(Base):
@@ -247,11 +200,7 @@ class ArchivoDetalle(Base):
 
     codigo_barra: Mapped[str | None] = mapped_column(sa.String, nullable=True)
 
-    creado_en: Mapped[sa.DateTime] = mapped_column(
-        sa.DateTime,
-        nullable=False,
-        server_default=sa.func.now(),
-    )
+    creado_en: Mapped[sa.DateTime] = mapped_column(sa.DateTime, nullable=False, server_default=sa.func.now())
 
 
 # =========================
@@ -260,12 +209,12 @@ class ArchivoDetalle(Base):
 class Recetas(Base):
     __tablename__ = "recetas"
     __table_args__ = (
-        sa.Index("ix_recetas_lote_temporal_id", "lote_temporal_id"),
+        sa.Index("ix_recetas_recepcion_id", "recepcion_id"),
         sa.Index("ix_recetas_nro_receta", "nro_receta"),
     )
 
     receta_id: Mapped[int] = mapped_column(sa.Integer, sa.Identity(), primary_key=True)
-    lote_temporal_id: Mapped[int] = mapped_column(sa.ForeignKey("lote_temporal.lote_temporal_id"), nullable=False)
+    recepcion_id: Mapped[int] = mapped_column(sa.ForeignKey("recepcion.recepcion_id"), nullable=False)
 
     nro_receta: Mapped[str] = mapped_column(sa.String, nullable=False)
     ubicacion_frente: Mapped[str | None] = mapped_column(sa.String, nullable=True)
@@ -279,23 +228,19 @@ class Recetas(Base):
     observacion: Mapped[str | None] = mapped_column(sa.String, nullable=True)
 
     usuario_id: Mapped[int] = mapped_column(sa.ForeignKey("usuarios.usuario_id"), nullable=False)
-    creado_en: Mapped[sa.DateTime] = mapped_column(
-        sa.DateTime,
-        nullable=False,
-        server_default=sa.func.now(),
-    )
+    creado_en: Mapped[sa.DateTime] = mapped_column(sa.DateTime, nullable=False, server_default=sa.func.now())
 
 
 class RecetasHistorial(Base):
     __tablename__ = "recetas_historial"
     __table_args__ = (
-        sa.Index("ix_recetas_historial_lote_temporal_id", "lote_temporal_id"),
+        sa.Index("ix_recetas_historial_recepcion_id", "recepcion_id"),
         sa.Index("ix_recetas_historial_nro_receta", "nro_receta"),
     )
 
     receta_historial_id: Mapped[int] = mapped_column(sa.Integer, sa.Identity(), primary_key=True)
     receta_id: Mapped[int] = mapped_column(sa.ForeignKey("recetas.receta_id"), nullable=False)
-    lote_temporal_id: Mapped[int] = mapped_column(sa.ForeignKey("lote_temporal.lote_temporal_id"), nullable=False)
+    recepcion_id: Mapped[int] = mapped_column(sa.ForeignKey("recepcion.recepcion_id"), nullable=False)
 
     nro_receta: Mapped[str] = mapped_column(sa.String, nullable=False)
     ubicacion_frente: Mapped[str | None] = mapped_column(sa.String, nullable=True)
@@ -309,11 +254,7 @@ class RecetasHistorial(Base):
 
     usuario_id: Mapped[int] = mapped_column(sa.ForeignKey("usuarios.usuario_id"), nullable=False)
     fecha_historial: Mapped[sa.Date | None] = mapped_column(sa.Date, nullable=True)
-    creado_en: Mapped[sa.DateTime] = mapped_column(
-        sa.DateTime,
-        nullable=False,
-        server_default=sa.func.now(),
-    )
+    creado_en: Mapped[sa.DateTime] = mapped_column(sa.DateTime, nullable=False, server_default=sa.func.now())
 
 
 class Troqueles(Base):
@@ -331,11 +272,7 @@ class Troqueles(Base):
     cantidad: Mapped[int] = mapped_column(sa.Integer, nullable=False, server_default=sa.text("1"))
     estado: Mapped[str] = mapped_column(sa.String, nullable=False)
 
-    creado_en: Mapped[sa.DateTime] = mapped_column(
-        sa.DateTime,
-        nullable=False,
-        server_default=sa.func.now(),
-    )
+    creado_en: Mapped[sa.DateTime] = mapped_column(sa.DateTime, nullable=False, server_default=sa.func.now())
 
 
 # =========================
@@ -375,9 +312,4 @@ class Asociacion(Base):
     receta_id: Mapped[int] = mapped_column(sa.ForeignKey("recetas.receta_id"), nullable=False)
     archivo_id: Mapped[int] = mapped_column(sa.ForeignKey("archivo.archivo_id"), nullable=False)
 
-    creado_en: Mapped[sa.DateTime] = mapped_column(
-        sa.DateTime,
-        nullable=False,
-        server_default=sa.func.now(),
-    )
-
+    creado_en: Mapped[sa.DateTime] = mapped_column(sa.DateTime, nullable=False, server_default=sa.func.now())

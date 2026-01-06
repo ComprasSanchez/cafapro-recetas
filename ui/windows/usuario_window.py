@@ -48,15 +48,15 @@ class UsuariosWindow(QDialog):
         # ===== Tabla  =====
         self.table = QTableWidget(0, 4)
         self.table.setHorizontalHeaderLabels(["Nombre", "Rol", "Activo", "Últ. login"])
-        self.table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.table.setSelectionMode(QTableWidget.SingleSelection)
-        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
 
         hh = self.table.horizontalHeader()
-        hh.setSectionResizeMode(QHeaderView.Stretch)
+        hh.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         hh.setStretchLastSection(True)
-        hh.setDefaultAlignment(Qt.AlignCenter)
+        hh.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
 
         root.addWidget(self.table)
 
@@ -99,7 +99,7 @@ class UsuariosWindow(QDialog):
 
             # col 0: username (guardamos usuario_id oculto)
             it_user = QTableWidgetItem(u.username)
-            it_user.setData(Qt.UserRole, u.usuario_id)
+            it_user.setData(Qt.ItemDataRole.UserRole, u.usuario_id)
             self.table.setItem(r, 0, it_user)
 
             # col 1: rol
@@ -108,7 +108,7 @@ class UsuariosWindow(QDialog):
 
             # col 2: activo (más prolijo: Sí/No)
             it_activo = QTableWidgetItem("Sí" if u.activo else "No")
-            it_activo.setTextAlignment(Qt.AlignCenter)
+            it_activo.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.table.setItem(r, 2, it_activo)
 
             # col 3: último login
@@ -119,7 +119,7 @@ class UsuariosWindow(QDialog):
 
     def open_create_dialog(self):
         dlg = UsuarioCreateDialog(self)
-        if dlg.exec() == QDialog.Accepted:
+        if dlg.exec() == QDialog.DialogCode.Accepted:
             self.load_data()
 
     def on_delete(self):
@@ -132,9 +132,9 @@ class UsuariosWindow(QDialog):
             self,
             "Confirmar",
             "¿Eliminar el usuario seleccionado? (eliminación física)",
-            QMessageBox.Yes | QMessageBox.No
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
-        if resp != QMessageBox.Yes:
+        if resp != QMessageBox.StandardButton.Yes:
             return
 
         try:
