@@ -19,6 +19,12 @@ def build_header_actions(main_window) -> dict[str, list[HeaderAction]]:
                 kind="tab",
                 tab_key="resumen_recepcion",
             ),
+            HeaderAction(
+                key="carga_recepcion_tab",
+                text="Carga Recepcion",
+                kind="tab",
+                tab_key="carga-recepcion-handler",
+            )
         ],
         "Periodo": [
             HeaderAction(
@@ -37,11 +43,5 @@ def build_header_actions(main_window) -> dict[str, list[HeaderAction]]:
             )
         ],
         "Auditoria": [
-            HeaderAction(
-                key="lotes_temporales_tab",
-                text="Lotes Temporales",
-                kind="tab",
-                tab_key="lotes-temporales-handler",
-            )
         ]
     }

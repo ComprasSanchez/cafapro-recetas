@@ -69,6 +69,7 @@ class Prestador(Base):
     prestador_id: Mapped[int] = mapped_column(sa.Integer, sa.Identity(), primary_key=True)
     codigo: Mapped[str] = mapped_column(sa.String, nullable=False, unique=True)
     nombre: Mapped[str | None] = mapped_column(sa.String, nullable=True)
+    imed: Mapped[str] = mapped_column(sa.String, nullable=True)
     activo: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, server_default=sa.true())
     creado_en: Mapped[sa.DateTime] = mapped_column(sa.DateTime, nullable=False, server_default=sa.func.now())
 

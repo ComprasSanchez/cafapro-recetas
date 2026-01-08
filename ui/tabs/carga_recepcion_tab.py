@@ -5,22 +5,31 @@ from datetime import datetime
 from PySide6.QtCore import Qt, QDate
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QFrame, QHBoxLayout, QLabel, QPushButton,
-    QDateEdit, QMessageBox, QLineEdit, QSizePolicy, QGridLayout
+    QDateEdit, QMessageBox, QLineEdit, QSizePolicy, QGridLayout,
+    QTableWidgetItem, QTableWidget, QAbstractItemView, QAbstractScrollArea
 )
 
 from app.db.session import session_scope
 from app.service.recepcion_service import RecepcionService
+from core.image_handler import ImageHandler
 from ui.dialogs.recepcion_pick_dialog import RecepcionPickDialog
 from ui.dialogs.recepcion_create_dialog import RecepcionCreateDialog
 
 
-class LotesTemporalesTab(QWidget):
+class CargaRecepcionTab(QWidget):
     def __init__(self, parent=None, creado_por_usuario_id: int | None = None):
         super().__init__(parent)
         self.creado_por_usuario_id = creado_por_usuario_id
 
         self._recepcion_id: int | None = None
         self._fecha: datetime | None = None
+
+        # datos para armar la búsqueda
+        self.imed: str | None = None     # carpeta (name_folder)
+        self.obs: str | None = None      # obra social
+
+        # handler (instancia)
+        self._img = ImageHandler(parent=self)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(12, 12, 12, 12)
@@ -29,8 +38,10 @@ class LotesTemporalesTab(QWidget):
         header = self._build_header()
         root.addWidget(header)
 
-        # root.addWidget(...)
+        self.tbl_imgs = self._build_table()
+        root.addWidget(self.tbl_imgs, 1)
 
+    @staticmethod
     def _ro_line(text: str = "-") -> QLineEdit:
         """LineEdit readonly con look de display."""
         le = QLineEdit(text)
@@ -78,14 +89,26 @@ class LotesTemporalesTab(QWidget):
         self.in_quincena.setFixedWidth(70)
         self.in_quincena.setAlignment(Qt.AlignCenter)
 
-        self.btn_set_fecha = QPushButton("Fecha")
-        self.btn_set_fecha.setFixedHeight(26)
-
         self.de_fecha = QDateEdit()
         self.de_fecha.setCalendarPopup(True)
         self.de_fecha.setDate(QDate.currentDate())
         self.de_fecha.setDisplayFormat("dd/MM/yyyy")
         self.de_fecha.setFixedSize(110, 26)
+
+        # ===== Botones derecha =====
+        self.btn_cargar = QPushButton("Cargar")
+        self.btn_cargar.setFixedSize(90, 26)
+
+        self.btn_procesar = QPushButton("Procesar")
+        self.btn_procesar.setFixedSize(90, 26)
+
+        right_box = QWidget()
+        right_l = QHBoxLayout(right_box)
+        right_l.setContentsMargins(0, 0, 0, 0)
+        right_l.setSpacing(6)
+        right_l.addWidget(self.btn_cargar)
+        right_l.addWidget(self.btn_procesar)
+        right_l.addStretch(0)
 
         # ===== Bloque compacto para N° Recepción + botones =====
         num_box = QWidget()
@@ -93,28 +116,23 @@ class LotesTemporalesTab(QWidget):
         num_l.setContentsMargins(0, 0, 0, 0)
         num_l.setSpacing(4)
 
-        # El input ocupa todo el espacio disponible
         self.in_numero.setMinimumWidth(140)
-        self.in_numero.setMaximumWidth(9999)  # por si venía limitado antes
+        self.in_numero.setMaximumWidth(9999)
         self.in_numero.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
-        # Los botones quedan pegados al input
-        self.btn_pick_recepcion.setFixedSize(32, 26)
-        self.btn_new_recepcion.setFixedSize(32, 26)
-
-        num_l.addWidget(self.in_numero, 1)  # stretch=1
+        num_l.addWidget(self.in_numero, 1)
         num_l.addWidget(self.btn_pick_recepcion, 0)
         num_l.addWidget(self.btn_new_recepcion, 0)
 
         # ===== Layout (2 filas) =====
         # Fila 0
         grid.addWidget(lb_num, 0, 0, Qt.AlignmentFlag.AlignRight)
-        grid.addWidget(num_box, 0, 1, 1, 3)  # ocupa columnas 1..3 (compacto)
+        grid.addWidget(num_box, 0, 1, 1, 3)
 
         grid.addWidget(lb_obra, 0, 4, Qt.AlignmentFlag.AlignRight)
         grid.addWidget(self.in_obra, 0, 5, 1, 4)
 
-        # Fila 1
+        # Fila 1 (izquierda)
         grid.addWidget(lb_prest, 1, 0, Qt.AlignmentFlag.AlignRight)
         grid.addWidget(self.in_prestador, 1, 1, 1, 3)
 
@@ -124,16 +142,16 @@ class LotesTemporalesTab(QWidget):
         grid.addWidget(lb_quincena, 1, 6, Qt.AlignmentFlag.AlignRight)
         grid.addWidget(self.in_quincena, 1, 7)
 
-        grid.addWidget(self.btn_set_fecha, 1, 8)
         grid.addWidget(self.de_fecha, 1, 9)
 
-        # Columna elástica
-        grid.setColumnStretch(10, 1)
+        grid.setColumnStretch(8, 1)  # empuja lo de la derecha
+        grid.addWidget(right_box, 1, 10, Qt.AlignmentFlag.AlignRight)
 
-        # ===== Signals =====
         self.btn_pick_recepcion.clicked.connect(self._on_pick_recepcion)
         self.btn_new_recepcion.clicked.connect(self._on_new_recepcion)
-        self.btn_set_fecha.clicked.connect(self._on_set_fecha)
+
+        self.btn_cargar.clicked.connect(self._on_cargar)
+        self.btn_procesar.clicked.connect(self._on_procesar)
 
         return header
 
@@ -155,17 +173,11 @@ class LotesTemporalesTab(QWidget):
         dlg = RecepcionCreateDialog(self, creado_por_usuario_id=self.creado_por_usuario_id)
         if dlg.exec() == dlg.DialogCode.Accepted and dlg.created_recepcion_id:
             self._load_recepcion(dlg.created_recepcion_id)
+            return
 
-        # Si tu RecepcionCreateDialog no devuelve recepcion_id,
-        # recargamos lista y dejamos que el usuario la elija.
-        # Mejor: hacer que el dialog guarde el id creado (ver nota abajo).
-        # Por ahora: pedimos que se seleccione (simple).
         QMessageBox.information(self, "OK", "Recepción creada. Ahora seleccionála con 'Elegir recepción…'.")
 
     def _load_recepcion(self, recepcion_id: int):
-        # Si querés una consulta puntual por id, lo ideal es agregar:
-        # RecepcionService.get(s, recepcion_id)
-        # Por ahora, reutilizo list() y filtro.
         try:
             with session_scope() as s:
                 rows = RecepcionService.list(s)
@@ -180,30 +192,117 @@ class LotesTemporalesTab(QWidget):
 
         self._recepcion_id = rec.recepcion_id
 
-        # Datos directos
         self.in_numero.setText(f"{rec.numero}")
         self.in_prestador.setText(f"{rec.prestador}")
         self.in_obra.setText(f"{rec.obra_social}")
 
-        # Periodo / Quincena
-        # Si rec.periodo ya viene como "2026-01 Q1", lo partimos:
-        periodo_txt = str(rec.periodo)
-        self.in_periodo.setText(f"{periodo_txt}")
+        self.obs = str(rec.obra_social)
+        self.imed = str(rec.imed)  # OJO: esto debe ser la carpeta (name_folder)
 
-        # Intento sacar quincena de "Q1" o "Q2"
+        periodo_txt = str(rec.periodo)
+        self.in_periodo.setText(periodo_txt)
+
         quincena = "-"
         if "Q1" in periodo_txt:
             quincena = "1ª"
         elif "Q2" in periodo_txt:
             quincena = "2ª"
-        self.in_quincena.setText(f"{quincena}")
+        self.in_quincena.setText(quincena)
+
+        self._clear_images_table()
 
     # --------------------------
-    # Fecha
+    # Tabla
     # --------------------------
-    def _on_set_fecha(self):
-        # Por ahora solo lo guarda en memoria.
-        # Cuando armes el LoteTemporal, lo vas a persistir.
+    def _build_table(self) -> QTableWidget:
+        t = QTableWidget()
+        t.setColumnCount(4)
+        t.setHorizontalHeaderLabels(["Archivo", "Fecha", "Hora", "Ruta"])
+        t.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+
+        # Sin hover / sin selección (como venías pidiendo)
+        t.setMouseTracking(False)
+        t.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+
+        header = t.horizontalHeader()
+        header.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        header.setHighlightSections(False)
+        header.setStretchLastSection(True)
+
+        # ===== mínimos =====
+        header.setMinimumSectionSize(100)  # mínimo global para cualquier columna
+        t.setColumnWidth(0, 260)  # Archivo
+        t.setColumnWidth(1, 140)  # Fecha
+        t.setColumnWidth(2, 90)  # Hora
+        t.setColumnWidth(3, 520)  # Ruta (igual después estira)
+
+        t.verticalHeader().setVisible(False)
+        t.setSortingEnabled(True)
+        t.setAlternatingRowColors(True)
+
+        t.setStyleSheet("""
+            QTableView::item:hover { background: transparent; }
+            QHeaderView::section { text-align: left; padding-left: 6px; }
+        """)
+
+        return t
+
+    def _clear_images_table(self) -> None:
+        self.tbl_imgs.setRowCount(0)
+
+    def _on_cargar(self) -> None:
+        self._clear_images_table()
+
+        # Validaciones
+        if not self._recepcion_id:
+            QMessageBox.warning(self, "Atención", "Primero seleccioná una recepción.")
+            return
+        if not self.imed or not self.obs:
+            QMessageBox.warning(self, "Atención", "La recepción seleccionada no tiene IMED/Obra Social.")
+            return
+
+        # Fecha desde el widget
         qd = self.de_fecha.date()
-        self._fecha = datetime(qd.year(), qd.month(), qd.day())
-        QMessageBox.information(self, "Fecha", f"Fecha asignada: {qd.toString('dd/MM/yyyy')}")
+        date_str = qd.toString("dd/MM/yyyy")  # más seguro que strftime en QDate
+
+        try:
+            rows = self._img.get_images_tif(
+                name_folder=self.imed,
+                date=date_str,
+                obs=self.obs,
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"No se pudieron listar imágenes:\n{e}")
+            return
+
+        if not rows:
+            # tabla vacía y listo
+            return
+
+        self.tbl_imgs.setSortingEnabled(False)
+        self.tbl_imgs.setRowCount(len(rows))
+
+        for r, it in enumerate(rows):
+            self.tbl_imgs.setItem(r, 0, QTableWidgetItem(str(it.get("name", ""))))
+            self.tbl_imgs.setItem(r, 1, QTableWidgetItem(str(it.get("date", ""))))
+            self.tbl_imgs.setItem(r, 2, QTableWidgetItem(str(it.get("time", ""))))
+            self.tbl_imgs.setItem(r, 3, QTableWidgetItem(str(it.get("full_path", ""))))
+
+        self.tbl_imgs.setSortingEnabled(True)
+        self.tbl_imgs.resizeColumnsToContents()
+
+    def _on_procesar(self) -> None:
+        if not self._recepcion_id:
+            QMessageBox.warning(self, "Atención", "Primero seleccioná una recepción.")
+            return
+
+        if self.tbl_imgs.rowCount() == 0:
+            QMessageBox.warning(self, "Atención", "No hay imágenes cargadas para procesar.")
+            return
+
+        try:
+            QMessageBox.warning(self, "Se proceso", "Se hizo el macha con la informacion del cvs")
+            return
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"No se pudo procesar:\n{e}")
+            return

@@ -1,6 +1,6 @@
 from PySide6.QtWidgets import QTabWidget
 
-from ui.tabs.lotes_temporales_tab import LotesTemporalesTab
+from ui.tabs.carga_recepcion_tab import CargaRecepcionTab
 from ui.tabs.resumen_recepcion_tab import ResumenRecepcionTab
 
 class TabsManager(QTabWidget):
@@ -32,7 +32,7 @@ class TabsManager(QTabWidget):
     def _create_tab(self, key: str):
         if key == "resumen_recepcion":
             return ResumenRecepcionTab(self), "Resumen Recepción"
-        if key == "lotes-temporales-handler":
-            return LotesTemporalesTab(self), "Lotes Temporales"
+        if key == "carga-recepcion-handler":
+            return CargaRecepcionTab(self), "Carga Recepcion"
 
         raise KeyError(f"Tab no registrada: {key}")

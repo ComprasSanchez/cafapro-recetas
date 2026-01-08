@@ -19,6 +19,7 @@ class RecepcionListItem:
     estado: str
     fecha_recepcion: object
     creado_en: Optional[object]
+    imed: str
 
 class RecepcionService:
     @staticmethod
@@ -33,6 +34,7 @@ class RecepcionService:
                 Recepcion.estado_recepcion,
                 Recepcion.fecha_recepcion,
                 Recepcion.creado_en,
+                Prestador.imed,
             )
             .join(ObraSocial, ObraSocial.obra_social_id == Recepcion.obra_social_id)
             .join(Periodo, Periodo.periodo_id == Recepcion.periodo_id)
@@ -43,7 +45,7 @@ class RecepcionService:
         out: list[RecepcionListItem] = []
         for r in rows:
             (rid, numero, os_nombre, anio, mes, quin, pres_cod, pres_nom,
-             estado, fecha_rec, creado_en) = r
+             estado, fecha_rec, creado_en, imed) = r
             periodo_txt = f"{anio}-{mes:02d} Q{quin}"
             prestador_txt = f"{pres_nom or ''}"
             out.append(
@@ -56,6 +58,7 @@ class RecepcionService:
                     estado=estado,
                     fecha_recepcion=fecha_rec,
                     creado_en=creado_en,
+                    imed=imed
                 )
             )
         return out
