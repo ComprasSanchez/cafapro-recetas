@@ -1,5 +1,6 @@
 from PySide6.QtWidgets import QTabWidget
 
+from ui.tabs.archivo_cvs_tab import ArchivoCvsTab
 from ui.tabs.carga_recepcion_tab import CargaRecepcionTab
 from ui.tabs.resumen_recepcion_tab import ResumenRecepcionTab
 
@@ -34,5 +35,7 @@ class TabsManager(QTabWidget):
             return ResumenRecepcionTab(self), "Resumen Recepción"
         if key == "carga-recepcion-handler":
             return CargaRecepcionTab(self), "Carga Recepcion"
+        if key == "archivo-cvs":
+            return ArchivoCvsTab(self), "Archivo CVS"
 
         raise KeyError(f"Tab no registrada: {key}")

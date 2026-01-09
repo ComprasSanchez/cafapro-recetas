@@ -164,45 +164,78 @@ class Archivo(Base):
     )
 
     archivo_id: Mapped[int] = mapped_column(sa.Integer, sa.Identity(), primary_key=True)
-    recepcion_id: Mapped[int] = mapped_column(sa.ForeignKey("recepcion.recepcion_id"), nullable=False)
 
-    afiliado: Mapped[str | None] = mapped_column(sa.String, nullable=True)
-    fecha: Mapped[sa.Date | None] = mapped_column(sa.Date, nullable=True)
-    hora: Mapped[sa.Time | None] = mapped_column(sa.Time, nullable=True)
+    # ✅ ahora puede ser NULL
+    recepcion_id: Mapped[int | None] = mapped_column(
+        sa.ForeignKey("recepcion.recepcion_id"),
+        nullable=True,
+    )
 
-    nro_referencia: Mapped[str | None] = mapped_column(sa.String, nullable=True)
-    importe_neto: Mapped[sa.Numeric] = mapped_column(sa.Numeric(12, 2), nullable=False, server_default=sa.text("0"))
-    a_cargo_entidad: Mapped[sa.Numeric] = mapped_column(sa.Numeric(12, 2), nullable=False, server_default=sa.text("0"))
+    # --- Campos “IMED receta” lo más parecidos posible ---
+    beneficiario: Mapped[str | None] = mapped_column(sa.String, nullable=False)
 
-    nro_recetas: Mapped[int] = mapped_column(sa.Integer, nullable=False, server_default=sa.text("0"))
-    orden_lote: Mapped[str | None] = mapped_column(sa.String, nullable=True)
+    fecha: Mapped[sa.Date | None] = mapped_column(sa.Date, nullable=False)
+    hora: Mapped[sa.Time | None] = mapped_column(sa.Time, nullable=False)
 
-    creado_en: Mapped[sa.DateTime] = mapped_column(sa.DateTime, nullable=False, server_default=sa.func.now())
+    nro_referencia: Mapped[str | None] = mapped_column(sa.String, nullable=False)
+    nro_receta: Mapped[str | None] = mapped_column(sa.String, nullable=False)
+
+    orden_lote: Mapped[str | None] = mapped_column(sa.String, nullable=False)
+
+    # Importe Gral (antes importe_neto) -> lo dejo como importe_neto para tu app,
+    # pero conceptualmente es el “gral”.
+    importe_neto: Mapped[sa.Numeric] = mapped_column(
+        sa.Numeric(12, 2), nullable=False, server_default=sa.text("0")
+    )
+
+    # ✅ “Importe Pami” -> importe_obs
+    importe_obs: Mapped[sa.Numeric] = mapped_column(
+        sa.Numeric(12, 2), nullable=False, server_default=sa.text("0")
+    )
+
+    # A cargo entidad
+    a_cargo_entidad: Mapped[sa.Numeric] = mapped_column(
+        sa.Numeric(12, 2), nullable=False, server_default=sa.text("0")
+    )
+
+    creado_en: Mapped[sa.DateTime] = mapped_column(
+        sa.DateTime, nullable=False, server_default=sa.func.now()
+    )
 
 
 class ArchivoDetalle(Base):
     __tablename__ = "archivo_detalle"
     __table_args__ = (
         sa.Index("ix_archivo_detalle_archivo_id", "archivo_id"),
-        sa.Index("ix_archivo_detalle_codigo_barra", "codigo_barra"),
     )
 
     archivo_detalle_id: Mapped[int] = mapped_column(sa.Integer, sa.Identity(), primary_key=True)
     archivo_id: Mapped[int] = mapped_column(sa.ForeignKey("archivo.archivo_id"), nullable=False)
 
-    descripcion: Mapped[str | None] = mapped_column(sa.String, nullable=True)
-    codigo_respuesta: Mapped[str | None] = mapped_column(sa.String, nullable=True)
-    estado: Mapped[str | None] = mapped_column(sa.String, nullable=True)
-    nro_autorizacion: Mapped[str | None] = mapped_column(sa.String, nullable=True)
+    # --- Similar a la grilla IMED ---
+    cod_medic: Mapped[str | None] = mapped_column(sa.String, nullable=False)
+    nombre: Mapped[str | None] = mapped_column(sa.String, nullable=False)            # name
+    presentacion: Mapped[str | None] = mapped_column(sa.String, nullable=False)      # description / present.
+    estado: Mapped[str | None] = mapped_column(sa.String, nullable=False)            # estado
+
+    nro_autorizacion: Mapped[str | None] = mapped_column(sa.String, nullable=False) # nro aut.
 
     cantidad: Mapped[int] = mapped_column(sa.Integer, nullable=False, server_default=sa.text("0"))
-    importe_neto: Mapped[sa.Numeric] = mapped_column(sa.Numeric(12, 2), nullable=False, server_default=sa.text("0"))
-    cobertura: Mapped[sa.Numeric] = mapped_column(sa.Numeric(12, 2), nullable=False, server_default=sa.text("0"))
 
-    codigo_barra: Mapped[str | None] = mapped_column(sa.String, nullable=True)
+    # Importes
+    importe_neto: Mapped[sa.Numeric] = mapped_column(
+        sa.Numeric(12, 2), nullable=False, server_default=sa.text("0")
+    )
+
+    # ✅ “Importe Pami” -> importe_obs
+    importe_obs: Mapped[sa.Numeric] = mapped_column(
+        sa.Numeric(12, 2), nullable=False, server_default=sa.text("0")
+    )
+
+    # “Desc.” (en tu CSV viene tipo "40%")
+    descuento: Mapped[str | None] = mapped_column(sa.String, nullable=False)
 
     creado_en: Mapped[sa.DateTime] = mapped_column(sa.DateTime, nullable=False, server_default=sa.func.now())
-
 
 # =========================
 # RECETAS + TROQUELES

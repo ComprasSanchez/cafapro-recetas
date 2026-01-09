@@ -43,5 +43,13 @@ def build_header_actions(main_window) -> dict[str, list[HeaderAction]]:
             )
         ],
         "Auditoria": [
+        ],
+        "Archivo": [
+            HeaderAction(
+                key="archivo_cvs_tab",
+                text="Carga CVS",
+                kind="tab",
+                tab_key="archivo-cvs",
+            )
         ]
     }
