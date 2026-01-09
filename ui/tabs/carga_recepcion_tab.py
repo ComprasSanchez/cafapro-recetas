@@ -6,11 +6,11 @@ from PySide6.QtCore import Qt, QDate
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QFrame, QHBoxLayout, QLabel, QPushButton,
     QDateEdit, QMessageBox, QLineEdit, QSizePolicy, QGridLayout,
-    QTableWidgetItem, QTableWidget, QAbstractItemView, QAbstractScrollArea
+    QTableWidgetItem, QTableWidget, QAbstractItemView
 )
 
 from app.db.session import session_scope
-from app.service.procesar_recepcion_service import ProcesarItemIn, ProcesarRecepcionService
+from app.service.procesar_recepcion_service import ProcesarItemIn, ProcesarRecepcionServiceFast
 from app.service.recepcion_service import RecepcionService
 from core.image_handler import ImageHandler
 from ui.dialogs.recepcion_create_dialog import RecepcionCreateDialog
@@ -316,7 +316,7 @@ class CargaRecepcionTab(QWidget):
         output_dir = f"output/recepciones/{self._recepcion_id}"
 
         try:
-            svc = ProcesarRecepcionService()
+            svc = ProcesarRecepcionServiceFast()
             with session_scope() as s:
                 resumen = svc.procesar(
                     s=s,
