@@ -10,14 +10,15 @@ from PySide6.QtWidgets import (
 )
 
 from app.db.session import session_scope
+from app.service.procesar_recepcion_service import ProcesarItemIn, ProcesarRecepcionService
 from app.service.recepcion_service import RecepcionService
 from core.image_handler import ImageHandler
-from ui.dialogs.recepcion_pick_dialog import RecepcionPickDialog
 from ui.dialogs.recepcion_create_dialog import RecepcionCreateDialog
+from ui.dialogs.recepcion_pick_dialog import RecepcionPickDialog
 
 
 class CargaRecepcionTab(QWidget):
-    def __init__(self, parent=None, creado_por_usuario_id: int | None = None):
+    def __init__(self, parent=None, creado_por_usuario_id: int | None = 1):
         super().__init__(parent)
         self.creado_por_usuario_id = creado_por_usuario_id
 
@@ -300,9 +301,43 @@ class CargaRecepcionTab(QWidget):
             QMessageBox.warning(self, "Atención", "No hay imágenes cargadas para procesar.")
             return
 
-        try:
-            QMessageBox.warning(self, "Se proceso", "Se hizo el macha con la informacion del cvs")
+        items: list[ProcesarItemIn] = []
+        for r in range(self.tbl_imgs.rowCount()):
+            file_name = self.tbl_imgs.item(r, 0).text().strip() if self.tbl_imgs.item(r, 0) else ""
+            full_path = self.tbl_imgs.item(r, 3).text().strip() if self.tbl_imgs.item(r, 3) else ""
+            if file_name and full_path:
+                items.append(ProcesarItemIn(file_name=file_name, full_path=full_path))
+
+        if not items:
+            QMessageBox.warning(self, "Atención", "No hay rutas válidas para procesar.")
             return
+
+        # dónde guardar los jpg anotados (si querés ordenado por recepción)
+        output_dir = f"output/recepciones/{self._recepcion_id}"
+
+        try:
+            svc = ProcesarRecepcionService()
+            with session_scope() as s:
+                resumen = svc.procesar(
+                    s=s,
+                    recepcion_id=self._recepcion_id,
+                    usuario_id=self.creado_por_usuario_id,  # puede ser None
+                    items=items,
+                    output_dir=output_dir,
+                )
+
+            msg = (
+                f"OK: {resumen.ok}\n"
+                f"Sin match: {resumen.sin_match}\n"
+                f"Duplicados (nro_referencia en múltiples Archivo): {resumen.duplicados}\n"
+                f"Ya asociados: {resumen.ya_asociado}"
+            )
+            if resumen.errores:
+                msg += "\n\nErrores:\n" + "\n".join(resumen.errores[:10])
+                if len(resumen.errores) > 10:
+                    msg += f"\n... y {len(resumen.errores) - 10} más"
+
+            QMessageBox.information(self, "Procesar", msg)
+
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudo procesar:\n{e}")
-            return
