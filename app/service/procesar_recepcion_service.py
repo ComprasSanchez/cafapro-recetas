@@ -48,8 +48,6 @@ class ProcesarRecepcionServiceFast:
         output_dir: str | None = None,
     ) -> ProcesarResumen:
         resumen = ProcesarResumen()
-
-        # 1) Procesar TIFFs (CPU/IO) y juntar todo
         parsed_per_item: list[tuple[ProcesarItemIn, TiffResult]] = []
         all_refs: list[str] = []
 
