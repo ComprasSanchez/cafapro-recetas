@@ -170,7 +170,8 @@ class ProcesarRecepcionServiceFast:
         exists_set = set(existentes_asoc)
 
         nuevas_asoc = []
-        troqueles_bulk = []
+        troqueles_bulk: dict[tuple[int, str], Troqueles] = {}
+
 
         for receta_id, archivo_id, tiff_res in pair_to_payload:
             if (receta_id, archivo_id) in exists_set:
@@ -184,21 +185,24 @@ class ProcesarRecepcionServiceFast:
                 cod = str(cod).strip()
                 if not cod:
                     continue
-                troqueles_bulk.append(
-                    Troqueles(
+                key = (receta_id, cod)
+
+                if key in troqueles_bulk:
+                    troqueles_bulk[key].cantidad += 1
+                else:
+                    troqueles_bulk[key] = Troqueles(
                         receta_id=receta_id,
                         codigo_barra=cod,
-                        monto=0,
                         cantidad=1,
+                        monto=0,
                         estado="OK",
                     )
-                )
 
             resumen.ok += 1
 
         if nuevas_asoc:
             s.add_all(nuevas_asoc)
         if troqueles_bulk:
-            s.add_all(troqueles_bulk)
+            s.add_all(troqueles_bulk.values())
 
         return resumen
