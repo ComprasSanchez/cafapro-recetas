@@ -34,9 +34,14 @@ class SiNoEnum(str, PyEnum):
     S = "S"
     N = "N"
 
+class EstadoTroquelEnum(str, PyEnum):
+    V = "V" #Verde, escaneado y encontrado
+    A = "A" #Amarillo, escaneado y no encontrado
+    R = "R" #Roja, escanead y pero no machea
 
 lado_enum = sa.Enum(LadoEnum, name="lado_enum", native_enum=True)
 si_no_enum = sa.Enum(SiNoEnum, name="si_no_enum", native_enum=True)
+estado_troquel_enum = sa.Enum(EstadoTroquelEnum, name="estado_troquel_enum", native_enum=True)
 
 
 # =========================
@@ -302,9 +307,12 @@ class Troqueles(Base):
     receta_id: Mapped[int] = mapped_column(sa.ForeignKey("recetas.receta_id"), nullable=False)
 
     codigo_barra: Mapped[str] = mapped_column(sa.String, nullable=False)
+    droga: Mapped[str] = mapped_column(sa.String, nullable=True)
+    presentacion: Mapped[str] = mapped_column(sa.String, nullable=True)
+    code_alfabeta: Mapped[int] = mapped_column(sa.Integer, nullable=False)
     monto: Mapped[sa.Numeric] = mapped_column(sa.Numeric(12, 2), nullable=False, server_default=sa.text("0"))
     cantidad: Mapped[int] = mapped_column(sa.Integer, nullable=False, server_default=sa.text("1"))
-    estado: Mapped[str] = mapped_column(sa.String, nullable=False)
+    estado: Mapped[EstadoTroquelEnum] = mapped_column(estado_troquel_enum, nullable=False)
 
     creado_en: Mapped[sa.DateTime] = mapped_column(sa.DateTime, nullable=False, server_default=sa.func.now())
 

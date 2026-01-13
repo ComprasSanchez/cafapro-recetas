@@ -10,8 +10,8 @@ from PySide6.QtWidgets import (
 )
 
 from app.db.session import session_scope
-from app.service.procesar_recepcion_service import ProcesarItemIn, ProcesarRecepcionServiceFast
 from app.service.recepcion_service import RecepcionService
+from app.service.tif_service import ProcesarItemIn, TiffService
 from core.image_handler import ImageHandler
 from ui.dialogs.recepcion_create_dialog import RecepcionCreateDialog
 from ui.dialogs.recepcion_pick_dialog import RecepcionPickDialog
@@ -316,7 +316,7 @@ class CargaRecepcionTab(QWidget):
         output_dir = f"output/recepciones/{self._recepcion_id}"
 
         try:
-            svc = ProcesarRecepcionServiceFast()
+            svc = TiffService()
             with session_scope() as s:
                 resumen = svc.procesar(
                     s=s,
