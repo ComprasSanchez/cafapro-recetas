@@ -43,6 +43,12 @@ def build_header_actions(main_window) -> dict[str, list[HeaderAction]]:
             )
         ],
         "Auditoria": [
+            HeaderAction(
+                key="tab_auditoria",
+                text="Auditoria",
+                kind="tab",
+                tab_key="auditoria",
+            )
         ],
         "Archivo": [
             HeaderAction(
