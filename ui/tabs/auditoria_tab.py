@@ -195,37 +195,41 @@ class AuditoriaTab(QWidget):
 
         for i, r in enumerate(rows):
             # Estos nombres tienen que existir en tu view/model
-            archivo_id = getattr(r, "archivo_id", None)
+            asociacion_id = getattr(r, "asociacion_id", None)
+            recepcion_id = getattr(r, "recepcion_id", None)
 
+            # Datos “visibles”
             numero_receta = getattr(r, "numero_receta", "") or ""
             numero_referencia = getattr(r, "numero_referencia", "") or ""
             nro_lote = getattr(r, "nro_lote", "") or ""
 
-            existe_receta = bool(getattr(r, "existe_receta", False))
+            # Flags
             existe_archivo = bool(getattr(r, "existe_archivo", False))
+            existe_receta = bool(getattr(r, "existe_receta", False))
 
-            imp_rec = getattr(r, "importe_reconocido", 0) or 0
-            imp_ofi = getattr(r, "importe_oficial", 0) or 0
+            # Importes
+            importe_reconocido = getattr(r, "importe_reconocido", 0) or 0
+            importe_oficial = getattr(r, "importe_oficial", 0) or 0
 
-            # Estado: ajustá al campo real (estado_seguimiento_id, estado_receta, etc.)
-            estado = (
-                getattr(r, "estado_receta", None)
-                or getattr(r, "estado_receta_id", None)
-                or getattr(r, "estado_seguimiento_id", None)
-                or ""
-            )
+            # Estado receta (id + descripción)
+            estado_receta_id = getattr(r, "estado_receta_id", None)
+            estado_receta = getattr(r, "estado_receta", "") or ""
+
+            frente_jpg = getattr(r, "frente_jpg", "")
+
 
             self._set_item(i, 0, str(numero_receta))
             self._set_item(i, 1, str(numero_referencia))
             self._set_item(i, 2, str(nro_lote))
             self._set_item(i, 3, "SI" if existe_receta else "NO")
             self._set_item(i, 4, "SI" if existe_archivo else "NO")
-            self._set_item(i, 5, f"{float(imp_rec):.2f}")
-            self._set_item(i, 6, f"{float(imp_ofi):.2f}")
-            self._set_item(i, 7, str(estado))
+            self._set_item(i, 5, f"{float(importe_reconocido):.2f}")
+            self._set_item(i, 6, f"{float(importe_oficial):.2f}")
+            self._set_item(i, 7, str(estado_receta))
 
             # guardo archivo_id en la fila (celda 0)
-            self.tbl.item(i, 0).setData(Qt.ItemDataRole.UserRole, archivo_id)
+            self.tbl.item(i, 0).setData(Qt.ItemDataRole.UserRole, asociacion_id)
+            self.tbl.item(i, 0).setData(Qt.ItemDataRole.UserRole + 1, frente_jpg)
 
         self.tbl.setSortingEnabled(True)
         if rows:
@@ -256,11 +260,17 @@ class AuditoriaTab(QWidget):
     # -------------------------
     def _on_item_clicked(self, item: QTableWidgetItem) -> None:
         row = item.row()
-        archivo_id = self.tbl.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        c0 = self.tbl.item(row, 0)
 
-        self._show_preview_default()
+        asociacion_id = c0.data(Qt.ItemDataRole.UserRole)
+        frente_jpg = (c0.data(Qt.ItemDataRole.UserRole + 1) or "").strip()
 
-        self.lb_status.setText(f"Seleccionado archivo_id={archivo_id}")
+        if frente_jpg:
+            self._set_preview_from_file(frente_jpg)
+        else:
+            self._show_preview_default()
+
+        self.lb_status.setText(f"Seleccionado asociacion_id={asociacion_id}")
 
     def _show_preview_default(self) -> None:
         path = r"C:\Users\Usuario\Documents\Proyectos\cafapro-recetas\output\recepciones\5\pami_20260105132054010_f.jpg"
