@@ -360,7 +360,6 @@ class Asociacion(Base):
 class Vendedores(Base):
     __tablename__ = "vendedores"
     __table_args__ = (
-        sa.UniqueConstraint("codigo", name="uq_vendedores_codigo"),
         sa.Index("ix_vendedores_codigo", "codigo"),
     )
 
