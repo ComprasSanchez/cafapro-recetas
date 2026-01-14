@@ -141,7 +141,6 @@ class ArchivoService:
             # tu detalle viene en crudo (code/name/description/estatus/number_aut/quantity/amount_general/amount_obs/discount)
 
             # ejemplo: "54640 - DESLORAMAR ..." -> cod y resto
-            print(d)
             cod_medic = d.get("cod_medic")
 
             nombre = (d.get("nombre") or "").strip() or None

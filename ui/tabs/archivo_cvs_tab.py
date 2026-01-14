@@ -402,6 +402,10 @@ class ArchivoCvsTab(QWidget):
     # --------------------------
     def _on_subir(self):
         # 1) Validaciones
+        if not self._recepcion_id:
+            QMessageBox.warning(self, "Atención", "Seleccione la recepción.")
+            return
+
         if not self._recetas_por_ref:
             QMessageBox.warning(self, "Atención", "Primero cargá el CSV (botón Cargar).")
             return
@@ -436,7 +440,7 @@ class ArchivoCvsTab(QWidget):
                             s,
                             receta=receta,
                             detalles=detalles,
-                            recepcion_id=None,  # NULL
+                            recepcion_id=self._recepcion_id,  # NULL
                             nro_referencia=nro_ref,  # clave del dict
                             skip_if_exists=True,
                             check_scope="ref",

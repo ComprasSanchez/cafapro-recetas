@@ -19,6 +19,7 @@ from app.db.session import session_scope
 from app.service.recepcion_service import RecepcionService
 from app.service.view_auditoria import ViewAuditoriaService
 from ui.dialogs.recepcion_pick_dialog import RecepcionPickDialog
+from ui.dialogs.auditoria_visual_dialog import AuditoriaVisualDialog
 
 
 class AuditoriaTab(QWidget):
@@ -66,6 +67,11 @@ class AuditoriaTab(QWidget):
         self.btn_pick_recepcion.setFixedSize(32, 26)
         self.btn_pick_recepcion.clicked.connect(self._on_pick_recepcion)
 
+        self.btn_visual = QPushButton("Auditoría visual")
+        self.btn_visual.setFixedHeight(26)
+        self.btn_visual.setEnabled(False)
+        self.btn_visual.clicked.connect(self._on_open_auditoria_visual)
+
         # bloque compacto: input + botón
         num_box = QWidget()
         num_l = QHBoxLayout(num_box)
@@ -76,7 +82,8 @@ class AuditoriaTab(QWidget):
 
         grid.addWidget(lb_num, 0, 0, Qt.AlignmentFlag.AlignRight)
         grid.addWidget(num_box, 0, 1)
-        grid.setColumnStretch(2, 1)  # aire a la derecha
+        grid.addWidget(self.btn_visual, 0, 2, Qt.AlignmentFlag.AlignLeft)
+        grid.setColumnStretch(3, 1)  # aire a la derecha
 
         return header
 
@@ -135,6 +142,7 @@ class AuditoriaTab(QWidget):
 
         # click por celda
         self.tbl.itemClicked.connect(self._on_item_clicked)
+        self.tbl.itemSelectionChanged.connect(self._sync_visual_button_state)
 
         left_l.addWidget(self.tbl, 1)
         split.addWidget(left)
@@ -271,6 +279,7 @@ class AuditoriaTab(QWidget):
             self._show_preview_default()
 
         self.lb_status.setText(f"Seleccionado asociacion_id={asociacion_id}")
+        self._sync_visual_button_state()
 
     def _show_preview_default(self) -> None:
         path = r"C:\Users\Usuario\Documents\Proyectos\cafapro-recetas\output\recepciones\5\pami_20260105132054010_f.jpg"
@@ -333,5 +342,33 @@ class AuditoriaTab(QWidget):
         self.in_numero.setText(str(rec.numero))
 
         self._refresh_auditoria_table()
+
+    def _sync_visual_button_state(self) -> None:
+        it = self.tbl.currentItem()
+        if not it:
+            self.btn_visual.setEnabled(False)
+            return
+
+        row = it.row()
+        c0 = self.tbl.item(row, 0)
+        if not c0:
+            self.btn_visual.setEnabled(False)
+            return
+
+        asociacion_id = c0.data(Qt.ItemDataRole.UserRole)
+        self.btn_visual.setEnabled(bool(asociacion_id))
+
+    def _on_open_auditoria_visual(self) -> None:
+        it = self.tbl.currentItem()
+        if not it:
+            return
+        row = it.row()
+        c0 = self.tbl.item(row, 0)
+        asociacion_id = c0.data(Qt.ItemDataRole.UserRole) if c0 else None
+        if not asociacion_id:
+            return
+
+        dlg = AuditoriaVisualDialog(asociacion_id=int(asociacion_id), parent=self)
+        dlg.exec()
 
 
