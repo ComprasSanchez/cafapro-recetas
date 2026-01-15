@@ -4,7 +4,7 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import Recepcion
+from app.db.models import Recepcion, EstadoRecepcion
 from app.db.models import ObraSocial
 from app.db.models import Periodo
 from app.db.models import Prestador
@@ -31,7 +31,7 @@ class RecepcionService:
                 ObraSocial.nombre,
                 Periodo.anio, Periodo.mes, Periodo.quincena,
                 Prestador.codigo, Prestador.nombre,
-                Recepcion.estado_recepcion,
+                EstadoRecepcion.descripcion,
                 Recepcion.fecha_recepcion,
                 Recepcion.creado_en,
                 Prestador.imed,
@@ -39,6 +39,7 @@ class RecepcionService:
             .join(ObraSocial, ObraSocial.obra_social_id == Recepcion.obra_social_id)
             .join(Periodo, Periodo.periodo_id == Recepcion.periodo_id)
             .join(Prestador, Prestador.prestador_id == Recepcion.prestador_id)
+            .join(EstadoRecepcion, EstadoRecepcion.estado_recepcion_id == Recepcion.estado_recepcion_id)
             .order_by(Recepcion.recepcion_id.desc())
         ).all()
 
@@ -69,23 +70,22 @@ class RecepcionService:
         obra_social_id: int,
         periodo_id: int,
         prestador_id: int,
-        estado_recepcion: str,
+        estado_recepcion_id: int,
         fecha_recepcion,
         observaciones: str | None = None,
         creado_por_usuario_id: int | None = None,
     ) -> Recepcion:
-        if not estado_recepcion:
+        if not estado_recepcion_id:
             raise ValueError("estado_recepcion es obligatorio.")
 
         rec = Recepcion(
             obra_social_id=int(obra_social_id),
             periodo_id=int(periodo_id),
             prestador_id=int(prestador_id),
-            estado_recepcion=estado_recepcion,
+            estado_recepcion_id=estado_recepcion_id,
             fecha_recepcion=fecha_recepcion,
             observaciones=observaciones,
             creado_por_usuario_id=creado_por_usuario_id,
-            # numero NO lo seteamos: lo pone la DB con la secuencia (server_default)
         )
 
         s.add(rec)

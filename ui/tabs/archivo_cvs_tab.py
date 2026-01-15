@@ -15,6 +15,18 @@ from app.service.recepcion_service import RecepcionService
 from core.imed_cvs_handler import ImedCvsHandler
 from ui.dialogs.recepcion_pick_dialog import RecepcionPickDialog
 
+def parse_aut_ts(receta: dict) -> datetime:
+    f = (receta.get("Fecha") or "").strip()    # "02/12/2025"
+    h = (receta.get("Hora") or "").strip()     # "07:34:30"
+
+    if not h:
+        h = "00:00:00"
+    elif len(h) == 5:
+        h += ":00"
+
+    return datetime.strptime(f"{f} {h}", "%d/%m/%Y %H:%M:%S")
+
+
 
 class ArchivoCvsTab(QWidget):
     def __init__(self, parent=None, creado_por_usuario_id: int | None = None):
@@ -423,7 +435,6 @@ class ArchivoCvsTab(QWidget):
         if resp != QMessageBox.StandardButton.Yes:
             return
 
-        # 2) Proceso masivo
         inserted = 0
         skipped = 0
         failed = 0
@@ -431,26 +442,47 @@ class ArchivoCvsTab(QWidget):
 
         try:
             with session_scope() as s:
-                # Tip: una transacción grande (más rápido). Si querés “por receta”, avisame.
+                # 2) Calcular desde qué orden arrancar
+                current_orden = ArchivoService.get_start_orden_lote(s, self._recepcion_id)
+
+                # 3) Ordenar por autorización (Fecha+Hora) ascendente
+                items = []
                 for nro_ref, receta in self._recetas_por_ref.items():
+                    ts = parse_aut_ts(receta)
+                    items.append((ts, str(nro_ref), receta))
+
+                items.sort(key=lambda x: (x[0], x[1]))  # ts + nro_ref (desempate estable)
+
+                # 4) Insertar con orden_lote correlativo
+                for ts, nro_ref, receta in items:
                     detalles = self._detalles_por_ref.get(nro_ref, [])
 
                     try:
-                        ArchivoService.create_from_imed(
+                        # ✅ IMPORTANTE:
+                        # Necesitamos que create_from_imed acepte orden_lote y devuelva True/False
+                        creado = ArchivoService.create_from_imed(
                             s,
                             receta=receta,
                             detalles=detalles,
-                            recepcion_id=self._recepcion_id,  # NULL
-                            nro_referencia=nro_ref,  # clave del dict
+                            recepcion_id=self._recepcion_id,
+                            nro_referencia=nro_ref,
+                            orden_lote=current_orden,  # 👈 NUEVO
                             skip_if_exists=True,
                             check_scope="ref",
                         )
-                        inserted += 1
+
+                        if creado is True:
+                            inserted += 1
+                            current_orden += 1
+                        else:
+                            # si el service decide "ya existe" y devuelve False
+                            skipped += 1
 
                     except ValueError as e:
-                        # si tu service lanza ValueError por “Ya existe...”
                         msg = str(e)
-                        if "Ya existe" in msg or "existe" in msg.lower():
+                        # Si tu service hoy levanta ValueError en vez de devolver False,
+                        # entonces consideramos "ya existe" como skipped y NO consumimos número.
+                        if "ya existe" in msg.lower() or "existe" in msg.lower():
                             skipped += 1
                         else:
                             failed += 1
@@ -460,7 +492,6 @@ class ArchivoCvsTab(QWidget):
                         failed += 1
                         errores.append(f"{nro_ref}: {e}")
 
-            # 3) Resultado
             resumen = (
                 f"Listo.\n\n"
                 f"Insertadas: {inserted}\n"
@@ -469,7 +500,6 @@ class ArchivoCvsTab(QWidget):
             )
 
             if errores:
-                # mostramos solo las primeras para no romper el dialog
                 top = "\n".join(errores[:15])
                 if len(errores) > 15:
                     top += f"\n... y {len(errores) - 15} más"
@@ -479,4 +509,5 @@ class ArchivoCvsTab(QWidget):
 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudo subir el lote:\n{e}")
+
 

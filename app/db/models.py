@@ -143,7 +143,7 @@ class Recepcion(Base):
     __tablename__ = "recepcion"
     __table_args__ = (
         sa.Index("ix_recepcion_prestador_obra_periodo", "prestador_id", "obra_social_id", "periodo_id"),
-        sa.Index("ix_recepcion_estado_recepcion", "estado_recepcion"),
+        sa.Index("ix_recepcion_estado_recepcion_id", "estado_recepcion_id"),
         sa.UniqueConstraint("numero", name="uq_recepcion_numero"),
     )
 
@@ -198,7 +198,7 @@ class Archivo(Base):
     nro_referencia: Mapped[str | None] = mapped_column(sa.String, nullable=False)
     nro_receta: Mapped[str | None] = mapped_column(sa.String, nullable=False)
 
-    orden_lote: Mapped[str | None] = mapped_column(sa.String, nullable=False)
+    orden_lote: Mapped[int] = mapped_column(sa.Integer, nullable=False)
 
     # Importe Gral (antes importe_neto) -> lo dejo como importe_neto para tu app,
     # pero conceptualmente es el “gral”.

@@ -19,7 +19,7 @@ class VwArchivoResumenAuditoria(Base):
 
     numero_receta: Mapped[str | None] = mapped_column(sa.String, nullable=True)
     numero_referencia: Mapped[str | None] = mapped_column(sa.String, nullable=True)
-    nro_lote: Mapped[str | None] = mapped_column(sa.String, nullable=True)
+    nro_lote: Mapped[int] = mapped_column(sa.Integer, nullable=True)
 
     existe_archivo: Mapped[bool] = mapped_column(sa.Boolean, nullable=False)
     existe_receta: Mapped[bool] = mapped_column(sa.Boolean, nullable=False)
