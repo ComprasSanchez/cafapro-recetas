@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import date
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -84,3 +86,22 @@ class RecetaService:
     @staticmethod
     def attach_archivo_to_recepcion(archivo: Archivo, recepcion_id: int) -> None:
         archivo.recepcion_id = recepcion_id
+
+    @staticmethod
+    def update_auditoria(
+            session: Session,
+            receta_id: int,
+            vendedor_id: int,
+            estado_seguimiento_id: int,
+            fecha_prescripcion: date,
+            estado_receta_id: int = 1,
+    ) -> None:
+        r = session.get(Recetas, int(receta_id))
+        if not r:
+            raise ValueError(f"Receta {receta_id} no existe")
+
+        r.vendedor_id = int(vendedor_id)
+        r.estado_seguimiento_id = int(estado_seguimiento_id)
+        r.estado_receta_id = int(estado_receta_id)
+        r.fecha_prescripcion = fecha_prescripcion
+

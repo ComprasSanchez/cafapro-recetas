@@ -265,7 +265,7 @@ class Recetas(Base):
     ubicacion_frente: Mapped[str | None] = mapped_column(sa.String, nullable=True)
     ubicacion_dorso: Mapped[str | None] = mapped_column(sa.String, nullable=True)
 
-    fecha_prescripcion: Mapped[sa.Date | None] = mapped_column(sa.Date, nullable=True)
+    fecha_prescripcion: Mapped[date  | None] = mapped_column(sa.Date, nullable=True)
     estado_receta_id: Mapped[int] = mapped_column(sa.ForeignKey("estado_receta.estado_receta_id"), nullable=True)
     estado_seguimiento_id: Mapped[int] = mapped_column(
         sa.ForeignKey("estado_seguimiento.estado_seguimiento_id"),

@@ -1,19 +1,23 @@
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 from decimal import Decimal
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, QDate
 from PySide6.QtGui import QPixmap, QColor, QBrush, QFont
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QSplitter,
     QLabel, QPushButton, QFrame, QScrollArea, QTableWidget,
-    QTableWidgetItem, QHeaderView, QAbstractItemView, QMessageBox, QWidget, QCheckBox
+    QTableWidgetItem, QHeaderView, QAbstractItemView, QMessageBox, QWidget, QCheckBox, QInputDialog, QDateEdit
 )
 
 from app.db.session import session_scope
 from app.service.auditoria_visual_service import AuditoriaVisualService, AuditoriaVisualData
+from app.service.debitos_service import DebitoInput, DebitosService
 from app.service.motivos_debito_service import MotivosDebitosService
+from app.service.recetas_service import RecetaService
+from ui.dialogs.estado_seguimeinto_pick_dialog import EstadoSeguimientoPickDialog
 from ui.label.image_view_label import ImageViewer
 from ui.label.clickable_label import ClickableLabel
 from ui.dialogs.vendedor_pick_dialog import VendedorPickDialog
@@ -28,6 +32,7 @@ class AuditoriaVisualDialog(QDialog):
         self._last_preview_path: str | None = None
         self._current_lado = "F"
         self._vendedor_id: int | None = None
+        self._selected_debitos: dict[int, str | None] = {}
 
         self.setWindowTitle("Auditoría Visual")
         self.setModal(True)
@@ -82,6 +87,7 @@ class AuditoriaVisualDialog(QDialog):
         right_l.addWidget(self._build_vendedor_field(), 0)
         right_l.addWidget(self._build_debitos_block(), 1)
         right_l.addWidget(self._build_resumen_block(), 0)
+        right_l.addWidget(self._build_actions_block(), 0)
 
         split.addWidget(right)
 
@@ -237,24 +243,50 @@ class AuditoriaVisualDialog(QDialog):
         self.lb_big.setFrameShape(QFrame.Shape.StyledPanel)
         lay.addWidget(self.lb_big, 0)
 
-        # Datos a la derecha (labels en grilla)
+        # Datos a la derecha (grilla)
         grid = QGridLayout()
         grid.setHorizontalSpacing(10)
         grid.setVerticalSpacing(6)
 
-        def mk_row(r: int, title: str):
+        # ---- Fila 0: Prescripción (editable) ----
+        lb_p = QLabel("Prescripción")
+        grid.addWidget(lb_p, 0, 0, alignment=Qt.AlignmentFlag.AlignRight)
+
+        self.in_prescripcion = QDateEdit()
+        self.in_prescripcion.setCalendarPopup(True)
+        self.in_prescripcion.setDisplayFormat("dd/MM/yyyy")
+        self.in_prescripcion.setMinimumHeight(26)
+        self.in_prescripcion.setDate(QDate.currentDate())  # default inicial
+        grid.addWidget(self.in_prescripcion, 0, 1)
+
+        # ---- Helper: filas de solo lectura ----
+        def mk_row_label(r: int, title: str) -> QLabel:
             lb_t = QLabel(title)
             lb_v = QLabel("—")
             grid.addWidget(lb_t, r, 0, alignment=Qt.AlignmentFlag.AlignRight)
             grid.addWidget(lb_v, r, 1)
             return lb_v
 
-        self.lb_prescripcion = mk_row(0, "Prescripción")
-        self.lb_emision_aut = mk_row(1, "Emisión Aut")
-        self.lb_venta = mk_row(2, "Venta")
-        self.lb_autorizacion = mk_row(3, "Autorización")
+        self.lb_emision_aut = mk_row_label(1, "Emisión Aut")
+        self.lb_venta = mk_row_label(2, "Venta")
+        self.lb_autorizacion = mk_row_label(3, "Autorización")
 
         lay.addLayout(grid, 1)
+        return box
+
+    def _build_actions_block(self) -> QFrame:
+        box = QFrame()
+        lay = QHBoxLayout(box)
+        lay.setContentsMargins(8, 0, 8, 8)
+        lay.setSpacing(8)
+
+        lay.addStretch(1)
+
+        self.btn_finalizar = QPushButton("Finalizar")
+        self.btn_finalizar.setMinimumHeight(34)
+        self.btn_finalizar.clicked.connect(self._on_finalizar)
+        lay.addWidget(self.btn_finalizar, 0)
+
         return box
 
     # -------------------------
@@ -404,11 +436,16 @@ class AuditoriaVisualDialog(QDialog):
         imp_neto = Decimal(str(getattr(self.data.archivo, "importe_neto", 0) or 0))
         imp_obs = Decimal(str(getattr(self.data.archivo, "importe_obs", 0) or 0))
         a_cargo = Decimal(str(getattr(self.data.archivo, "a_cargo_entidad", 0) or 0))
+        fp = getattr(self.data.receta, "fecha_prescripcion", None)
+        if fp:
+            self.in_prescripcion.setDate(QDate(fp.year, fp.month, fp.day))
+        else:
+            self.in_prescripcion.setDate(QDate.currentDate())
+
         self.lb_big.setText(str(getattr(self.data.receta, "nro_receta", "") or "—"))
-        self.lb_prescripcion.setText(str(getattr(self.data.receta, "fecha_prescripcion", "") or "—"))
         self.lb_venta.setText(str(getattr(self.data.archivo, "fecha", "") or "—"))
         self.lb_emision_aut.setText("—")
-        self.lb_autorizacion.setText("—")
+        self.lb_autorizacion.setText(self.in_prescripcion.text())
 
         self.lb_a_cargo.setText(self._fmt_money(a_cargo))  # A cargo OS
         self.lb_imp_obs.setText(self._fmt_money(imp_obs))  # PVP Pami
@@ -552,18 +589,54 @@ class AuditoriaVisualDialog(QDialog):
 
         # 2) crear checkboxes
         for m in motivos:
+            motivo_id = m.motivo_debito_id
+
             cb = QCheckBox(str(m.descripcion))
-            cb.setProperty("motivo_id", m.motivo_debito_id)  # por si lo necesitás
+            cb.setProperty("motivo_id", motivo_id)
             cb.setProperty("lado", str(m.lado))
+
+            # si ya estaba seleccionado de antes, lo marco
+            cb.setChecked(motivo_id in self._selected_debitos)
+
+            # ✅ conectar evento
+            cb.stateChanged.connect(self._on_motivo_checkbox_changed)
+
             self.motivos_layout.insertWidget(self.motivos_layout.count() - 1, cb)
 
-    def selected_motivo_ids(self) -> list[int]:
-        ids: list[int] = []
-        for i in range(self.motivos_layout.count() - 1):  # -1 por el stretch
-            w = self.motivos_layout.itemAt(i).widget()
-            if isinstance(w, QCheckBox) and w.isChecked():
-                ids.append(int(w.property("motivo_id")))
-        return ids
+    def _on_motivo_checkbox_changed(self, state: int) -> None:
+        cb = self.sender()
+        if not isinstance(cb, QCheckBox):
+            return
+
+        motivo_id = cb.property("motivo_id")
+        if not motivo_id:
+            return
+        motivo_id = int(motivo_id)
+
+        # si se destildó -> sacar del dict
+        if state != Qt.CheckState.Checked.value:
+            self._selected_debitos.pop(motivo_id, None)
+            return
+
+        # se tildó -> pedir detalle opcional
+        prev = self._selected_debitos.get(motivo_id) or ""
+        detalle, ok = QInputDialog.getText(
+            self,
+            "Detalle del débito",
+            "Detalle (opcional):",
+            text=prev,
+        )
+
+        if not ok:
+            # ✅ Cancel: desmarcar y NO agregar
+            cb.blockSignals(True)
+            cb.setChecked(False)
+            cb.blockSignals(False)
+            self._selected_debitos.pop(motivo_id, None)
+            return
+
+        self._selected_debitos[motivo_id] = (detalle.strip() or None)
+
 
     def _set_preview_and_fit(self, path: str) -> None:
         p = Path(path)
@@ -586,3 +659,61 @@ class AuditoriaVisualDialog(QDialog):
 
         # Fit automático al viewport (cuando ya hay tamaño real)
         QTimer.singleShot(0, lambda: self.img_preview.fit_to(self.scroll.viewport().size()))
+
+    def _on_finalizar(self) -> None:
+        if not self.data:
+            return
+
+        # 1) Validar vendedor obligatorio
+        if not self._vendedor_id:
+            QMessageBox.warning(self, "Falta vendedor", "Tenés que seleccionar un vendedor para finalizar.")
+            return
+
+        receta_id = int(getattr(self.data.receta, "receta_id", 0) or 0)
+        if not receta_id:
+            QMessageBox.critical(self, "Error", "No se pudo determinar receta_id.")
+            return
+
+        # 2) Pedir estado de seguimiento (obligatorio)
+        dlg = EstadoSeguimientoPickDialog(self)
+        if dlg.exec() != dlg.DialogCode.Accepted:
+            QMessageBox.warning(self, "Falta estado", "Tenés que seleccionar un estado de seguimiento para finalizar.")
+            return
+
+        estado_seg_id = dlg.selected_estado_seguimiento_id()
+        if not estado_seg_id:
+            QMessageBox.warning(self, "Falta estado", "Tenés que seleccionar un estado de seguimiento para finalizar.")
+            return
+
+        q = self.in_prescripcion.date()
+        if not q.isValid():
+            QMessageBox.warning(self, "Falta fecha", "Tenés que cargar la fecha de prescripción para finalizar.")
+            return
+        fecha_prescripcion: date = date(q.year(), q.month(), q.day())
+
+        # 3) Armar debitos desde tu dict (motivo_id -> detalle)
+        debitos_inputs = [
+            DebitoInput(motivo_debito_id=mid, detalle=det)
+            for mid, det in self._selected_debitos.items()
+        ]
+
+        # 4) Persistir (opción A: replace)
+        try:
+            with session_scope() as s:
+                DebitosService.replace_for_receta(s, receta_id=receta_id, items=debitos_inputs)
+
+                RecetaService.update_auditoria(
+                    s,
+                    receta_id=receta_id,
+                    vendedor_id=int(self._vendedor_id),
+                    estado_seguimiento_id=int(estado_seg_id),
+                    estado_receta_id=1,
+                    fecha_prescripcion=fecha_prescripcion
+                )
+
+            # 5) Cerrar OK
+            self.accept()
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"No se pudo finalizar:\n{e}")
+
