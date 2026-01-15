@@ -92,6 +92,12 @@ class EstadoReceta(Base):
     estado_receta_id: Mapped[int] = mapped_column(sa.Integer, sa.Identity(), primary_key=True)
     descripcion: Mapped[str] = mapped_column(sa.String, nullable=False)
 
+class EstadoRecepcion(Base):
+    __tablename__ = "estado_recepcion"
+
+    estado_recepcion_id: Mapped[int] = mapped_column(sa.Integer, sa.Identity(), primary_key=True)
+    descripcion: Mapped[str] = mapped_column(sa.String, nullable=False)
+
 # =========================
 # PLAN (obra_social + periodo)
 # =========================
@@ -156,9 +162,10 @@ class Recepcion(Base):
     # antes estaba en lote_temporal
     cantidad_imagenes: Mapped[int] = mapped_column(sa.Integer, nullable=False, server_default=sa.text("0"))
 
-    estado_recepcion: Mapped[str] = mapped_column(sa.String, nullable=False)
     fecha_recepcion: Mapped[sa.DateTime] = mapped_column(sa.DateTime, nullable=False)
     observaciones: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    pendientes: Mapped[int] = mapped_column(sa.Integer, nullable=True, server_default=sa.text("0"))
+    estado_recepcion_id: Mapped[int] = mapped_column(sa.ForeignKey("estado_recepcion.estado_recepcion_id"), nullable=False)
 
     creado_por_usuario_id: Mapped[int | None] = mapped_column(sa.ForeignKey("usuarios.usuario_id"), nullable=True)
     creado_en: Mapped[sa.DateTime] = mapped_column(sa.DateTime, nullable=False, server_default=sa.func.now())
