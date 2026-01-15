@@ -15,6 +15,9 @@ from app.db.session import session_scope
 from app.service.auditoria_visual_service import AuditoriaVisualService, AuditoriaVisualData
 from app.service.motivos_debito_service import MotivosDebitosService
 from ui.label.image_view_label import ImageViewer
+from ui.label.clickable_label import ClickableLabel
+from ui.dialogs.vendedor_pick_dialog import VendedorPickDialog
+
 
 
 class AuditoriaVisualDialog(QDialog):
@@ -24,6 +27,7 @@ class AuditoriaVisualDialog(QDialog):
         self.data: AuditoriaVisualData | None = None
         self._last_preview_path: str | None = None
         self._current_lado = "F"
+        self._vendedor_id: int | None = None
 
         self.setWindowTitle("Auditoría Visual")
         self.setModal(True)
@@ -74,9 +78,10 @@ class AuditoriaVisualDialog(QDialog):
         right_l.setContentsMargins(0, 0, 0, 0)
         right_l.setSpacing(10)
 
-        right_l.addWidget(self._build_right_header(), 0)  # ✅ nuevo
-        right_l.addWidget(self._build_debitos_block(), 1)  # ✅ motivos (ocupa alto)
-        right_l.addWidget(self._build_resumen_block(), 0)  # ✅ compacto abajo
+        right_l.addWidget(self._build_right_header(), 0)
+        right_l.addWidget(self._build_vendedor_field(), 0)
+        right_l.addWidget(self._build_debitos_block(), 1)
+        right_l.addWidget(self._build_resumen_block(), 0)
 
         split.addWidget(right)
 
@@ -270,6 +275,50 @@ class AuditoriaVisualDialog(QDialog):
         lay.addWidget(self.card_pvp, 1)
 
         return box
+
+    def _build_vendedor_field(self) -> QFrame:
+        box = QFrame()
+        lay = QHBoxLayout(box)
+        lay.setContentsMargins(8, 0, 8, 0)
+        lay.setSpacing(8)
+
+        lay.addWidget(QLabel("Vendedor:"), 0)
+
+        self.lb_vendedor = ClickableLabel("— Seleccioná —")
+        self.lb_vendedor.clicked.connect(self._pick_vendedor)
+
+        # opcional: que parezca input (sin QSS global)
+        self.lb_vendedor.setFrameShape(QFrame.Shape.StyledPanel)
+        self.lb_vendedor.setMinimumHeight(28)
+        self.lb_vendedor.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+
+        lay.addWidget(self.lb_vendedor, 1)
+        return box
+
+    def _pick_vendedor(self) -> None:
+        dlg = VendedorPickDialog(self)
+        if dlg.exec() != dlg.DialogCode.Accepted:
+            return
+
+        vid = dlg.selected_vendedor_id()
+        if not vid:
+            return
+
+        # buscar descripción para mostrar (simple y claro)
+        try:
+            with session_scope() as s:
+                from app.db.models import Vendedores
+                v = s.get(Vendedores, int(vid))
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"No se pudo cargar el vendedor:\n{e}")
+            return
+
+        if not v:
+            return
+
+        self._vendedor_id = int(v.vendedor_id)
+        self.lb_vendedor.setText(str(getattr(v, "descripcion", "") or "—"))
+        self.lb_vendedor.setToolTip(f"Código: {getattr(v, 'codigo', '')}")
 
     @staticmethod
     def _mk_resumen_card(self, title: str) -> tuple[QFrame, QLabel]:
