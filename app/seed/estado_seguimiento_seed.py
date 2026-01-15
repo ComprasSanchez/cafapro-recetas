@@ -6,7 +6,7 @@ from app.db.models import EstadoSeguimiento
 
 
 def run(session) -> None:
-    roles = ["Enviado corregida", "Enviada sin corregir", "No enviada", "Escaneada", "Auditada"]
+    roles = ["Enviado corregida", "Enviada sin corregir", "No enviada"]
 
     for descripcion in roles:
         exists = session.execute(

@@ -86,6 +86,12 @@ class EstadoSeguimiento(Base):
     descripcion: Mapped[str] = mapped_column(sa.String, nullable=False)
 
 
+class EstadoReceta(Base):
+    __tablename__ = "estado_receta"
+
+    estado_receta_id: Mapped[int] = mapped_column(sa.Integer, sa.Identity(), primary_key=True)
+    descripcion: Mapped[str] = mapped_column(sa.String, nullable=False)
+
 # =========================
 # PLAN (obra_social + periodo)
 # =========================
@@ -260,13 +266,15 @@ class Recetas(Base):
     ubicacion_dorso: Mapped[str | None] = mapped_column(sa.String, nullable=True)
 
     fecha_prescripcion: Mapped[sa.Date | None] = mapped_column(sa.Date, nullable=True)
+    estado_receta_id: Mapped[int] = mapped_column(sa.ForeignKey("estado_receta.estado_receta_id"), nullable=True)
     estado_seguimiento_id: Mapped[int] = mapped_column(
         sa.ForeignKey("estado_seguimiento.estado_seguimiento_id"),
-        nullable=False,
+        nullable=True,
     )
     observacion: Mapped[str | None] = mapped_column(sa.String, nullable=True)
 
     usuario_id: Mapped[int] = mapped_column(sa.ForeignKey("usuarios.usuario_id"), nullable=False)
+    vendedor_id: Mapped[int] = mapped_column(sa.ForeignKey("vendedores.vendedor_id"), nullable=True)
     creado_en: Mapped[sa.DateTime] = mapped_column(sa.DateTime, nullable=False, server_default=sa.func.now())
 
 
@@ -288,7 +296,7 @@ class RecetasHistorial(Base):
     fecha_prescripcion: Mapped[sa.Date | None] = mapped_column(sa.Date, nullable=True)
     estado_seguimiento_id: Mapped[int] = mapped_column(
         sa.ForeignKey("estado_seguimiento.estado_seguimiento_id"),
-        nullable=False,
+        nullable=True,
     )
 
     usuario_id: Mapped[int] = mapped_column(sa.ForeignKey("usuarios.usuario_id"), nullable=False)

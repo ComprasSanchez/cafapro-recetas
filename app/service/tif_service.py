@@ -243,9 +243,9 @@ class TiffService:
                 ubicacion_frente=frente_jpg,
                 ubicacion_dorso=dorso_jpg,
                 fecha_prescripcion=None,
-                estado_seguimiento_id=6,
                 observacion=None,
                 usuario_id=usuario_id,
+                estado_receta_id=2
             )
             s.add(receta)
             s.flush()  # receta_id
