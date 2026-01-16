@@ -27,27 +27,31 @@ class MedicamentoDTO:
         pres = data.get("presentacion")
         presentacion = str(pres).strip() if pres is not None and str(pres).strip() != "" else None
 
+        pro = data.get("producto")
+        producto = str(pro).strip() if pres is not None and str(pro).strip() != "" else None
+
         # drogas: [{idProducto, idDroga}, ...]
         drogas = data.get("drogas") or []
-        ids: list[str] = []
+        names: list[str] = []
         if isinstance(drogas, list):
             for d in drogas:
                 if not isinstance(d, dict):
                     continue
-                v = d.get("idDroga")
+                v = d.get("drug")
+                name = v.get("nombre")
                 if v is None:
                     continue
                 try:
-                    ids.append(str(int(v)))
+                    names.append(str(name))
                 except Exception:
                     # si viene raro, lo ignoramos
                     continue
 
-        drogas_concat = ",".join(ids) if ids else None
+        drogas_concat = ",".join(names) if names else None
 
         return MedicamentoDTO(
             codebar=codebar,
             code_alfabeta=code_alfabeta,
-            presentacion=presentacion,
+            presentacion=f"{producto} {presentacion}",
             drogas_concat=drogas_concat,
         )

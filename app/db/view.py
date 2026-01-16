@@ -4,7 +4,7 @@ from decimal import Decimal
 import sqlalchemy as sa
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.db.models import Base  # tu DeclarativeBase
+from app.db.models import Base
 
 
 class VwArchivoResumenAuditoria(Base):
@@ -34,4 +34,36 @@ class VwArchivoResumenAuditoria(Base):
     estado_receta: Mapped[str | None] = mapped_column(sa.String, nullable=True)
 
     frente_jpg: Mapped[str | None] = mapped_column(sa.String, nullable=False)
+
+class VwArchivoRecetaDebitos(Base):
+    __tablename__ = "vw_archivo_receta_debitos"
+
+    __table_args__ = (
+        sa.PrimaryKeyConstraint(
+            "receta_id",
+            "orden_lote",
+            "descripcion_debito",
+            "detalle",
+            name="pk_vw_archivo_receta_debitos",
+        ),
+    )
+
+    receta_id: Mapped[int] = mapped_column(sa.Integer)
+    recepcion_id: Mapped[int] = mapped_column(sa.Integer)
+
+    estado_seguimiento_id: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
+    estado_seguimiento: Mapped[str | None] = mapped_column(sa.String, nullable=True)
+
+    fecha: Mapped[sa.Date] = mapped_column(sa.Date)
+    hora: Mapped[sa.Time] = mapped_column(sa.Time)
+
+    orden_lote: Mapped[int] = mapped_column(sa.Integer)
+    nro_receta: Mapped[str] = mapped_column(sa.String)
+
+    importe_obs: Mapped[sa.Numeric] = mapped_column(sa.Numeric(12, 2))
+    a_cargo_entidad: Mapped[sa.Numeric] = mapped_column(sa.Numeric(12, 2))
+
+    descripcion_debito: Mapped[str] = mapped_column(sa.String)
+    detalle: Mapped[str | None] = mapped_column(sa.String, nullable=True)
+
 

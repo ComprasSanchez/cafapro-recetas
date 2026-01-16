@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import Recetas, Asociacion, Troqueles, Archivo
+from app.db.session import session_scope
 
 
 class RecetaService:
@@ -104,4 +105,18 @@ class RecetaService:
         r.estado_seguimiento_id = int(estado_seguimiento_id)
         r.estado_receta_id = int(estado_receta_id)
         r.fecha_prescripcion = fecha_prescripcion
+
+    @staticmethod
+    def update_estado_seguimiento(receta_id: int, estado_seguimiento_id: int | None) -> None:
+        """Actualiza el estado de seguimiento en la receta."""
+        with session_scope() as s:
+            rec = (
+                s.query(Recetas)
+                .filter(Recetas.receta_id == receta_id)
+                .one_or_none()
+            )
+            if rec is None:
+                raise ValueError(f"No existe receta_id={receta_id}")
+
+            rec.estado_seguimiento_id = estado_seguimiento_id
 
