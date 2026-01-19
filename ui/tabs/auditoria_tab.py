@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (
     QWidget, QFrame, QVBoxLayout, QGridLayout, QHBoxLayout,
     QLabel, QLineEdit, QPushButton, QSizePolicy,
     QMessageBox, QTableWidget, QTableWidgetItem,
-    QHeaderView, QAbstractItemView, QSplitter, QScrollArea
+    QHeaderView, QAbstractItemView, QSplitter, QScrollArea, QComboBox, QCheckBox
 )
 
 from pathlib import Path
@@ -18,6 +18,8 @@ from PySide6.QtGui import QPixmap
 from app.db.session import session_scope
 from app.service.recepcion_service import RecepcionService
 from app.service.view_auditoria import ViewAuditoriaService
+from app.service.estado_receta_service import EstadoRecetaService
+
 from ui.dialogs.recepcion_pick_dialog import RecepcionPickDialog
 from ui.dialogs.auditoria_visual_dialog import AuditoriaVisualDialog
 
@@ -36,6 +38,12 @@ class AuditoriaTab(QWidget):
 
         root.addWidget(self._build_header())
         root.addWidget(self._build_body(), 1)
+        self._load_estado_receta_combo()
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.timeout.connect(self._apply_filters)
+
+        self._last_filter_sig = None
 
     # -------------------------
     # HEADER (solo recepción)
@@ -52,7 +60,7 @@ class AuditoriaTab(QWidget):
     def _build_header(self) -> QFrame:
         header = QFrame()
         header.setObjectName("card")
-        header.setMaximumHeight(70)
+        header.setMaximumHeight(120)
 
         grid = QGridLayout(header)
         grid.setContentsMargins(12, 10, 12, 10)
@@ -72,18 +80,70 @@ class AuditoriaTab(QWidget):
         self.btn_visual.setEnabled(False)
         self.btn_visual.clicked.connect(self._on_open_auditoria_visual)
 
-        # bloque compacto: input + botón
         num_box = QWidget()
         num_l = QHBoxLayout(num_box)
         num_l.setContentsMargins(0, 0, 0, 0)
         num_l.setSpacing(4)
-        num_l.addWidget(self.in_numero, 1)
-        num_l.addWidget(self.btn_pick_recepcion, 0)
+        num_l.addWidget(self.in_numero)
+        num_l.addWidget(self.btn_pick_recepcion)
+
+        row0_box = QWidget()
+        row0_l = QHBoxLayout(row0_box)
+        row0_l.setContentsMargins(0, 0, 0, 0)
+        row0_l.setSpacing(10)
+        row0_l.addWidget(num_box, 0)
+        row0_l.addWidget(self.btn_visual, 0)
+        row0_l.addStretch(1)
+
+        lb_obs = QLabel("Obra social:")
+        self.in_obs = self._ro_line("-")
+        self.in_obs.setFixedWidth(220)
+
+        lb_prest = QLabel("Prestador:")
+        self.in_prestador = self._ro_line("-")
+        self.in_prestador.setFixedWidth(260)
+
+        row1_box = QWidget()
+        row1_l = QHBoxLayout(row1_box)
+        row1_l.setContentsMargins(0, 0, 0, 0)
+        row1_l.setSpacing(10)
+
+        row1_l.addWidget(self.in_obs, 0)
+        row1_l.addSpacing(12)
+        row1_l.addWidget(lb_prest, 0)
+        row1_l.addWidget(self.in_prestador, 0)
+        row1_l.addStretch(1)
+
+        lb_periodo = QLabel("Período:")
+        self.in_periodo = self._ro_line("-")
+        self.in_periodo.setFixedWidth(140)
+
+        lb_quinc = QLabel("Quincena:")
+        self.in_quincena = self._ro_line("-")
+        self.in_quincena.setFixedWidth(70)
+
+
+        row2_box = QWidget()
+        row2_l = QHBoxLayout(row2_box)
+        row2_l.setContentsMargins(0, 0, 0, 0)
+        row2_l.setSpacing(10)
+        row2_l.addWidget(self.in_periodo, 0)
+        row2_l.addWidget(lb_quinc, 0)
+        row2_l.addWidget(self.in_quincena, 0)
+        row2_l.addStretch(1)
+
+        # ===== GRILLA: 2 columnas (label | contenido) =====
+        grid.setColumnStretch(0, 0)
+        grid.setColumnStretch(1, 1)
 
         grid.addWidget(lb_num, 0, 0, Qt.AlignmentFlag.AlignRight)
-        grid.addWidget(num_box, 0, 1)
-        grid.addWidget(self.btn_visual, 0, 2, Qt.AlignmentFlag.AlignLeft)
-        grid.setColumnStretch(3, 1)  # aire a la derecha
+        grid.addWidget(row0_box, 0, 1)
+
+        grid.addWidget(lb_obs, 1, 0, Qt.AlignmentFlag.AlignRight)
+        grid.addWidget(row1_box, 1, 1)
+
+        grid.addWidget(lb_periodo, 2, 0, Qt.AlignmentFlag.AlignRight)
+        grid.addWidget(row2_box, 2, 1)
 
         return header
 
@@ -109,6 +169,7 @@ class AuditoriaTab(QWidget):
         self.lb_status = QLabel("Seleccioná una recepción para cargar la auditoría.")
         self.lb_status.setObjectName("muted")
         lay.addWidget(self.lb_status)
+        lay.addWidget(self._build_filters())
 
         # Split: izquierda tabla, derecha preview
         split = QSplitter(Qt.Orientation.Horizontal)
@@ -181,6 +242,40 @@ class AuditoriaTab(QWidget):
 
         return body
 
+    def _build_filters(self) -> QFrame:
+        bar = QFrame()
+        l = QHBoxLayout(bar)
+        l.setContentsMargins(0, 0, 0, 0)
+        l.setSpacing(10)
+
+        # Estado
+        l.addWidget(QLabel("Estado:"))
+        self.cb_estado = QComboBox()
+        self.cb_estado.addItem("Todos", None)  # data None = sin filtro
+        self.cb_estado.currentIndexChanged.connect(self._apply_filters)
+        l.addWidget(self.cb_estado)
+
+        # Solo diferencias de monto
+        self.chk_diff_montos = QCheckBox("Solo diferencias $")
+        self.chk_diff_montos.toggled.connect(self._apply_filters)
+        l.addWidget(self.chk_diff_montos)
+
+        # Buscar (receta / referencia / lote)
+        l.addWidget(QLabel("Buscar:"))
+        self.in_search = QLineEdit()
+        self.in_search.setPlaceholderText("Receta / Referencia / Lote…")
+        self.in_search.textChanged.connect(self._on_search_changed)
+        self.in_search.setClearButtonEnabled(True)
+        self.in_search.setMaximumWidth(320)
+        l.addWidget(self.in_search)
+
+        self.lb_filtered = QLabel("")  # “Mostrando X de Y”
+        self.lb_filtered.setObjectName("muted")
+        l.addWidget(self.lb_filtered)
+
+        l.addStretch(1)
+        return bar
+
     def _refresh_auditoria_table(self) -> None:
         if not self._recepcion_id:
             self.tbl.setRowCount(0)
@@ -194,8 +289,67 @@ class AuditoriaTab(QWidget):
             QMessageBox.critical(self, "Error", f"No se pudo cargar la auditoría:\n{e}")
             return
 
+        self._rows_search = [
+            (
+                str(getattr(r, "numero_receta", "") or "").lower(),
+                str(getattr(r, "numero_referencia", "") or "").lower(),
+                str(getattr(r, "nro_lote", "") or "").lower(),
+            )
+            for r in self._rows_view
+        ]
+
         self.lb_status.setText(f"Auditoría cargada: {len(self._rows_view)} registros")
-        self._render_table(self._rows_view)
+        self._apply_filters()
+
+    def _apply_filters(self) -> None:
+        base_rows = self._rows_view or []
+        total = len(base_rows)
+
+        estado_id = self.cb_estado.currentData() if hasattr(self, "cb_estado") else None
+        only_diff = hasattr(self, "chk_diff_montos") and self.chk_diff_montos.isChecked()
+        q = (self.in_search.text() or "").strip().lower() if hasattr(self, "in_search") else ""
+
+        idxs = list(range(total))
+
+        # 1) Estado
+        if estado_id is not None:
+            eid = int(estado_id)
+            idxs = [
+                i for i in idxs
+                if int(getattr(base_rows[i], "estado_receta_id", 0) or 0) == eid
+            ]
+
+        # 2) Diferencias de montos
+        if only_diff:
+            def is_diff(i) -> bool:
+                r = base_rows[i]
+                rec = float(getattr(r, "importe_reconocido", 0) or 0)
+                ofi = float(getattr(r, "importe_oficial", 0) or 0)
+                return abs(rec - ofi) > 0.009
+
+            idxs = [i for i in idxs if is_diff(i)]
+
+        # 3) Buscar usando cache
+        if q:
+            cache = getattr(self, "_rows_search", [])
+            if cache and len(cache) == total:
+                idxs = [i for i in idxs if (q in cache[i][0] or q in cache[i][1] or q in cache[i][2])]
+            else:
+                # fallback si no hay cache
+                idxs = [
+                    i for i in idxs
+                    if (
+                            q in str(getattr(base_rows[i], "numero_receta", "") or "").lower()
+                            or q in str(getattr(base_rows[i], "numero_referencia", "") or "").lower()
+                            or q in str(getattr(base_rows[i], "nro_lote", "") or "").lower()
+                    )
+                ]
+
+        rows = [base_rows[i] for i in idxs]
+        self._render_table(rows)
+
+        if hasattr(self, "lb_filtered"):
+            self.lb_filtered.setText(f"Mostrando {len(rows)} de {total}")
 
     def _render_table(self, rows: list) -> None:
         self.tbl.setSortingEnabled(False)
@@ -262,10 +416,6 @@ class AuditoriaTab(QWidget):
 
         self._on_item_clicked(self.tbl.item(0, 0))
 
-
-    # -------------------------
-    # click => panel derecho
-    # -------------------------
     def _on_item_clicked(self, item: QTableWidgetItem) -> None:
         row = item.row()
         c0 = self.tbl.item(row, 0)
@@ -340,6 +490,18 @@ class AuditoriaTab(QWidget):
 
         self._recepcion_id = rec.recepcion_id
         self.in_numero.setText(str(rec.numero))
+        self.in_prestador.setText(str(rec.prestador))
+        self.in_obs.setText(str(rec.obra_social))
+
+        periodo_txt = str(rec.periodo)
+        self.in_periodo.setText(periodo_txt)
+
+        quincena = "-"
+        if "Q1" in periodo_txt:
+            quincena = "1ª"
+        elif "Q2" in periodo_txt:
+            quincena = "2ª"
+        self.in_quincena.setText(quincena)
 
         self._refresh_auditoria_table()
 
@@ -370,5 +532,28 @@ class AuditoriaTab(QWidget):
 
         dlg = AuditoriaVisualDialog(asociacion_id=int(asociacion_id), parent=self)
         dlg.exec()
+
+    def _load_estado_receta_combo(self) -> None:
+        if not hasattr(self, "cb_estado"):
+            return
+
+        try:
+            with session_scope() as s:
+                estados = EstadoRecetaService.list(s)  # objetos: id, descripcion
+        except Exception:
+            estados = []
+
+        self.cb_estado.blockSignals(True)
+        self.cb_estado.clear()
+        self.cb_estado.addItem("Todos", None)
+
+        for e in estados:
+            self.cb_estado.addItem(str(e.descripcion), int(e.estado_receta_id))
+
+        self.cb_estado.blockSignals(False)
+
+    def _on_search_changed(self) -> None:
+        # 250ms suele ir bien
+        self._search_timer.start(1000)
 
 
