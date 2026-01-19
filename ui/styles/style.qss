@@ -532,3 +532,5 @@ QCalendarWidget QComboBox {
   padding: 4px 10px;
   color: #111827;
 }
+
+QLabel[role="title"] { font-size: 16px; font-weight: 600; color: #111827; }
