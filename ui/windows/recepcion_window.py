@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTableWidget, QTableWidgetItem, QMessageBox, QFrame, QHeaderView
@@ -25,7 +26,9 @@ class RecepcionesWindow(QDialog):
         root.setContentsMargins(12, 12, 12, 12)
         root.setSpacing(10)
 
-        # Header
+        # -------------------------
+        # Header (card)
+        # -------------------------
         header = QFrame()
         header.setObjectName("card")
         hl = QHBoxLayout(header)
@@ -33,38 +36,71 @@ class RecepcionesWindow(QDialog):
         hl.setSpacing(10)
 
         title = QLabel("Recepciones")
-        title.setStyleSheet("font-size:16px; font-weight:600;")
+        f = QFont(title.font())
+        f.setPointSize(14)
+        f.setBold(True)
+        title.setFont(f)
 
         self.btn_refresh = QPushButton("Refrescar")
+        self.btn_refresh.setProperty("variant", "ghost")
+        self.btn_refresh.setProperty("size", "md")
+        self.btn_refresh.setMinimumHeight(32)
+
         self.btn_create = QPushButton("Crear")
+        self.btn_create.setProperty("variant", "primary")  # negro
+        self.btn_create.setProperty("size", "md")
+        self.btn_create.setMinimumHeight(32)
+
         self.btn_delete = QPushButton("Eliminar seleccionado")
+        self.btn_delete.setProperty("variant", "danger")   # gris oscuro (no rojo)
+        self.btn_delete.setProperty("size", "md")
+        self.btn_delete.setMinimumHeight(32)
         self.btn_delete.setEnabled(False)
 
         hl.addWidget(title)
-        hl.addStretch()
+        hl.addStretch(1)
         hl.addWidget(self.btn_refresh)
         hl.addWidget(self.btn_create)
         hl.addWidget(self.btn_delete)
 
-        root.addWidget(header)
+        root.addWidget(header, 0)
 
-        # Tabla (SIN "Creado")
+        # -------------------------
+        # Table (card)
+        # -------------------------
+        table_card = QFrame()
+        table_card.setObjectName("card")
+        tl = QVBoxLayout(table_card)
+        tl.setContentsMargins(12, 12, 12, 12)
+        tl.setSpacing(8)
+
         self.table = QTableWidget(0, 6)
         self.table.setHorizontalHeaderLabels([
-            "Número Recepcion", "Obra social", "Período", "Prestador", "Estado", "Fecha recepción"
+            "Número Recepción", "Obra social", "Período", "Prestador", "Estado", "Fecha recepción"
         ])
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
+        self.table.setAlternatingRowColors(True)
 
         hh = self.table.horizontalHeader()
-        hh.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        hh.setStretchLastSection(True)
         hh.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
+        hh.setStretchLastSection(True)
 
-        root.addWidget(self.table)
+        # Ajuste: algunas columnas a contenido, otras estiran
+        hh.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)  # Número
+        hh.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)  # Fecha
+        hh.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)           # Obra social
+        hh.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)           # Período
+        hh.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)           # Prestador
+        hh.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)  # Estado
 
+        tl.addWidget(self.table, 1)
+        root.addWidget(table_card, 1)
+
+        # Signals
         self.btn_refresh.clicked.connect(self.load_data)
         self.btn_create.clicked.connect(self.open_create_dialog)
         self.btn_delete.clicked.connect(self.on_delete)
@@ -86,12 +122,10 @@ class RecepcionesWindow(QDialog):
         return int(rid) if rid is not None else None
 
     def _fmt_dt(self, value) -> str:
-        """Formatea datetime a 'dd/mm/yyyy HH:MM' (sin micros)."""
         if value is None:
             return ""
         if isinstance(value, datetime):
             return value.strftime("%Y/%m/%d")
-        # fallback por si viene como string ya formateado
         return str(value).split(".")[0]
 
     def load_data(self):
@@ -102,23 +136,32 @@ class RecepcionesWindow(QDialog):
             QMessageBox.critical(self, "Error", f"No se pudieron cargar recepciones:\n{e}")
             return
 
-        self.table.setRowCount(0)
+        self.table.setRowCount(len(rows))
 
-        for r in rows:
-            i = self.table.rowCount()
-            self.table.insertRow(i)
-
+        for i, r in enumerate(rows):
+            # Número + id oculto
             it_num = QTableWidgetItem(str(r.numero))
             it_num.setData(Qt.ItemDataRole.UserRole, r.recepcion_id)
             it_num.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.table.setItem(i, 0, it_num)
 
-            self.table.setItem(i, 1, QTableWidgetItem(r.obra_social))
-            self.table.setItem(i, 2, QTableWidgetItem(r.periodo))
-            self.table.setItem(i, 3, QTableWidgetItem(r.prestador))
-            self.table.setItem(i, 4, QTableWidgetItem(r.estado))
+            it_obs = QTableWidgetItem(str(getattr(r, "obra_social", "") or ""))
+            it_obs.setTextAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+            self.table.setItem(i, 1, it_obs)
 
-            it_fecha = QTableWidgetItem(self._fmt_dt(r.fecha_recepcion))
+            it_per = QTableWidgetItem(str(getattr(r, "periodo", "") or ""))
+            it_per.setTextAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+            self.table.setItem(i, 2, it_per)
+
+            it_pre = QTableWidgetItem(str(getattr(r, "prestador", "") or ""))
+            it_pre.setTextAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+            self.table.setItem(i, 3, it_pre)
+
+            it_est = QTableWidgetItem(str(getattr(r, "estado", "") or ""))
+            it_est.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.table.setItem(i, 4, it_est)
+
+            it_fecha = QTableWidgetItem(self._fmt_dt(getattr(r, "fecha_recepcion", None)))
             it_fecha.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.table.setItem(i, 5, it_fecha)
 
