@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
     QLabel, QComboBox, QPushButton, QMessageBox,
     QTableWidget, QTableWidgetItem, QAbstractItemView,
-    QHeaderView, QDateEdit
+    QHeaderView, QDateEdit, QFrame, QSizePolicy, QWidget
 )
 
 from app.db.session import session_scope
@@ -17,13 +17,16 @@ from app.service.view_debitos import ViewDebitos
 
 
 class ListadoDebitosWindow(QDialog):
+    ROW_H = 38
+    COMBO_H = 28
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Débitos por recepción")
         self.setMinimumSize(1100, 650)
         self.setModal(True)
 
-        self._estados = []  # [(id, descripcion)]
+        self._estados: list[tuple[int, str]] = []
         self._build_ui()
         self._load_estados()
         self._load_recepciones()
@@ -35,38 +38,66 @@ class ListadoDebitosWindow(QDialog):
         root.setContentsMargins(12, 12, 12, 12)
         root.setSpacing(10)
 
-        # filtros
-        filters = QHBoxLayout()
+        # -------------------------
+        # Filters (card)
+        # -------------------------
+        filters_card = QFrame()
+        filters_card.setObjectName("card")
+        fc = QHBoxLayout(filters_card)
+        fc.setContentsMargins(12, 10, 12, 10)
+        fc.setSpacing(12)
+
         form = QFormLayout()
         form.setLabelAlignment(Qt.AlignRight)
+        form.setFormAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        form.setHorizontalSpacing(10)
+        form.setVerticalSpacing(6)
 
         self.cb_recepcion = QComboBox()
-        self.cb_recepcion.setMinimumWidth(220)
+        self.cb_recepcion.setMinimumWidth(240)
+        self.cb_recepcion.setMinimumHeight(28)
 
         self.dt_fecha = QDateEdit()
         self.dt_fecha.setCalendarPopup(True)
         self.dt_fecha.setDisplayFormat("dd/MM/yyyy")
         self.dt_fecha.setDate(QDate.currentDate())
+        self.dt_fecha.setMinimumHeight(28)
+        self.dt_fecha.setFixedWidth(140)
         self.dt_fecha.setProperty("_sin_filtro", False)
-
-        self.btn_clear_fecha = QPushButton("Limpiar fecha")
-        self.btn_reload = QPushButton("Actualizar")
 
         form.addRow(QLabel("Recepción:"), self.cb_recepcion)
         form.addRow(QLabel("Fecha autorización:"), self.dt_fecha)
 
-        filters.addLayout(form)
-        filters.addStretch(1)
+        fc.addLayout(form, 1)
 
+        # Right buttons
         right = QVBoxLayout()
+        right.setSpacing(8)
+
+        self.btn_reload = QPushButton("Actualizar")
+        self.btn_reload.setProperty("variant", "primary")
+        self.btn_reload.setMinimumHeight(32)
+
+        self.btn_clear_fecha = QPushButton("Limpiar fecha")
+        self.btn_clear_fecha.setProperty("variant", "ghost")
+        self.btn_clear_fecha.setMinimumHeight(32)
+
         right.addWidget(self.btn_reload)
         right.addWidget(self.btn_clear_fecha)
         right.addStretch(1)
-        filters.addLayout(right)
 
-        root.addLayout(filters)
+        fc.addLayout(right, 0)
+        root.addWidget(filters_card, 0)
 
-        # tabla
+        # -------------------------
+        # Table (card)
+        # -------------------------
+        table_card = QFrame()
+        table_card.setObjectName("card")
+        tc = QVBoxLayout(table_card)
+        tc.setContentsMargins(12, 12, 12, 12)
+        tc.setSpacing(8)
+
         self.tbl = QTableWidget(0, 7)
         self.tbl.setHorizontalHeaderLabels([
             "Orden lote", "N° receta", "Importe OBS", "A cargo entidad",
@@ -79,17 +110,38 @@ class ListadoDebitosWindow(QDialog):
         self.tbl.setAlternatingRowColors(True)
         self.tbl.setSortingEnabled(False)
 
+        # ✅ alturas para que NO se recorte el combo
+        self.tbl.verticalHeader().setDefaultSectionSize(self.ROW_H)
+        self.tbl.verticalHeader().setMinimumSectionSize(self.ROW_H)
+
         header = self.tbl.horizontalHeader()
-        header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         header.setStretchLastSection(True)
 
-        root.addWidget(self.tbl, 1)
+        # Base: que Qt calcule por contenido, pero controlamos columnas largas
+        header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
 
-        # footer
+        # Columnas largas => Stretch
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)  # Débito
+        header.setSectionResizeMode(6, QHeaderView.ResizeMode.Stretch)  # Detalle
+
+        # ✅ Columna del combo: ancho estable (mejor que stretch)
+        header.setSectionResizeMode(5, QHeaderView.ResizeMode.Interactive)
+        self.tbl.setColumnWidth(5, 260)  # ajustá a 220/260/300 si querés
+
+        tc.addWidget(self.tbl, 1)
+        root.addWidget(table_card, 1)
+
+        # -------------------------
+        # Footer
+        # -------------------------
         footer = QHBoxLayout()
         footer.addStretch(1)
+
         btn_close = QPushButton("Cerrar")
+        btn_close.setProperty("variant", "ghost")
+        btn_close.setMinimumHeight(32)
         btn_close.clicked.connect(self.close)
+
         footer.addWidget(btn_close)
         root.addLayout(footer)
 
@@ -116,10 +168,12 @@ class ListadoDebitosWindow(QDialog):
     # ---------------- filters helpers ----------------
     def _on_fecha_changed(self) -> None:
         self.dt_fecha.setProperty("_sin_filtro", False)
+        self.dt_fecha.setEnabled(True)
         self._reload()
 
     def _clear_fecha(self) -> None:
         self.dt_fecha.setProperty("_sin_filtro", True)
+        self.dt_fecha.setEnabled(False)
         self._reload()
 
     def _get_fecha_filtro(self) -> date | None:
@@ -146,38 +200,49 @@ class ListadoDebitosWindow(QDialog):
         self.tbl.setRowCount(len(rows))
 
         for i, r in enumerate(rows):
-            # 0 orden_lote
+            self.tbl.setRowHeight(i, self.ROW_H)
+
             self._set_item(i, 0, str(r.orden_lote))
-
-            # 1 nro_receta
             self._set_item(i, 1, str(r.nro_receta or ""))
-
-            # 2 importe_obs
             self._set_item(i, 2, self._fmt_money(r.importe_obs))
-
-            # 3 a_cargo_entidad
             self._set_item(i, 3, self._fmt_money(r.a_cargo_entidad))
-
-            # 4 descripcion_debito
             self._set_item(i, 4, str(r.descripcion_debito or ""))
 
-            # 5 estado_seguimiento (editable)
+            # -------------------------
+            # Estado seguimiento (Combo FULL WIDTH + NO RECORTE)
+            # -------------------------
             cb = QComboBox()
-            cb.setMinimumWidth(200)
+            cb.setMinimumHeight(self.COMBO_H)
+            cb.setMaximumHeight(self.COMBO_H)
+            cb.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             cb.setProperty("receta_id", int(r.receta_id))
 
-            for estado_id, desc in self._estados:
-                cb.addItem(desc, estado_id)
+            # Cargamos sin disparar cambios
+            with QSignalBlocker(cb):
+                cb.clear()
+                for estado_id, desc in self._estados:
+                    cb.addItem(desc, estado_id)
 
-            if r.estado_seguimiento_id is not None:
-                idx = cb.findData(int(r.estado_seguimiento_id))
-                if idx >= 0:
-                    cb.setCurrentIndex(idx)
+                if r.estado_seguimiento_id is not None:
+                    idx = cb.findData(int(r.estado_seguimiento_id))
+                    if idx >= 0:
+                        cb.setCurrentIndex(idx)
 
+            cb.setToolTip(cb.currentText())
+            cb.currentTextChanged.connect(cb.setToolTip)
             cb.currentIndexChanged.connect(self._on_estado_changed)
-            self.tbl.setCellWidget(i, 5, cb)
 
-            # 6 detalle
+            # Container para ocupar toda la celda + padding prolijo
+            cell = QWidget()
+            cell.setMinimumHeight(self.ROW_H)
+
+            cell_l = QHBoxLayout(cell)
+            cell_l.setContentsMargins(8, 4, 8, 4)  # padding (no recorta)
+            cell_l.setSpacing(0)
+            cell_l.addWidget(cb, 1)
+
+            self.tbl.setCellWidget(i, 5, cell)
+
             self._set_item(i, 6, str(r.detalle or ""))
 
     def _on_estado_changed(self) -> None:
@@ -192,8 +257,11 @@ class ListadoDebitosWindow(QDialog):
             return
 
         try:
-            RecetaService.update_estado_seguimiento(int(receta_id), int(new_estado_id) if new_estado_id is not None else None)
-            self._reload()  # refresca siempre al cambiar
+            RecetaService.update_estado_seguimiento(
+                int(receta_id),
+                int(new_estado_id) if new_estado_id is not None else None
+            )
+            self._reload()
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudo actualizar el estado.\n\n{e}")
             self._reload()
@@ -204,7 +272,8 @@ class ListadoDebitosWindow(QDialog):
         it.setFlags(it.flags() & ~Qt.ItemIsEditable)
         self.tbl.setItem(row, col, it)
 
-    def _fmt_money(self, v) -> str:
+    @staticmethod
+    def _fmt_money(v) -> str:
         if v is None:
             return "0,00"
         try:
