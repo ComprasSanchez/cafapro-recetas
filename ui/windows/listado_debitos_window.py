@@ -72,15 +72,15 @@ class ListadoDebitosWindow(QDialog):
             "Orden lote", "N° receta", "Importe OBS", "A cargo entidad",
             "Débito", "Estado seguimiento", "Detalle"
         ])
-        self.tbl.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.tbl.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.tbl.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.tbl.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.tbl.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.tbl.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.tbl.verticalHeader().setVisible(False)
         self.tbl.setAlternatingRowColors(True)
         self.tbl.setSortingEnabled(False)
 
         header = self.tbl.horizontalHeader()
-        header.setSectionResizeMode(QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         header.setStretchLastSection(True)
 
         root.addWidget(self.tbl, 1)
