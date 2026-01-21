@@ -48,6 +48,8 @@ class VwArchivoRecetaDebitos(Base):
         ),
     )
 
+
+    recepcion_numero: Mapped[int] = mapped_column(sa.Integer, nullable=True)
     receta_id: Mapped[int] = mapped_column(sa.Integer)
     recepcion_id: Mapped[int] = mapped_column(sa.Integer)
 
@@ -65,5 +67,6 @@ class VwArchivoRecetaDebitos(Base):
 
     descripcion_debito: Mapped[str] = mapped_column(sa.String)
     detalle: Mapped[str | None] = mapped_column(sa.String, nullable=True)
+    creado_en: Mapped[sa.DateTime] = mapped_column(sa.DateTime, nullable=False)
 
 
