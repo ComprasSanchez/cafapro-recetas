@@ -1,8 +1,7 @@
+# ui/tabs/auditoria_tab.py
 from __future__ import annotations
 
 from pathlib import Path
-from PIL import Image
-from PIL.ImageQt import ImageQt
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QPixmap
@@ -14,15 +13,14 @@ from PySide6.QtWidgets import (
     QComboBox, QCheckBox
 )
 
-from app.db.session import session_scope
-from app.service.recepcion_service import RecepcionService
-from app.service.view_auditoria import ViewAuditoriaService
-from app.service.estado_receta_service import EstadoRecetaService
+from ui.tabs.base_tab import BaseTabWidget
 from ui.dialogs.recepcion_pick_dialog import RecepcionPickDialog
 from ui.dialogs.auditoria_visual_dialog import AuditoriaVisualDialog
 
+from ui.usecase.auditoria_usecase import AuditoriaUseCase, RecepcionOut, EstadosOut, AuditoriaRowsOut, PreviewBytesOut
 
-class AuditoriaTab(QWidget):
+
+class AuditoriaTab(BaseTabWidget):
     ROW_H = 34
 
     def __init__(self, parent=None, creado_por_usuario_id: int | None = None):
@@ -30,9 +28,11 @@ class AuditoriaTab(QWidget):
         self.creado_por_usuario_id = creado_por_usuario_id
 
         self._recepcion_id: int | None = None
-        self._rows_view = []          # cache rows de la view (base)
-        self._rows_search = []        # cache tuples lower() para buscar
+        self._rows_view: list = []
+        self._rows_search: list[tuple[str, str, str]] = []
         self._last_preview_path: str | None = None
+
+        self._uc = AuditoriaUseCase()
 
         root = QVBoxLayout(self)
         root.setContentsMargins(10, 10, 10, 10)
@@ -41,11 +41,17 @@ class AuditoriaTab(QWidget):
         root.addWidget(self._build_header(), 0)
         root.addWidget(self._build_body(), 1)
 
-        self._load_estado_receta_combo()
-
         self._search_timer = QTimer(self)
         self._search_timer.setSingleShot(True)
         self._search_timer.timeout.connect(self._apply_filters)
+
+        # cargar estados async (no bloquea)
+        self.run_job(
+            self._uc.load_estados,
+            title="Cargando estados…",
+            on_result=self._apply_estados,
+            on_error=lambda err: None,  # si falla, no matamos el tab
+        )
 
     # -------------------------
     # HEADER
@@ -110,7 +116,7 @@ class AuditoriaTab(QWidget):
         row1_l = QHBoxLayout(row1_box)
         row1_l.setContentsMargins(0, 0, 0, 0)
         row1_l.setSpacing(10)
-        row1_l.addWidget(self.in_obs, 0)         # valor obs
+        row1_l.addWidget(self.in_obs, 0)
         row1_l.addSpacing(8)
         row1_l.addWidget(lb_prest, 0)
         row1_l.addWidget(self.in_prestador, 0)
@@ -153,11 +159,48 @@ class AuditoriaTab(QWidget):
         if dlg.exec() != dlg.DialogCode.Accepted:
             return
         rid = dlg.selected_recepcion_id()
-        if rid:
-            self._load_recepcion(rid)
+        if not rid:
+            return
+
+        # 1) cargar recepción (async)
+        self.run_job(
+            self._uc.load_recepcion,
+            recepcion_id=rid,
+            title="Cargando recepción…",
+            on_result=self._apply_recepcion,
+            on_error=self._ui_error,
+        )
+
+    def _apply_recepcion(self, out: RecepcionOut) -> None:
+        self._recepcion_id = out.recepcion_id
+
+        self.in_numero.setText(out.numero)
+        self.in_prestador.setText(out.prestador)
+        self.in_obs.setText(out.obra_social)
+
+        self.in_periodo.setText(out.periodo)
+        quincena = "-"
+        if "Q1" in out.periodo:
+            quincena = "1ª"
+        elif "Q2" in out.periodo:
+            quincena = "2ª"
+        self.in_quincena.setText(quincena)
+
+        # 2) cargar auditoría (async)
+        self._rows_view = []
+        self._rows_search = []
+        self._clear_table_and_preview()
+
+        self.run_job(
+            self._uc.load_auditoria,
+            recepcion_id=self._recepcion_id,
+            title="Cargando auditoría…",
+            on_result=self._apply_auditoria_rows,
+            on_error=self._ui_error,
+        )
 
     # -------------------------
-    # BODY (status + filtros + split)
+    # BODY
     # -------------------------
     def _build_body(self) -> QFrame:
         body = QFrame()
@@ -176,7 +219,7 @@ class AuditoriaTab(QWidget):
         split = QSplitter(Qt.Orientation.Horizontal)
         lay.addWidget(split, 1)
 
-        # -------- IZQUIERDA: TABLA --------
+        # -------- IZQ: TABLA --------
         left = QWidget()
         left_l = QVBoxLayout(left)
         left_l.setContentsMargins(0, 0, 0, 0)
@@ -208,9 +251,9 @@ class AuditoriaTab(QWidget):
         left_l.addWidget(self.tbl, 1)
         split.addWidget(left)
 
-        # -------- DERECHA: PREVIEW --------
+        # -------- DER: PREVIEW --------
         right = QFrame()
-        right.setObjectName("panel")  # si no existe en QSS, igual no rompe
+        right.setObjectName("panel")
         rp_l = QVBoxLayout(right)
         rp_l.setContentsMargins(8, 8, 8, 8)
         rp_l.setSpacing(8)
@@ -274,32 +317,19 @@ class AuditoriaTab(QWidget):
         return bar
 
     # -------------------------
-    # data + render
+    # Estados / Auditoría
     # -------------------------
-    def _refresh_auditoria_table(self) -> None:
-        if not self._recepcion_id:
-            self.tbl.setRowCount(0)
-            self.lb_status.setText("Seleccioná una recepción para cargar la auditoría.")
-            self.lb_filtered.setText("")
-            self.btn_visual.setEnabled(False)
-            return
+    def _apply_estados(self, out: EstadosOut) -> None:
+        self.cb_estado.blockSignals(True)
+        self.cb_estado.clear()
+        self.cb_estado.addItem("Todos", None)
+        for eid, desc in out.estados:
+            self.cb_estado.addItem(desc, eid)
+        self.cb_estado.blockSignals(False)
 
-        try:
-            with session_scope() as s:
-                self._rows_view = list(ViewAuditoriaService.list(s, self._recepcion_id))
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"No se pudo cargar la auditoría:\n{e}")
-            return
-
-        self._rows_search = [
-            (
-                str(getattr(r, "numero_receta", "") or "").lower(),
-                str(getattr(r, "numero_referencia", "") or "").lower(),
-                str(getattr(r, "nro_lote", "") or "").lower(),
-            )
-            for r in self._rows_view
-        ]
-
+    def _apply_auditoria_rows(self, out: AuditoriaRowsOut) -> None:
+        self._rows_view = out.rows
+        self._rows_search = out.search_cache
         self.lb_status.setText(f"Auditoría cargada: {len(self._rows_view)} registros")
         self._apply_filters()
 
@@ -313,25 +343,18 @@ class AuditoriaTab(QWidget):
 
         idxs = list(range(total))
 
-        # 1) Estado
         if estado_id is not None:
             eid = int(estado_id)
-            idxs = [
-                i for i in idxs
-                if int(getattr(base_rows[i], "estado_receta_id", 0) or 0) == eid
-            ]
+            idxs = [i for i in idxs if int(getattr(base_rows[i], "estado_receta_id", 0) or 0) == eid]
 
-        # 2) Diferencias
         if only_diff:
             def is_diff(i: int) -> bool:
                 r = base_rows[i]
                 rec = float(getattr(r, "importe_reconocido", 0) or 0)
                 ofi = float(getattr(r, "importe_oficial", 0) or 0)
                 return abs(rec - ofi) > 0.009
-
             idxs = [i for i in idxs if is_diff(i)]
 
-        # 3) Buscar (cache)
         if q:
             cache = self._rows_search if len(self._rows_search) == total else None
             if cache:
@@ -348,7 +371,6 @@ class AuditoriaTab(QWidget):
 
         rows = [base_rows[i] for i in idxs]
         self._render_table(rows)
-
         self.lb_filtered.setText(f"Mostrando {len(rows)} de {total}")
 
     def _render_table(self, rows: list) -> None:
@@ -379,7 +401,6 @@ class AuditoriaTab(QWidget):
             self._set_item(i, 6, f"{float(importe_oficial):.2f}", align=Qt.AlignRight)
             self._set_item(i, 7, str(estado_receta))
 
-            # data en celda 0
             c0 = self.tbl.item(i, 0)
             c0.setData(Qt.ItemDataRole.UserRole, asociacion_id)
             c0.setData(Qt.ItemDataRole.UserRole + 1, frente_jpg)
@@ -389,16 +410,11 @@ class AuditoriaTab(QWidget):
         if rows:
             QTimer.singleShot(0, self._select_first_row)
         else:
-            self.img_preview.setPixmap(QPixmap())
-            self.img_preview.setText("Sin imagen")
-            self.btn_visual.setEnabled(False)
+            self._clear_preview()
 
     def _set_item(self, row: int, col: int, text: str, align: Qt.AlignmentFlag | None = None) -> None:
         it = QTableWidgetItem(text)
-        if align is None:
-            it.setTextAlignment(Qt.AlignVCenter | Qt.AlignLeft)
-        else:
-            it.setTextAlignment(Qt.AlignVCenter | align)
+        it.setTextAlignment(Qt.AlignVCenter | (align if align is not None else Qt.AlignLeft))
         self.tbl.setItem(row, col, it)
 
     def _select_first_row(self) -> None:
@@ -413,109 +429,87 @@ class AuditoriaTab(QWidget):
             self.tbl.scrollToItem(it, QAbstractItemView.ScrollHint.PositionAtTop)
             self._on_item_clicked(it)
 
+    # -------------------------
+    # Preview async
+    # -------------------------
     def _on_item_clicked(self, item: QTableWidgetItem) -> None:
         row = item.row()
         c0 = self.tbl.item(row, 0)
         if not c0:
             return
 
-        asociacion_id = c0.data(Qt.ItemDataRole.UserRole)
         frente_jpg = (c0.data(Qt.ItemDataRole.UserRole + 1) or "").strip()
-
-        if frente_jpg:
-            self._set_preview_from_file(frente_jpg)
-        else:
-            self.img_preview.setPixmap(QPixmap())
-            self.img_preview.setText("Sin imagen")
+        if not frente_jpg:
+            self._clear_preview()
             self._last_preview_path = None
+            self._sync_visual_button_state()
+            return
 
-        self.lb_status.setText(f"Seleccionado asociacion_id={asociacion_id}")
+        self._last_preview_path = frente_jpg
+        self._load_preview_async(frente_jpg)
+
         self._sync_visual_button_state()
 
-    # -------------------------
-    # preview
-    # -------------------------
-    def _set_preview_from_file(self, path: str) -> None:
-        try:
-            p = Path(path)
-            if not p.exists():
-                raise FileNotFoundError(f"No existe: {p}")
+    def _load_preview_async(self, path: str) -> None:
+        vw = max(200, self.scroll.viewport().width() - 12)
+        vh = max(200, self.scroll.viewport().height() - 12)
 
-            pil_img = Image.open(p).convert("RGB")
+        self.img_preview.setText("Cargando…")
+        self.img_preview.setPixmap(QPixmap())
 
-            vw = max(200, self.scroll.viewport().width() - 12)
-            vh = max(200, self.scroll.viewport().height() - 12)
+        self.run_job(
+            self._uc.load_preview_bytes,
+            path=path,
+            vw=vw,
+            vh=vh,
+            title="Cargando imagen…",
+            on_result=self._apply_preview_bytes,
+            on_error=self._ui_error_preview,
+        )
 
-            scale = min(vw / pil_img.width, vh / pil_img.height)
-            scale = max(scale, 0.30)
+    def _apply_preview_bytes(self, out: PreviewBytesOut) -> None:
+        # si ya cambió la selección mientras cargaba
+        if self._last_preview_path and Path(self._last_preview_path) != Path(out.path):
+            return
 
-            new_w = int(pil_img.width * scale)
-            new_h = int(pil_img.height * scale)
-            pil_img = pil_img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+        pix = QPixmap()
+        pix.loadFromData(out.img_bytes, "PNG")
 
-            qimg = ImageQt(pil_img)
-            pix = QPixmap.fromImage(qimg)
+        self.img_preview.setPixmap(pix)
+        self.img_preview.resize(pix.size())
+        self.img_preview.setText("")
 
-            self.img_preview.setPixmap(pix)
-            self.img_preview.resize(pix.size())
-            self.img_preview.setText("")
-            self._last_preview_path = str(p)
+    def _clear_preview(self) -> None:
+        self.img_preview.setPixmap(QPixmap())
+        self.img_preview.setText("Sin imagen")
+        self._last_preview_path = None
+        self.btn_visual.setEnabled(False)
 
-        except Exception as e:
-            self.img_preview.setPixmap(QPixmap())
-            self.img_preview.setText(f"No se pudo cargar la imagen.\n{e}")
-            self._last_preview_path = None
+    def _clear_table_and_preview(self) -> None:
+        self.tbl.setRowCount(0)
+        self.lb_status.setText("Cargando auditoría…")
+        self.lb_filtered.setText("")
+        self._clear_preview()
 
-    def resizeEvent(self, event) -> None:
+    def resize_event(self, event) -> None:
         super().resizeEvent(event)
+        # recargar preview en background al resize (no bloquea)
         if self._last_preview_path:
-            self._set_preview_from_file(self._last_preview_path)
+            self._load_preview_async(self._last_preview_path)
 
     # -------------------------
-    # recepción + estados
+    # Auditoría visual
     # -------------------------
-    def _load_recepcion(self, recepcion_id: int) -> None:
-        try:
-            with session_scope() as s:
-                rows = RecepcionService.list(s)
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"No se pudo cargar la recepción:\n{e}")
-            return
-
-        rec = next((x for x in rows if x.recepcion_id == recepcion_id), None)
-        if not rec:
-            QMessageBox.warning(self, "Atención", "No se encontró la recepción seleccionada.")
-            return
-
-        self._recepcion_id = rec.recepcion_id
-        self.in_numero.setText(str(rec.numero))
-        self.in_prestador.setText(str(rec.prestador))
-        self.in_obs.setText(str(rec.obra_social))
-
-        periodo_txt = str(rec.periodo)
-        self.in_periodo.setText(periodo_txt)
-
-        quincena = "-"
-        if "Q1" in periodo_txt:
-            quincena = "1ª"
-        elif "Q2" in periodo_txt:
-            quincena = "2ª"
-        self.in_quincena.setText(quincena)
-
-        self._refresh_auditoria_table()
-
     def _sync_visual_button_state(self) -> None:
         it = self.tbl.currentItem()
         if not it:
             self.btn_visual.setEnabled(False)
             return
-
         row = it.row()
         c0 = self.tbl.item(row, 0)
         if not c0:
             self.btn_visual.setEnabled(False)
             return
-
         asociacion_id = c0.data(Qt.ItemDataRole.UserRole)
         self.btn_visual.setEnabled(bool(asociacion_id))
 
@@ -527,31 +521,35 @@ class AuditoriaTab(QWidget):
         asociacion_id = c0.data(Qt.ItemDataRole.UserRole) if c0 else None
         if not asociacion_id:
             return
-
         dlg = AuditoriaVisualDialog(asociacion_id=int(asociacion_id), parent=self)
         dlg.exec()
 
-    def _load_estado_receta_combo(self) -> None:
-        if not hasattr(self, "cb_estado"):
-            return
-
-        try:
-            with session_scope() as s:
-                estados = EstadoRecetaService.list(s)
-        except Exception:
-            estados = []
-
-        self.cb_estado.blockSignals(True)
-        self.cb_estado.clear()
-        self.cb_estado.addItem("Todos", None)
-
-        for e in estados:
-            self.cb_estado.addItem(str(e.descripcion), int(e.estado_receta_id))
-
-        self.cb_estado.blockSignals(False)
-
     # -------------------------
-    # search
+    # Search debounce
     # -------------------------
     def _on_search_changed(self) -> None:
         self._search_timer.start(250)
+
+    # -------------------------
+    # UI error helpers
+    # -------------------------
+    def _ui_error(self, err_text: str) -> None:
+        msg = (err_text or "").lower()
+        is_not_found = ("filenotfounderror" in msg) or ("no se encontró" in msg) or ("no encontrado" in msg)
+
+        # mostramos última línea para no spamear traceback
+        lines = [l.strip() for l in (err_text or "").splitlines() if l.strip()]
+        nice = lines[-1] if lines else err_text
+
+        if is_not_found:
+            QMessageBox.warning(self, "Atención", nice)
+        else:
+            QMessageBox.critical(self, "Error", err_text)
+
+    def _ui_error_preview(self, err_text: str) -> None:
+        # preview: no queremos un critical gigante, solo mostrar "no se pudo"
+        lines = [l.strip() for l in (err_text or "").splitlines() if l.strip()]
+        nice = lines[-1] if lines else err_text
+        self.img_preview.setPixmap(QPixmap())
+        self.img_preview.setText(f"No se pudo cargar la imagen.\n{nice}")
+

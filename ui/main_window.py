@@ -1,4 +1,6 @@
 from PySide6.QtWidgets import QMainWindow
+
+from ui.footer.footer import FooterManeger
 from ui.tabs.tabs_manager import TabsManager
 from ui.window_manager import WindowManager
 from ui.header.menu_builder import HeaderMenuBar
@@ -13,6 +15,9 @@ class MainWindow(QMainWindow):
 
         self.tabs = TabsManager(self)
         self.setCentralWidget(self.tabs)
+
+        self.footer = FooterManeger(self)
+        self.setStatusBar(self.footer)
 
         # Managers
         self.window_manager = WindowManager()

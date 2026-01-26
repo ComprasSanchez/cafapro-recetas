@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime
-
 from PySide6.QtCore import Qt, QDate
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QFrame, QHBoxLayout, QLabel, QPushButton,
@@ -9,37 +7,28 @@ from PySide6.QtWidgets import (
     QTableWidgetItem, QTableWidget, QAbstractItemView, QSplitter, QHeaderView, QDateEdit
 )
 
-from app.db.session import session_scope
-from app.service.archivo_service import ArchivoService
-from app.service.recepcion_service import RecepcionService
-from core.imed_cvs_handler import ImedCvsHandler
+from ui.tabs.base_tab import BaseTabWidget
 from ui.dialogs.recepcion_pick_dialog import RecepcionPickDialog
 
-def parse_aut_ts(receta: dict) -> datetime:
-    f = (receta.get("Fecha") or "").strip()    # "02/12/2025"
-    h = (receta.get("Hora") or "").strip()     # "07:34:30"
-
-    if not h:
-        h = "00:00:00"
-    elif len(h) == 5:
-        h += ":00"
-
-    return datetime.strptime(f"{f} {h}", "%d/%m/%Y %H:%M:%S")
+from ui.usecase.archivo_cvs_usecase import (
+    ArchivoCvsUseCase,
+    RecepcionOut,
+    CsvOut,
+    SubirOut,
+)
 
 
-
-class ArchivoCvsTab(QWidget):
+class ArchivoCvsTab(BaseTabWidget):
     def __init__(self, parent=None, creado_por_usuario_id: int | None = None):
         super().__init__(parent)
         self.creado_por_usuario_id = creado_por_usuario_id
 
         self._recepcion_id: int | None = None
-        self._fecha: datetime | None = None
 
         self.imed: str | None = None
         self.obs: str | None = None
 
-        self._cvs = ImedCvsHandler()
+        self._uc = ArchivoCvsUseCase()
 
         # data en memoria
         self._recetas_por_ref: dict[str, dict] = {}
@@ -86,8 +75,10 @@ class ArchivoCvsTab(QWidget):
         self.btn_pick_recepcion = QPushButton("…")
         self.btn_pick_recepcion.setFixedSize(32, 26)
 
+        # (si no usás "nueva" acá, lo dejo oculto para mantener layout)
         self.btn_new_recepcion = QPushButton("+")
         self.btn_new_recepcion.setFixedSize(32, 26)
+        self.btn_new_recepcion.setVisible(False)
 
         lb_obra = QLabel("Obra social:")
         self.in_obra = self._ro_line()
@@ -156,7 +147,6 @@ class ArchivoCvsTab(QWidget):
 
         # señales
         self.btn_pick_recepcion.clicked.connect(self._on_pick_recepcion)
-
         self.btn_cargar.clicked.connect(self._on_cargar)
         self.btn_subir.clicked.connect(self._on_subir)
 
@@ -235,36 +225,34 @@ class ArchivoCvsTab(QWidget):
         return split
 
     # --------------------------
-    # Recepción
+    # Recepción (async)
     # --------------------------
     def _on_pick_recepcion(self):
         dlg = RecepcionPickDialog(self)
         if dlg.exec() != dlg.DialogCode.Accepted:
             return
+
         rid = dlg.selected_recepcion_id()
-        if rid:
-            self._load_recepcion(rid)
-
-    def _load_recepcion(self, recepcion_id: int):
-        try:
-            with session_scope() as s:
-                rows = RecepcionService.list(s)
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"No se pudo cargar la recepción:\n{e}")
+        if not rid:
             return
 
-        rec = next((x for x in rows if x.recepcion_id == recepcion_id), None)
-        if not rec:
-            QMessageBox.warning(self, "Atención", "No se encontró la recepción seleccionada.")
-            return
+        self.run_job(
+            self._uc.load_recepcion,
+            recepcion_id=rid,
+            title="Cargando recepción…",
+            on_result=self._apply_recepcion,
+            on_error=lambda err: QMessageBox.critical(self, "Error", err),
+        )
 
-        self._recepcion_id = rec.recepcion_id
-        self.in_numero.setText(str(rec.numero))
-        self.in_prestador.setText(str(rec.prestador))
-        self.in_obra.setText(str(rec.obra_social))
+    def _apply_recepcion(self, out: RecepcionOut) -> None:
+        self._recepcion_id = out.recepcion_id
 
-        self.obs = str(rec.obra_social)
-        self.imed = str(rec.imed)
+        self.in_numero.setText(out.numero)
+        self.in_prestador.setText(out.prestador)
+        self.in_obra.setText(out.obra_social)
+
+        self.imed = out.imed
+        self.obs = out.obs
         self.in_imed.setText(self.imed)
 
         # al cambiar recepción: limpiar tablas / cache
@@ -275,24 +263,27 @@ class ArchivoCvsTab(QWidget):
         self._render_detalles(None)
 
     # --------------------------
-    # CSV
+    # CSV (async)
     # --------------------------
     def _on_cargar(self) -> None:
         imed = self.in_imed.text().strip()
-        fecha = self.de_fecha.date().toString("dd/MM/yyyy")  # coherente con el handler
+        fecha = self.de_fecha.date().toString("dd/MM/yyyy")
 
         if not imed:
             QMessageBox.warning(self, "Atención", "Primero seleccioná una recepción (para tener IMED).")
             return
 
-        try:
-            recetas, detalles = self._cvs.read_cvs_by_imed_and_date(imed=imed, date=fecha)
-        except Exception as e:
-            QMessageBox.critical(self, "Error", str(e))
-            return
+        self.run_job(
+            self._uc.load_csv,
+            imed=imed,
+            fecha_str=fecha,
+            title="Cargando CSV…",
+            on_result=self._apply_csv,
+        )
 
-        self._recetas_por_ref = recetas or {}
-        self._detalles_por_ref = detalles or {}
+    def _apply_csv(self, out: CsvOut) -> None:
+        self._recetas_por_ref = out.recetas_por_ref or {}
+        self._detalles_por_ref = out.detalles_por_ref or {}
         self._current_ref = None
 
         self._render_recetas()
@@ -314,47 +305,37 @@ class ArchivoCvsTab(QWidget):
                 r = self.tbl_recetas.rowCount()
                 self.tbl_recetas.insertRow(r)
 
-                # 0) Nro Referencia (y lo guardo en UserRole)
+                # 0) Nro Referencia (UserRole)
                 it_ref = QTableWidgetItem(str(nro_ref))
                 it_ref.setData(Qt.UserRole, str(nro_ref))
                 self.tbl_recetas.setItem(r, 0, it_ref)
 
-                # 1) Nro Receta
                 nro_receta = receta.get("Nro_Receta") or receta.get("Nro Receta") or ""
                 self.tbl_recetas.setItem(r, 1, QTableWidgetItem(str(nro_receta)))
 
-                # 2) Beneficiario
                 beneficiario = receta.get("Beneficiario") or ""
                 self.tbl_recetas.setItem(r, 2, QTableWidgetItem(str(beneficiario)))
 
-                # 3) Fecha
                 fecha = receta.get("Fecha") or ""
                 self.tbl_recetas.setItem(r, 3, QTableWidgetItem(str(fecha)))
 
-                # 4) Hora
                 hora = receta.get("Hora") or ""
                 self.tbl_recetas.setItem(r, 4, QTableWidgetItem(str(hora)))
 
-                # 5) Importe Gral
                 imp_gral = receta.get("Importe_Gral") or receta.get("Importe Gral") or ""
                 self.tbl_recetas.setItem(r, 5, QTableWidgetItem(str(imp_gral)))
 
-                # 6) Importe Pami
                 imp_pami = receta.get("Importe_Pami") or receta.get("Importe Pami") or ""
                 self.tbl_recetas.setItem(r, 6, QTableWidgetItem(str(imp_pami)))
 
-                # 7) A Cargo Entidad
                 cargo = receta.get("A_Cargo_Entidad") or receta.get("A Cargo Entidad") or ""
                 self.tbl_recetas.setItem(r, 7, QTableWidgetItem(str(cargo)))
 
-                # 8) Orden Del Lote
                 orden = receta.get("Orden_Del_Lote") or receta.get("Orden Del Lote") or ""
                 self.tbl_recetas.setItem(r, 8, QTableWidgetItem(str(orden)))
         finally:
             self.tbl_recetas.setUpdatesEnabled(True)
             self.tbl_recetas.setSortingEnabled(True)
-
-        self.tbl_recetas.resizeColumnsToContents()
 
         self.tbl_recetas.resizeColumnsToContents()
 
@@ -397,23 +378,22 @@ class ArchivoCvsTab(QWidget):
                 ipa = d.get("importe_pami") or ""
                 des = d.get("desc") or ""
 
-                self.tbl_detalles.setItem(r, 0, QTableWidgetItem(cod))
-                self.tbl_detalles.setItem(r, 1, QTableWidgetItem(nom))
-                self.tbl_detalles.setItem(r, 2, QTableWidgetItem(pre))
-                self.tbl_detalles.setItem(r, 3, QTableWidgetItem(est))
-                self.tbl_detalles.setItem(r, 4, QTableWidgetItem(aut))
-                self.tbl_detalles.setItem(r, 5, QTableWidgetItem(can))
-                self.tbl_detalles.setItem(r, 6, QTableWidgetItem(igr))
-                self.tbl_detalles.setItem(r, 7, QTableWidgetItem(ipa))
-                self.tbl_detalles.setItem(r, 8, QTableWidgetItem(des))
+                self.tbl_detalles.setItem(r, 0, QTableWidgetItem(str(cod)))
+                self.tbl_detalles.setItem(r, 1, QTableWidgetItem(str(nom)))
+                self.tbl_detalles.setItem(r, 2, QTableWidgetItem(str(pre)))
+                self.tbl_detalles.setItem(r, 3, QTableWidgetItem(str(est)))
+                self.tbl_detalles.setItem(r, 4, QTableWidgetItem(str(aut)))
+                self.tbl_detalles.setItem(r, 5, QTableWidgetItem(str(can)))
+                self.tbl_detalles.setItem(r, 6, QTableWidgetItem(str(igr)))
+                self.tbl_detalles.setItem(r, 7, QTableWidgetItem(str(ipa)))
+                self.tbl_detalles.setItem(r, 8, QTableWidgetItem(str(des)))
         finally:
             self.tbl_detalles.setUpdatesEnabled(True)
 
     # --------------------------
-    # DB (ArchivoService)
+    # Subir a DB (async)
     # --------------------------
     def _on_subir(self):
-        # 1) Validaciones
         if not self._recepcion_id:
             QMessageBox.warning(self, "Atención", "Seleccione la recepción.")
             return
@@ -423,7 +403,6 @@ class ArchivoCvsTab(QWidget):
             return
 
         total = len(self._recetas_por_ref)
-
         resp = QMessageBox.question(
             self,
             "Confirmar",
@@ -435,79 +414,35 @@ class ArchivoCvsTab(QWidget):
         if resp != QMessageBox.StandardButton.Yes:
             return
 
-        inserted = 0
-        skipped = 0
-        failed = 0
-        errores: list[str] = []
+        self.btn_subir.setEnabled(False)
+        self.btn_cargar.setEnabled(False)
 
-        try:
-            with session_scope() as s:
-                # 2) Calcular desde qué orden arrancar
-                current_orden = ArchivoService.get_start_orden_lote(s, self._recepcion_id)
+        self.run_job(
+            self._uc.subir,
+            recepcion_id=self._recepcion_id,
+            recetas_por_ref=self._recetas_por_ref,
+            detalles_por_ref=self._detalles_por_ref,
+            title="Subiendo recetas…",
+            on_result=self._show_subir_result,
+            on_error=lambda err: QMessageBox.critical(self, "Error", err),
+            on_finished=lambda: (self.btn_subir.setEnabled(True), self.btn_cargar.setEnabled(True)),
+        )
 
-                # 3) Ordenar por autorización (Fecha+Hora) ascendente
-                items = []
-                for nro_ref, receta in self._recetas_por_ref.items():
-                    ts = parse_aut_ts(receta)
-                    items.append((ts, str(nro_ref), receta))
+    def _show_subir_result(self, out: SubirOut) -> None:
+        resumen = (
+            f"Listo.\n\n"
+            f"Insertadas: {out.inserted}\n"
+            f"Salteadas (ya existían): {out.skipped}\n"
+            f"Con error: {out.failed}"
+        )
 
-                items.sort(key=lambda x: (x[0], x[1]))  # ts + nro_ref (desempate estable)
+        if out.errores:
+            top = "\n".join(out.errores[:15])
+            if len(out.errores) > 15:
+                top += f"\n... y {len(out.errores) - 15} más"
+            resumen += f"\n\nErrores:\n{top}"
 
-                # 4) Insertar con orden_lote correlativo
-                for ts, nro_ref, receta in items:
-                    detalles = self._detalles_por_ref.get(nro_ref, [])
+        QMessageBox.information(self, "Subida finalizada", resumen)
 
-                    try:
-                        # ✅ IMPORTANTE:
-                        # Necesitamos que create_from_imed acepte orden_lote y devuelva True/False
-                        creado = ArchivoService.create_from_imed(
-                            s,
-                            receta=receta,
-                            detalles=detalles,
-                            recepcion_id=self._recepcion_id,
-                            nro_referencia=nro_ref,
-                            orden_lote=current_orden,  # 👈 NUEVO
-                            skip_if_exists=True,
-                            check_scope="ref",
-                        )
-
-                        if creado is True:
-                            inserted += 1
-                            current_orden += 1
-                        else:
-                            # si el service decide "ya existe" y devuelve False
-                            skipped += 1
-
-                    except ValueError as e:
-                        msg = str(e)
-                        # Si tu service hoy levanta ValueError en vez de devolver False,
-                        # entonces consideramos "ya existe" como skipped y NO consumimos número.
-                        if "ya existe" in msg.lower() or "existe" in msg.lower():
-                            skipped += 1
-                        else:
-                            failed += 1
-                            errores.append(f"{nro_ref}: {msg}")
-
-                    except Exception as e:
-                        failed += 1
-                        errores.append(f"{nro_ref}: {e}")
-
-            resumen = (
-                f"Listo.\n\n"
-                f"Insertadas: {inserted}\n"
-                f"Salteadas (ya existían): {skipped}\n"
-                f"Con error: {failed}"
-            )
-
-            if errores:
-                top = "\n".join(errores[:15])
-                if len(errores) > 15:
-                    top += f"\n... y {len(errores) - 15} más"
-                resumen += f"\n\nErrores:\n{top}"
-
-            QMessageBox.information(self, "Subida finalizada", resumen)
-
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"No se pudo subir el lote:\n{e}")
 
 
