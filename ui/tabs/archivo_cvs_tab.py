@@ -19,9 +19,8 @@ from ui.usecase.archivo_cvs_usecase import (
 
 
 class ArchivoCvsTab(BaseTabWidget):
-    def __init__(self, parent=None, creado_por_usuario_id: int | None = None):
+    def __init__(self, parent=None):
         super().__init__(parent)
-        self.creado_por_usuario_id = creado_por_usuario_id
 
         self._recepcion_id: int | None = None
 

@@ -6,10 +6,11 @@ from ui.tabs.carga_recepcion_tab import CargaRecepcionTab
 from ui.tabs.resumen_recepcion_tab import ResumenRecepcionTab
 
 class TabsManager(QTabWidget):
-    def __init__(self, parent=None):
+    def __init__(self, current_user, parent=None):
         super().__init__(parent)
         self.setTabsClosable(True)
         self.tabCloseRequested.connect(self.removeTab)
+        self.current_user = current_user
 
         self._index_by_key: dict[str, int] = {}
 
@@ -35,10 +36,10 @@ class TabsManager(QTabWidget):
         if key == "resumen_recepcion":
             return ResumenRecepcionTab(self), "Resumen Recepción"
         if key == "carga-recepcion-handler":
-            return CargaRecepcionTab(self), "Carga Recepcion"
+            return CargaRecepcionTab(creado_por_usuario_id=self.current_user.usuario_id, parent=self), "Carga Recepcion"
         if key == "archivo-cvs":
             return ArchivoCvsTab(self), "Archivo CVS"
         if key == "auditoria":
-            return AuditoriaTab(), "Auditoria"
+            return AuditoriaTab(self, creado_por_usuario_id=self.current_user.usuario_id), "Auditoria"
 
         raise KeyError(f"Tab no registrada: {key}")

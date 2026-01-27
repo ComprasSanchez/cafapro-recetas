@@ -18,8 +18,9 @@ from ui.usecase.carga_recepcion_usecase import CargaRecepcionUseCase, LoadRecepc
 
 
 class CargaRecepcionTab(BaseTabWidget):
-    def __init__(self, parent=None, creado_por_usuario_id: int | None = 1):
+    def __init__(self, creado_por_usuario_id, parent=None):
         super().__init__(parent)
+        print(creado_por_usuario_id)
         self.creado_por_usuario_id = creado_por_usuario_id
 
         self._recepcion_id: int | None = None

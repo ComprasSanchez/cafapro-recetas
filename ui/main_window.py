@@ -17,7 +17,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Cafapro Recetas")
         self.showMaximized()
 
-        self.tabs = TabsManager(self)
+        self.tabs = TabsManager(current_user, self)
         self.setCentralWidget(self.tabs)
 
         self.footer = FooterManeger(self)
@@ -30,10 +30,10 @@ class MainWindow(QMainWindow):
             window_manager=self.window_manager
         )
 
-        self._setup_header()
+        self._setup_header(current_user)
 
-    def _setup_header(self):
-        actions_by_group = build_header_actions(self)
+    def _setup_header(self, current_user):
+        actions_by_group = build_header_actions(self, current_user)
 
         menubar = HeaderMenuBar(self)
         self.setMenuBar(menubar)

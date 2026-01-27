@@ -96,6 +96,7 @@ class RecetaService:
             estado_seguimiento_id: int,
             fecha_prescripcion: date,
             estado_receta_id: int = 1,
+            usuario_id: int = None,
     ) -> None:
         r = session.get(Recetas, int(receta_id))
         if not r:
@@ -105,6 +106,7 @@ class RecetaService:
         r.estado_seguimiento_id = int(estado_seguimiento_id)
         r.estado_receta_id = int(estado_receta_id)
         r.fecha_prescripcion = fecha_prescripcion
+        r.usuario_id = usuario_id
 
     @staticmethod
     def update_estado_seguimiento(receta_id: int, estado_seguimiento_id: int | None) -> None:

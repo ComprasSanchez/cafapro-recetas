@@ -26,9 +26,10 @@ from ui.dialogs.vendedor_pick_dialog import VendedorPickDialog
 
 
 class AuditoriaVisualDialog(QDialog):
-    def __init__(self, asociacion_id: int, parent=None):
+    def __init__(self, asociacion_id: int, parent=None, creado_por_usuario_id=None):
         super().__init__(parent)
         self.asociacion_id = asociacion_id
+        self.creado_por_usuario_id = creado_por_usuario_id
         self.data: AuditoriaVisualData | None = None
 
         self._last_preview_path: str | None = None
@@ -653,7 +654,8 @@ class AuditoriaVisualDialog(QDialog):
                     vendedor_id=int(self._vendedor_id),
                     estado_seguimiento_id=int(estado_seg_id),
                     estado_receta_id=1,
-                    fecha_prescripcion=fecha_prescripcion
+                    fecha_prescripcion=fecha_prescripcion,
+                    usuario_id=self.creado_por_usuario_id
                 )
             self.accept()
 

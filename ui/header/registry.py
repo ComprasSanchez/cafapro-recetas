@@ -5,14 +5,14 @@ from ui.windows.recepcion_window import RecepcionesWindow
 from ui.windows.usuario_window import UsuariosWindow
 
 
-def build_header_actions(main_window) -> dict[str, list[HeaderAction]]:
+def build_header_actions(main_window, current_user) -> dict[str, list[HeaderAction]]:
     return {
         "Recepción": [
             HeaderAction(
                 key="recepcion_window",
                 text="Listado Recepcion",
                 kind="window",
-                window_factory=lambda: RecepcionesWindow(main_window),
+                window_factory=lambda: RecepcionesWindow(main_window, creado_por_usuario_id=current_user.creado_por_usuario_id),
             ),
             HeaderAction(
                 key="tab_resumen_recepcion",

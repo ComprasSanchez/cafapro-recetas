@@ -521,7 +521,7 @@ class AuditoriaTab(BaseTabWidget):
         asociacion_id = c0.data(Qt.ItemDataRole.UserRole) if c0 else None
         if not asociacion_id:
             return
-        dlg = AuditoriaVisualDialog(asociacion_id=int(asociacion_id), parent=self)
+        dlg = AuditoriaVisualDialog(asociacion_id=int(asociacion_id), parent=self, creado_por_usuario_id=self.creado_por_usuario_id)
         dlg.exec()
 
     # -------------------------
