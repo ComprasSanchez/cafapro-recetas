@@ -93,7 +93,7 @@ class RecetaService:
             session: Session,
             receta_id: int,
             vendedor_id: int,
-            estado_seguimiento_id: int,
+            estado_seguimiento_id:  int | None,
             fecha_prescripcion: date,
             estado_receta_id: int = 1,
             usuario_id: int = None,
@@ -103,7 +103,7 @@ class RecetaService:
             raise ValueError(f"Receta {receta_id} no existe")
 
         r.vendedor_id = int(vendedor_id)
-        r.estado_seguimiento_id = int(estado_seguimiento_id)
+        r.estado_seguimiento_id = estado_seguimiento_id
         r.estado_receta_id = int(estado_receta_id)
         r.fecha_prescripcion = fecha_prescripcion
         r.usuario_id = usuario_id

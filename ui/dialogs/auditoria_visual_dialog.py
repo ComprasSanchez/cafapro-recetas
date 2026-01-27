@@ -431,7 +431,6 @@ class AuditoriaVisualDialog(QDialog):
                 color = QColor(228, 245, 44)
             elif estado == "R":
                 color = QColor(220, 220, 220)
-            print(color)
             if color is not None:
                 brush = QBrush(color)
                 for c in range(self.tbl_troqueles.columnCount()):
@@ -624,16 +623,6 @@ class AuditoriaVisualDialog(QDialog):
             QMessageBox.critical(self, "Error", "No se pudo determinar receta_id.")
             return
 
-        dlg = EstadoSeguimientoPickDialog(self)
-        if dlg.exec() != dlg.DialogCode.Accepted:
-            QMessageBox.warning(self, "Falta estado", "Tenés que seleccionar un estado de seguimiento para finalizar.")
-            return
-
-        estado_seg_id = dlg.selected_estado_seguimiento_id()
-        if not estado_seg_id:
-            QMessageBox.warning(self, "Falta estado", "Tenés que seleccionar un estado de seguimiento para finalizar.")
-            return
-
         q = self.in_prescripcion.date()
         if not q.isValid():
             QMessageBox.warning(self, "Falta fecha", "Tenés que cargar la fecha de prescripción para finalizar.")
@@ -645,18 +634,42 @@ class AuditoriaVisualDialog(QDialog):
             for mid, det in self._selected_debitos.items()
         ]
 
+        # ✅ Solo si hay débitos: pedir/guardar estado de seguimiento
+        estado_seg_id: int | None = None
+        if debitos_inputs:
+            dlg = EstadoSeguimientoPickDialog(self)
+            if dlg.exec() != dlg.DialogCode.Accepted:
+                QMessageBox.warning(
+                    self,
+                    "Falta estado",
+                    "Tenés que seleccionar un estado de seguimiento para finalizar.",
+                )
+                return
+
+            estado_seg_id = dlg.selected_estado_seguimiento_id()
+            if not estado_seg_id:
+                QMessageBox.warning(
+                    self,
+                    "Falta estado",
+                    "Tenés que seleccionar un estado de seguimiento para finalizar.",
+                )
+                return
+            estado_seg_id = int(estado_seg_id)
+
         try:
             with session_scope() as s:
                 DebitosService.replace_for_receta(s, receta_id=receta_id, items=debitos_inputs)
+
                 RecetaService.update_auditoria(
                     s,
                     receta_id=receta_id,
                     vendedor_id=int(self._vendedor_id),
-                    estado_seguimiento_id=int(estado_seg_id),
+                    estado_seguimiento_id=estado_seg_id,
                     estado_receta_id=1,
                     fecha_prescripcion=fecha_prescripcion,
-                    usuario_id=self.creado_por_usuario_id
+                    usuario_id=self.creado_por_usuario_id,
                 )
+
             self.accept()
 
         except Exception as e:
