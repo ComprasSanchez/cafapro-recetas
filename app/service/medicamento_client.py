@@ -15,7 +15,7 @@ class MedicamentoClient:
         timeout_s: float = 3.0,
         retries: int = 1,
     ):
-        self.base_url = (base_url or os.getenv("MEDICAMENTOS_API_BASE_URL") or "http://localhost:3000").rstrip("/")
+        self.base_url = (base_url or os.getenv("MEDICAMENTOS_API_BASE_URL") or "https://quantio-api-production.up.railway.app").rstrip("/")
         self.retries = max(0, int(retries))
 
         self._client = httpx.Client(
