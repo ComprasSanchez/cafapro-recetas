@@ -52,3 +52,5 @@ def run (session: Session) -> None:
                     activo=activo,
                 )
             )
+
+    session.commit()

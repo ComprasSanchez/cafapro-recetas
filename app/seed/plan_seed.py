@@ -5974,3 +5974,5 @@ def run(session: Session) -> None:
             )
             session.add(nuevo)
 
+    session.commit()
+

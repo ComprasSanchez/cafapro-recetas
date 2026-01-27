@@ -37,3 +37,5 @@ def run (session: Session) -> None:
                     descripcion=desc,
                 )
             )
+
+    session.commit()

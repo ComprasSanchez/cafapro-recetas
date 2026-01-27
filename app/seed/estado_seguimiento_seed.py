@@ -15,3 +15,5 @@ def run(session) -> None:
 
         if not exists:
             session.add(EstadoSeguimiento(descripcion=descripcion))
+
+    session.commit()

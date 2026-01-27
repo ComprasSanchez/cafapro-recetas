@@ -194,3 +194,5 @@ def run(session) -> None:
             session.add(obj)
         else:
             session.add(ObraSocial(codigo=codigo, nombre=nombre, activo=True))
+
+    session.commit()
