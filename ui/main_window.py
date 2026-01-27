@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import QMainWindow
+from PySide6.QtWidgets import QMainWindow, QApplication
 
 from ui.footer.footer import FooterManeger
 from ui.tabs.tabs_manager import TabsManager
@@ -6,10 +6,22 @@ from ui.window_manager import WindowManager
 from ui.header.menu_builder import HeaderMenuBar
 from ui.header.registry import build_header_actions
 from ui.header.controller import HeaderController
+from ui.dialogs.login_dialog import LoginDialog
+
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+
+        # ---- LOGIN ----
+        login = LoginDialog()
+        if login.exec() != LoginDialog.DialogCode.Accepted:
+            QApplication.quit()
+            return
+
+        self.current_user = login.user  # ← usuario logueado
+
+        # ---- UI NORMAL ----
         self.setWindowTitle("Cafapro Recetas")
         self.showMaximized()
 
@@ -19,7 +31,6 @@ class MainWindow(QMainWindow):
         self.footer = FooterManeger(self)
         self.setStatusBar(self.footer)
 
-        # Managers
         self.window_manager = WindowManager()
         self.header_controller = HeaderController(
             main_window=self,
@@ -41,4 +52,7 @@ class MainWindow(QMainWindow):
         for actions in actions_by_group.values():
             for a in actions:
                 qaction = menubar.get_action(a.key)
-                qaction.triggered.connect(lambda checked=False, _a=a: self.header_controller.handle(_a))
+                qaction.triggered.connect(
+                    lambda checked=False, _a=a: self.header_controller.handle(_a)
+                )
+

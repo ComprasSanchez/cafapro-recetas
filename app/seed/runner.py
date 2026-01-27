@@ -13,6 +13,7 @@ from app.seed.prestadores_seed import run as run_prestadores
 from app.seed.vendedores_seed import run as run_vendedores
 from app.seed.estado_receta_seed import run as run_estado_receta
 from app.seed.estado_recepcion_seed import run as run_estado_recepcion
+from app.seed.seed_admin import run as run_seed_admin
 
 
 def _step(name: str, fn, s) -> None:
@@ -36,6 +37,7 @@ def seed_all() -> None:
         _step("motivos_debitos", run_motivos_debitos, s)
         _step("prestadores", run_prestadores, s)
         _step("vendedores", run_vendedores, s)
+        _step("usuario", run_seed_admin, s)
 
     print("✅ Seed OK", flush=True)
     print("=== SEED END ===", flush=True)
@@ -43,3 +45,4 @@ def seed_all() -> None:
 
 if __name__ == "__main__":
     seed_all()
+
