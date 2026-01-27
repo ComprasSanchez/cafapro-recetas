@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import QMainWindow, QApplication
+from PySide6.QtWidgets import QMainWindow
 
 from ui.footer.footer import FooterManeger
 from ui.tabs.tabs_manager import TabsManager
@@ -6,20 +6,12 @@ from ui.window_manager import WindowManager
 from ui.header.menu_builder import HeaderMenuBar
 from ui.header.registry import build_header_actions
 from ui.header.controller import HeaderController
-from ui.dialogs.login_dialog import LoginDialog
-
 
 class MainWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, current_user):
         super().__init__()
 
-        # ---- LOGIN ----
-        login = LoginDialog()
-        if login.exec() != LoginDialog.DialogCode.Accepted:
-            QApplication.quit()
-            return
-
-        self.current_user = login.user  # ← usuario logueado
+        self.current_user = current_user
 
         # ---- UI NORMAL ----
         self.setWindowTitle("Cafapro Recetas")

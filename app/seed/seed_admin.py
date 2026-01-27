@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy import select
 
-from app.db.session import session_scope
+
 from app.db.models import Usuarios, Roles
 from app.security.password_hasher import hash_password
 
