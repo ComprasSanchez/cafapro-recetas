@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.service.tif_service import ProcesarItemIn
+from config.config_manager import ConfigManager
 from ui.dialogs.recepcion_create_dialog import RecepcionCreateDialog
 from ui.dialogs.recepcion_pick_dialog import RecepcionPickDialog
 
@@ -20,9 +21,8 @@ from ui.usecase.carga_recepcion_usecase import CargaRecepcionUseCase, LoadRecepc
 class CargaRecepcionTab(BaseTabWidget):
     def __init__(self, creado_por_usuario_id, parent=None):
         super().__init__(parent)
-        print(creado_por_usuario_id)
         self.creado_por_usuario_id = creado_por_usuario_id
-
+        self.cfg = ConfigManager()
         self._recepcion_id: int | None = None
         self._fecha: datetime | None = None
 
@@ -308,7 +308,7 @@ class CargaRecepcionTab(BaseTabWidget):
             QMessageBox.warning(self, "Atención", "No hay rutas válidas para procesar.")
             return
 
-        output_dir = f"output/recepciones/{self._recepcion_id}"
+        output_dir = self.cfg.get_output_dir(self._recepcion_id)
 
         self.run_job(
             self._uc.procesar,

@@ -81,7 +81,6 @@ exe = EXE(
     console=False,
     # El icono para el EXE tiene que ser un .ico real y existente en el proyecto
     icon=str(RES_DIR / "logo.ico"),
-    uac_admin=True,
 )
 
 coll = COLLECT(
