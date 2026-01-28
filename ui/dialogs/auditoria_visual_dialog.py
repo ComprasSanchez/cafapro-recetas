@@ -28,6 +28,7 @@ from ui.dialogs.vendedor_pick_dialog import VendedorPickDialog
 class AuditoriaVisualDialog(QDialog):
     def __init__(self, asociacion_id: int, parent=None, creado_por_usuario_id=None):
         super().__init__(parent)
+        self.showMaximized()
         self.asociacion_id = asociacion_id
         self.creado_por_usuario_id = creado_por_usuario_id
         self.data: AuditoriaVisualData | None = None
@@ -313,7 +314,8 @@ class AuditoriaVisualDialog(QDialog):
 
         return box
 
-    def _mk_resumen_card(self, title: str) -> tuple[QFrame, QLabel]:
+    @staticmethod
+    def _mk_resumen_card(title: str) -> tuple[QFrame, QLabel]:
         card = QFrame()
         card.setObjectName("card")
         v = QVBoxLayout(card)
