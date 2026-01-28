@@ -74,6 +74,7 @@ class ArchivoService:
             orden_lote: int | None = None,
             skip_if_exists: bool = True,
             check_scope: str = "ref",
+            existing_refs: set[str] | None = None,  # ✅ NUEVO (opcional): cache de refs ya existentes
     ) -> bool:
         # --------- nro_referencia ---------
         if not nro_referencia:
@@ -88,19 +89,23 @@ class ArchivoService:
 
         # --------- control duplicados (NO explota si skip_if_exists) ---------
         if skip_if_exists:
-            exists = False
-            if check_scope == "recepcion+ref":
-                if recepcion_id is None:
-                    raise ValueError("check_scope='recepcion+ref' requiere recepcion_id.")
-                exists = ArchivoService.exists_by_recepcion_and_ref(
-                    session, recepcion_id=recepcion_id, nro_referencia=nro_referencia
-                )
+            # ✅ si me pasás cache, no consulto DB
+            if existing_refs is not None:
+                if nro_referencia in existing_refs:
+                    return False
             else:
-                # default: por ref global
-                exists = ArchivoService.exists_by_ref(session, nro_referencia=nro_referencia)
+                exists = False
+                if check_scope == "recepcion+ref":
+                    if recepcion_id is None:
+                        raise ValueError("check_scope='recepcion+ref' requiere recepcion_id.")
+                    exists = ArchivoService.exists_by_recepcion_and_ref(
+                        session, recepcion_id=recepcion_id, nro_referencia=nro_referencia
+                    )
+                else:
+                    exists = ArchivoService.exists_by_ref(session, nro_referencia=nro_referencia)
 
-            if exists:
-                return False  # 👈 clave: no insertó
+                if exists:
+                    return False  # 👈 clave: no insertó
 
         # --------- mapeo receta IMED ---------
         beneficiario = receta.get("Beneficiario") or receta.get("beneficiario")
@@ -117,8 +122,12 @@ class ArchivoService:
             orden_lote = 0
 
         importe_gral_raw = receta.get("Importe_Gral") or receta.get("Importe Gral") or receta.get("importe_gral")
-        importe_obs_raw = receta.get("Importe_Pami") or receta.get("Importe Pami") or receta.get(
-            "Importe_Obs") or receta.get("importe_obs")
+        importe_obs_raw = (
+                receta.get("Importe_Pami")
+                or receta.get("Importe Pami")
+                or receta.get("Importe_Obs")
+                or receta.get("importe_obs")
+        )
         cargo_raw = receta.get("A_Cargo_Entidad") or receta.get("A Cargo Entidad") or receta.get("a_cargo_entidad")
 
         archivo = Archivo(
@@ -128,13 +137,13 @@ class ArchivoService:
             hora=_parse_time(hora_raw),
             nro_referencia=nro_referencia,
             nro_receta=str(nro_receta).strip() if nro_receta else None,
-            orden_lote=int(orden_lote),  # ✅ int
+            orden_lote=int(orden_lote),
             importe_neto=_dec(importe_gral_raw),
             importe_obs=_dec(importe_obs_raw),
             a_cargo_entidad=_dec(cargo_raw),
         )
         session.add(archivo)
-        session.flush()
+        session.flush()  # ✅ necesario si cargás detalles por archivo_id
 
         # --------- detalles ---------
         rows: list[ArchivoDetalle] = []
@@ -180,6 +189,10 @@ class ArchivoService:
 
         if rows:
             session.add_all(rows)
+
+        # ✅ si tenías cache, actualizala para evitar duplicados dentro de la misma corrida
+        if existing_refs is not None:
+            existing_refs.add(nro_referencia)
 
         return True
 

@@ -4,6 +4,9 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
+from sqlalchemy import select
+
+from app.db.models import Archivo
 from app.db.session import session_scope
 from app.service.archivo_service import ArchivoService
 from app.service.recepcion_service import RecepcionService
@@ -88,7 +91,8 @@ class ArchivoCvsUseCase:
         return CsvOut(recetas_por_ref=recetas, detalles_por_ref=detalles)
 
     @staticmethod
-    def subir(*, recepcion_id: int, recetas_por_ref: dict[str, dict], detalles_por_ref: dict[str, list[dict]], ctx=None) -> SubirOut:
+    def subir(*, recepcion_id: int, recetas_por_ref: dict[str, dict], detalles_por_ref: dict[str, list[dict]],
+              ctx=None) -> SubirOut:
         total = len(recetas_por_ref)
         if total == 0:
             return SubirOut(inserted=0, skipped=0, failed=0, errores=[])
@@ -104,22 +108,40 @@ class ArchivoCvsUseCase:
         with session_scope() as s:
             current_orden = ArchivoService.get_start_orden_lote(s, recepcion_id)
 
-            items = []
+            items: list[tuple] = []
             for nro_ref, receta in recetas_por_ref.items():
                 ts = parse_aut_ts(receta)
                 items.append((ts, str(nro_ref), receta))
 
             items.sort(key=lambda x: (x[0], x[1]))
 
+            # ✅ 1) Prefetch existentes (1 query)
+            refs = [ref for _, ref, _ in items]
+            existing_refs = set(
+                s.execute(
+                    select(Archivo.nro_referencia)
+                    .where(Archivo.nro_referencia.in_(refs))
+                ).scalars().all()
+            )
+
+            CHUNK = 500
+            PROGRESS_EVERY = 50
+
             for i, (ts, nro_ref, receta) in enumerate(items, start=1):
-                if ctx:
+                # ✅ progreso más liviano
+                if ctx and (i % PROGRESS_EVERY == 0 or i == total):
                     pct = int((i / total) * 100)
                     ctx.emit_progress(pct, f"Subiendo {i}/{total}…")
+
+                # ✅ 2) saltar duplicados sin consultar DB por item
+                if nro_ref in existing_refs:
+                    skipped += 1
+                    continue
 
                 detalles = detalles_por_ref.get(nro_ref, [])
 
                 try:
-                    creado = ArchivoService.create_from_imed(
+                    creado = ArchivoService.creado = ArchivoService.create_from_imed(
                         s,
                         receta=receta,
                         detalles=detalles,
@@ -128,11 +150,13 @@ class ArchivoCvsUseCase:
                         orden_lote=current_orden,
                         skip_if_exists=True,
                         check_scope="ref",
+                        existing_refs=existing_refs,
                     )
 
                     if creado:
                         inserted += 1
                         current_orden += 1
+                        existing_refs.add(nro_ref)  # por si viene repetido en el dict (raro, pero seguro)
                     else:
                         skipped += 1
 
@@ -147,6 +171,15 @@ class ArchivoCvsUseCase:
                 except Exception as e:
                     failed += 1
                     errores.append(f"{nro_ref}: {e}")
+
+                # ✅ 3) flush/commit por chunks (mejora estabilidad + performance)
+                if i % CHUNK == 0:
+                    s.flush()
+                    s.commit()
+
+            # commit final
+            s.flush()
+            s.commit()
 
         if ctx:
             ctx.emit_progress(100, "Subida finalizada")
