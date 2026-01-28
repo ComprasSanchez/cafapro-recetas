@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple, Set, Literal, cast
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -40,8 +40,8 @@ class ProcesarResumen:
 @dataclass(frozen=True)
 class _MatchResult:
     ref_to_archivo: Dict[str, Optional[Archivo]]
-    duplicated_refs: set[str]
-    missing_refs: set[str]
+    duplicated_refs: Set[str]
+    missing_refs: Set[str]
 
 
 class TiffService:
@@ -91,32 +91,36 @@ class TiffService:
             else:
                 ref_to_archivo[ref] = None
 
-        return _MatchResult(ref_to_archivo=ref_to_archivo, duplicated_refs=duplicated, missing_refs=missing)
+        return _MatchResult(
+            ref_to_archivo=ref_to_archivo,
+            duplicated_refs=duplicated,
+            missing_refs=missing,
+        )
 
     def procesar(
         self,
         s: Session,
         recepcion_id: int,
-        usuario_id: int,        # Recetas.usuario_id es NOT NULL
+        usuario_id: int,  # Recetas.usuario_id es NOT NULL
         items: List[ProcesarItemIn],
         output_dir: str,
     ) -> ProcesarResumen:
         resumen = ProcesarResumen()
 
-        # cache de endpoint por corrida (codebar -> enrichment)
+        # cache por corrida: codebar -> enrichment
         enrich_cache: Dict[str, TroquelEnrichment] = {}
 
         # =========
         # 1) Scan de TIFFs (sin render)
         # =========
-        scanned: list[tuple[ProcesarItemIn, ScanOut]] = []
-        all_refs: list[str] = []
+        scanned: List[Tuple[ProcesarItemIn, ScanOut]] = []
+        all_refs: List[str] = []
 
         for it in items:
             try:
                 scan = self._tif.scan(it.full_path)
                 scanned.append((it, scan))
-                all_refs.extend(scan.headers)  # referencias
+                all_refs.extend(scan.headers or [])
             except Exception as e:
                 resumen.errores.append(f"{it.file_name}: scan error: {e}")
 
@@ -131,29 +135,32 @@ class TiffService:
         # =========
         # 3) Elegir 1 Archivo por TIFF
         # =========
-        work: list[tuple[int, ScanOut, str, str]] = []  # (archivo_id, scan, tiff_path, file_name)
+        work: List[Tuple[int, ScanOut, str, str]] = []  # (archivo_id, scan, tiff_path, file_name)
 
         for it, scan in scanned:
-            refs = [self._norm_str(x) for x in scan.headers if self._norm_str(x)]
+            refs = [self._norm_str(x) for x in (scan.headers or []) if self._norm_str(x)]
 
             if not refs:
                 resumen.sin_match += 1
                 continue
 
+            # si alguna ref está duplicada, no sabemos cuál elegir => cuenta como duplicado
             if any(ref in match.duplicated_refs for ref in refs):
                 resumen.duplicados += 1
                 continue
 
-            archivo = None
+            archivo: Optional[Archivo] = None
             for ref in refs:
-                archivo = match.ref_to_archivo.get(ref)
-                if archivo is not None:
+                a = match.ref_to_archivo.get(ref)
+                if a is not None:
+                    archivo = a
                     break
 
             if archivo is None:
                 resumen.sin_match += 1
                 continue
 
+            # asignar recepcion si cambia
             if archivo.recepcion_id != recepcion_id:
                 archivo.recepcion_id = recepcion_id
 
@@ -184,12 +191,27 @@ class TiffService:
             detalles_by_archivo.setdefault(d.archivo_id, []).append(d)
 
         # =========
+        # 4.1) Detectar ya asociados (bulk)
+        # =========
+        asociados_archivo_ids = set(
+            s.execute(
+                select(Asociacion.archivo_id).where(Asociacion.archivo_id.in_(archivo_ids))
+            )
+            .scalars()
+            .all()
+        )
+
+        # =========
         # 5) Persistencia
         # =========
-        troqueles_to_add: list[Troqueles] = []
-        asoc_to_add: list[Asociacion] = []
+        troqueles_to_add: List[Troqueles] = []
+        asoc_to_add: List[Asociacion] = []
 
         for archivo_id, scan, tiff_path, file_name in work:
+            if archivo_id in asociados_archivo_ids:
+                resumen.ya_asociado += 1
+                continue
+
             archivo = archivo_by_id.get(archivo_id)
             if not archivo:
                 resumen.errores.append(f"{file_name}: archivo_id {archivo_id} no existe en DB")
@@ -197,36 +219,69 @@ class TiffService:
 
             dets = detalles_by_archivo.get(archivo_id, [])
 
-            # cod_medic es string, code_alfabeta es int => comparamos por string normalizado
-            cods_detalle = {self._norm_str(d.cod_medic) for d in dets if self._norm_str(d.cod_medic)}
-            codebars = {self._norm_str(c) for c in scan.troqueles if self._norm_str(c)}
+            # -------------------------
+            # OPTIMIZACIÓN 1:
+            # - armamos una sola vez:
+            #   - cods_detalle (para match)
+            #   - importe_por_cod (para monto)
+            # -------------------------
+            importe_por_cod: Dict[str, float] = {}
+            cods_detalle: Set[str] = set()
 
-            estado_por_codebar: Dict[str, str] = {}  # "V"/"A"/"R"
+            for d in dets:
+                ca = self._norm_str(getattr(d, "cod_medic", None))
+                if not ca:
+                    continue
+                cods_detalle.add(ca)
+                importe_por_cod[ca] = importe_por_cod.get(ca, 0.0) + float(getattr(d, "importe_obs", 0) or 0)
+
+            # -------------------------
+            # OPTIMIZACIÓN 2:
+            # - una sola pasada por scan.troqueles:
+            #   counts y de ahí keys = codebars
+            # -------------------------
+            counts: Dict[str, int] = {}
+            for cod in (scan.troqueles or []):
+                cod = self._norm_str(cod)
+                if not cod:
+                    continue
+                counts[cod] = counts.get(cod, 0) + 1
+
+            if not counts:
+                resumen.sin_match += 1
+                continue
+
+            estado_por_codebar: Dict[str, EstadoTroquelEnum] = {}
             enrich_por_codebar: Dict[str, TroquelEnrichment] = {}
 
-            # 5.1) endpoint + estado
-            for codebar in codebars:
-                if codebar in enrich_cache:
-                    enr = enrich_cache[codebar]
-                else:
+            # 5.1) endpoint + estado (V/A/R)
+            for codebar in counts.keys():
+                enr = enrich_cache.get(codebar)
+                if enr is None:
                     enr = self._enrich.enrich_by_codebar(codebar)
                     enrich_cache[codebar] = enr
 
                 enrich_por_codebar[codebar] = enr
 
+                # Amarillo si el endpoint dice A
                 if enr.estado == EstadoTroquelEnum.A:
-                    estado_por_codebar[codebar] = "A"
-                else:
-                    ca = self._norm_str(enr.code_alfabeta)  # int -> str
-                    estado_por_codebar[codebar] = "V" if (ca and ca in cods_detalle) else "R"
+                    estado_por_codebar[codebar] = EstadoTroquelEnum.A
+                    continue
 
-            # 5.2) render (dibuja por estado V/A/R)
+                # Verde si code_alfabeta matchea con cod_medic, sino Rojo
+                ca = self._norm_str(enr.code_alfabeta)
+                estado_por_codebar[codebar] = EstadoTroquelEnum.V if (ca and ca in cods_detalle) else EstadoTroquelEnum.R
+
+            # 5.2) render (tu render espera dict[str, Literal["V","A","R"]])
             try:
+                estado_render: Dict[str, Literal["V", "A", "R"]] = {
+                    k: cast(Literal["V", "A", "R"], v.value) for k, v in estado_por_codebar.items()
+                }
                 files = self._tif.render(
                     tiff_path=tiff_path,
                     scan=scan,
                     output_dir=output_dir,
-                    estado_por_codebar=estado_por_codebar,
+                    estado_por_codebar=estado_render,
                 )
             except Exception as e:
                 resumen.errores.append(f"{file_name}: render error: {e}")
@@ -245,7 +300,7 @@ class TiffService:
                 fecha_prescripcion=None,
                 observacion=None,
                 usuario_id=usuario_id,
-                estado_receta_id=2
+                estado_receta_id=2,
             )
             s.add(receta)
             s.flush()  # receta_id
@@ -253,23 +308,16 @@ class TiffService:
             # 5.4) asociar
             asoc_to_add.append(Asociacion(receta_id=receta.receta_id, archivo_id=archivo_id))
 
-            # 5.5) contar troqueles (1 fila por receta+codebar)
-            counts: Dict[str, int] = {}
-            for cod in scan.troqueles:
-                cod = self._norm_str(cod)
-                if not cod:
-                    continue
-                counts[cod] = counts.get(cod, 0) + 1
-
-            # 5.6) crear troqueles
+            # 5.5) crear troqueles (1 fila por receta+codebar)
             for codebar, qty in counts.items():
-                enr = enrich_por_codebar.get(codebar) or enrich_cache.get(codebar) or self._enrich.enrich_by_codebar(codebar)
-                estado = estado_por_codebar.get(codebar, "A")
+                enr = enrich_por_codebar[codebar]
+                estado = estado_por_codebar.get(codebar, EstadoTroquelEnum.A)
 
-                monto = 0
-                if estado == "V":
+                # ✅ monto SOLO si estado es VERDE (EstadoTroquelEnum.V)
+                monto = 0.0
+                if estado == EstadoTroquelEnum.V:
                     ca = self._norm_str(enr.code_alfabeta)
-                    monto = sum((d.importe_obs or 0) for d in dets if self._norm_str(d.cod_medic) == ca)
+                    monto = float(importe_por_cod.get(ca, 0.0)) if ca else 0.0
 
                 troqueles_to_add.append(
                     Troqueles(
@@ -278,9 +326,9 @@ class TiffService:
                         droga=enr.droga_concat,
                         presentacion=enr.presentacion,
                         code_alfabeta=int(enr.code_alfabeta or 0),
-                        monto=monto,
+                        monto=monto,  # ✅ Numeric: pasamos float
                         cantidad=qty,
-                        estado=EstadoTroquelEnum(estado),  # V/A/R
+                        estado=estado,  # Enum V/A/R
                     )
                 )
 

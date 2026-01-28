@@ -325,7 +325,6 @@ QTableWidget::item:selected,
 QTableView::item:selected,
 QListView::item:selected,
 QTreeView::item:selected {
-  background: #E5E7EB;
   color: #111827;
 }
 

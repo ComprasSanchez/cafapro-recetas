@@ -430,7 +430,7 @@ class AuditoriaVisualDialog(QDialog):
             elif estado == EstadoTroquelEnum.A:
                 color = QColor(228, 245, 44)
             elif estado == "R":
-                color = QColor(220, 220, 220)
+                color = QColor(165, 32, 25)
             if color is not None:
                 brush = QBrush(color)
                 for c in range(self.tbl_troqueles.columnCount()):

@@ -34,6 +34,7 @@ class VwArchivoResumenAuditoria(Base):
     estado_receta: Mapped[str | None] = mapped_column(sa.String, nullable=True)
 
     frente_jpg: Mapped[str | None] = mapped_column(sa.String, nullable=False)
+    flag_debitos: Mapped[bool] = mapped_column(sa.Boolean, nullable=False)
 
 class VwArchivoRecetaDebitos(Base):
     __tablename__ = "vw_archivo_receta_debitos"

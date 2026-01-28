@@ -1,9 +1,10 @@
+# ui/tabs/auditoria_tab.py
 from __future__ import annotations
 
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QPixmap, QColor
 from PySide6.QtWidgets import (
     QWidget, QFrame, QVBoxLayout, QGridLayout, QHBoxLayout,
     QLabel, QLineEdit, QPushButton, QSizePolicy,
@@ -22,7 +23,18 @@ from ui.usecase.auditoria_usecase import (
 
 
 class AuditoriaTab(BaseTabWidget):
-    ROW_H = 34
+    ROW_H = 32  # un toque más compacta
+
+    # Columnas (para no hardcodear números por todos lados)
+    COL_RECETA = 0
+    COL_REF = 1
+    COL_LOTE = 2
+    COL_RECETA_OK = 3
+    COL_ARCHIVO_OK = 4
+    COL_RECON = 5
+    COL_OFI = 6
+    COL_ESTADO = 7
+    COL_DEBITOS = 8
 
     def __init__(self, parent=None, creado_por_usuario_id: int | None = None):
         super().__init__(parent)
@@ -34,7 +46,7 @@ class AuditoriaTab(BaseTabWidget):
 
         self._uc = AuditoriaUseCase()
 
-        # ✅ evita que se dispare preview mientras re-renderizamos
+        # evita que se dispare preview mientras re-renderizamos
         self._rendering_table = False
 
         root = QVBoxLayout(self)
@@ -221,11 +233,12 @@ class AuditoriaTab(BaseTabWidget):
         left_l.setContentsMargins(0, 0, 0, 0)
         left_l.setSpacing(0)
 
-        self.tbl = QTableWidget(0, 8)
+        self.tbl = QTableWidget(0, 9)
         self.tbl.setHorizontalHeaderLabels([
             "Receta", "Referencia", "Lote",
             "Receta OK", "Archivo OK",
             "Reconocido", "Oficial", "Estado",
+            "Débitos",
         ])
         self.tbl.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tbl.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -235,11 +248,31 @@ class AuditoriaTab(BaseTabWidget):
         self.tbl.verticalHeader().setVisible(False)
         self.tbl.verticalHeader().setDefaultSectionSize(self.ROW_H)
         self.tbl.verticalHeader().setMinimumSectionSize(self.ROW_H)
+        self.tbl.setWordWrap(False)
 
         hh = self.tbl.horizontalHeader()
-        hh.setStretchLastSection(True)
-        hh.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         hh.setHighlightSections(False)
+        hh.setStretchLastSection(False)
+        hh.setMinimumSectionSize(60)
+        hh.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+
+        # 👉 MODO GENERAL
+        hh.setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
+
+        # 👉 Anchos explícitos (NO se rompen)
+        hh.resizeSection(self.COL_RECETA, 120)
+        hh.resizeSection(self.COL_REF, 170)
+        hh.resizeSection(self.COL_LOTE, 70)
+
+        hh.resizeSection(self.COL_RECETA_OK, 90)
+        hh.resizeSection(self.COL_ARCHIVO_OK, 90)
+
+        hh.resizeSection(self.COL_RECON, 90)
+        hh.resizeSection(self.COL_OFI, 90)
+
+        hh.resizeSection(self.COL_ESTADO, 80)
+
+        hh.resizeSection(self.COL_DEBITOS, 80)
 
         self.tbl.itemClicked.connect(self._on_item_clicked)
         self.tbl.itemSelectionChanged.connect(self._on_selection_changed)
@@ -270,7 +303,8 @@ class AuditoriaTab(BaseTabWidget):
         self.scroll.setWidget(self.img_preview)
         rp_l.addWidget(self.scroll, 1)
 
-        right.setFixedWidth(480)
+        right.setMinimumWidth(380)
+        right.setMaximumWidth(520)
         split.addWidget(right)
 
         split.setStretchFactor(0, 5)
@@ -287,10 +321,21 @@ class AuditoriaTab(BaseTabWidget):
         l.addWidget(QLabel("Estado:"))
         self.cb_estado = QComboBox()
         self.cb_estado.setMinimumHeight(28)
-        self.cb_estado.setMinimumWidth(220)
-        self.cb_estado.addItem("Todos", None)
+        self.cb_estado.setMinimumWidth(240)
+        # se llena en _apply_estados()
+        self.cb_estado.addItem("Cargando…", None)
         self.cb_estado.currentIndexChanged.connect(self._apply_filters)
         l.addWidget(self.cb_estado, 0)
+
+        l.addWidget(QLabel("Débitos:"))
+        self.cb_debitos = QComboBox()
+        self.cb_debitos.setMinimumHeight(28)
+        self.cb_debitos.setMinimumWidth(170)
+        self.cb_debitos.addItem("Todos", None)
+        self.cb_debitos.addItem("Con débitos", True)
+        self.cb_debitos.addItem("Sin débitos", False)
+        self.cb_debitos.currentIndexChanged.connect(self._apply_filters)
+        l.addWidget(self.cb_debitos, 0)
 
         self.chk_diff_montos = QCheckBox("Solo diferencias $")
         self.chk_diff_montos.toggled.connect(self._apply_filters)
@@ -309,9 +354,14 @@ class AuditoriaTab(BaseTabWidget):
     def _apply_estados(self, out: EstadosOut) -> None:
         self.cb_estado.blockSignals(True)
         self.cb_estado.clear()
+
+        # ✅ virtuales (porque auditada == tiene estado)
         self.cb_estado.addItem("Todos", None)
+
+        # estados reales
         for eid, desc in out.estados:
-            self.cb_estado.addItem(desc, eid)
+            self.cb_estado.addItem(str(desc), int(eid))
+
         self.cb_estado.blockSignals(False)
 
     def _apply_auditoria_rows(self, out: AuditoriaRowsOut) -> None:
@@ -320,27 +370,46 @@ class AuditoriaTab(BaseTabWidget):
         self._apply_filters()
 
     # -------------------------
-    # Filters (sin búsqueda)
+    # Filters (en memoria)
     # -------------------------
+    @staticmethod
+    def _estado_id(r) -> int:
+        return int(getattr(r, "estado_receta_id", 0) or 0)
+
     def _apply_filters(self) -> None:
         base_rows = self._rows_view or []
         total = len(base_rows)
 
-        estado_id = self.cb_estado.currentData() if hasattr(self, "cb_estado") else None
+        estado_sel = self.cb_estado.currentData() if hasattr(self, "cb_estado") else None
+        debitos_flag = self.cb_debitos.currentData() if hasattr(self, "cb_debitos") else None
         only_diff = self.chk_diff_montos.isChecked() if hasattr(self, "chk_diff_montos") else False
 
         idxs = list(range(total))
 
-        if estado_id is not None:
-            eid = int(estado_id)
-            idxs = [i for i in idxs if int(getattr(base_rows[i], "estado_receta_id", 0) or 0) == eid]
+        # Estado (incluye auditadas/no auditadas)
+        if estado_sel is not None:
+            sid = int(estado_sel)
 
+            if sid == -1:
+                idxs = [i for i in idxs if self._estado_id(base_rows[i]) == 0]
+            elif sid == -2:
+                idxs = [i for i in idxs if self._estado_id(base_rows[i]) > 0]
+            else:
+                idxs = [i for i in idxs if self._estado_id(base_rows[i]) == sid]
+
+        # Débitos
+        if debitos_flag is not None:
+            want = bool(debitos_flag)
+            idxs = [i for i in idxs if bool(getattr(base_rows[i], "flag_debitos", False)) == want]
+
+        # Solo diferencias
         if only_diff:
             def is_diff(i: int) -> bool:
                 r = base_rows[i]
                 rec = float(getattr(r, "importe_reconocido", 0) or 0)
                 ofi = float(getattr(r, "importe_oficial", 0) or 0)
                 return abs(rec - ofi) > 0.009
+
             idxs = [i for i in idxs if is_diff(i)]
 
         rows = [base_rows[i] for i in idxs]
@@ -354,8 +423,13 @@ class AuditoriaTab(BaseTabWidget):
             self.tbl.setSortingEnabled(False)
             self.tbl.setRowCount(len(rows))
 
+            # ✅ colores MÁS visibles
+            deb_yellow = QColor(255, 230, 110)  # con débitos (fila completa)
+            ok_green = QColor(150, 230, 150)    # sin débitos (solo celda Débitos)
+
             for i, r in enumerate(rows):
                 asociacion_id = getattr(r, "asociacion_id", None)
+
                 numero_receta = getattr(r, "numero_receta", "") or ""
                 numero_referencia = getattr(r, "numero_referencia", "") or ""
                 nro_lote = getattr(r, "nro_lote", "") or ""
@@ -366,43 +440,52 @@ class AuditoriaTab(BaseTabWidget):
                 importe_reconocido = float(getattr(r, "importe_reconocido", 0) or 0)
                 importe_oficial = float(getattr(r, "importe_oficial", 0) or 0)
 
+                estado_receta_id = self._estado_id(r)
                 estado_receta = getattr(r, "estado_receta", "") or ""
                 frente_jpg = (getattr(r, "frente_jpg", "") or "").strip()
 
-                self._set_item(i, 0, str(numero_receta))
-                self._set_item(i, 1, str(numero_referencia))
-                self._set_item(i, 2, str(nro_lote))
-                self._set_item(i, 3, "SI" if existe_receta else "NO", align=Qt.AlignCenter)
-                self._set_item(i, 4, "SI" if existe_archivo else "NO", align=Qt.AlignCenter)
-                self._set_item(i, 5, f"{importe_reconocido:.2f}", align=Qt.AlignRight)
-                self._set_item(i, 6, f"{importe_oficial:.2f}", align=Qt.AlignRight)
-                self._set_item(i, 7, str(estado_receta))
+                flag_debitos = bool(getattr(r, "flag_debitos", False))
+                auditada = (estado_receta_id == 1)
 
-                green = Qt.GlobalColor.green
-                red = Qt.GlobalColor.red
+                self._set_item(i, self.COL_RECETA, str(numero_receta))
+                self._set_item(i, self.COL_REF, str(numero_referencia))
+                self._set_item(i, self.COL_LOTE, str(nro_lote))
+                self._set_item(i, self.COL_RECETA_OK, "SI" if existe_receta else "NO", align=Qt.AlignCenter)
+                self._set_item(i, self.COL_ARCHIVO_OK, "SI" if existe_archivo else "NO", align=Qt.AlignCenter)
+                self._set_item(i, self.COL_RECON, f"{importe_reconocido:.2f}", align=Qt.AlignRight)
+                self._set_item(i, self.COL_OFI, f"{importe_oficial:.2f}", align=Qt.AlignRight)
+                self._set_item(i, self.COL_ESTADO, str(estado_receta))
+                self._set_item(
+                    i,
+                    self.COL_DEBITOS,
+                    "SI" if (auditada and flag_debitos) else ("NO" if auditada else "-"),
+                    align=Qt.AlignCenter
+                )
 
-                # Oficial siempre verde
-                self._set_bg(i, 6, green)
-
-                # Reconocido: rojo si difiere del oficial, sino verde
-                if self._is_diff_money(importe_reconocido, importe_oficial):
-                    self._set_bg(i, 5, red)
-                else:
-                    self._set_bg(i, 5, green)
-
-                c0 = self.tbl.item(i, 0)
+                c0 = self.tbl.item(i, self.COL_RECETA)
                 if c0:
                     c0.setData(Qt.ItemDataRole.UserRole, asociacion_id)
                     c0.setData(Qt.ItemDataRole.UserRole + 1, frente_jpg)
 
+                deb_yellow = QColor(252, 209, 22)
+                if auditada:
+                    color = deb_yellow if flag_debitos else Qt.GlobalColor.green
+                    self._set_bg(i, 8, color)  # 8 = columna "Débitos")
+
+                self._set_bg(i, self.COL_OFI, Qt.GlobalColor.green)
+
+                if self._is_diff_money(importe_reconocido, importe_oficial):
+                    self._set_bg(i, self.COL_RECON, Qt.GlobalColor.red)
+                else:
+                    self._set_bg(i, self.COL_RECON, Qt.GlobalColor.green)
+
             self.tbl.setSortingEnabled(True)
 
-            if not rows:
-                self._clear_preview()
-            else:
-                # ✅ sin selección por defecto
+            if rows:
                 self.tbl.clearSelection()
                 self.tbl.setCurrentCell(-1, -1)
+                self._clear_preview()
+            else:
                 self._clear_preview()
         finally:
             self.tbl.setUpdatesEnabled(True)
@@ -434,7 +517,7 @@ class AuditoriaTab(BaseTabWidget):
     # -------------------------
     def _on_item_clicked(self, item: QTableWidgetItem) -> None:
         row = item.row()
-        c0 = self.tbl.item(row, 0)
+        c0 = self.tbl.item(row, self.COL_RECETA)
         if not c0:
             return
 
@@ -470,8 +553,12 @@ class AuditoriaTab(BaseTabWidget):
         if self._last_preview_path and Path(self._last_preview_path) != Path(out.path):
             return
 
+        img = out.img_bytes
+        if callable(img):
+            img = img()
+
         pix = QPixmap()
-        pix.loadFromData(out.img_bytes)
+        pix.loadFromData(img)
 
         self.img_preview.setPixmap(pix)
         self.img_preview.resize(pix.size())
@@ -503,7 +590,7 @@ class AuditoriaTab(BaseTabWidget):
             self.btn_visual.setEnabled(False)
             return
         row = it.row()
-        c0 = self.tbl.item(row, 0)
+        c0 = self.tbl.item(row, self.COL_RECETA)
         if not c0:
             self.btn_visual.setEnabled(False)
             return
@@ -516,7 +603,7 @@ class AuditoriaTab(BaseTabWidget):
             return
 
         for row in range(start_row, self.tbl.rowCount()):
-            c0 = self.tbl.item(row, 0)
+            c0 = self.tbl.item(row, self.COL_RECETA)
             if not c0:
                 continue
 
@@ -524,7 +611,7 @@ class AuditoriaTab(BaseTabWidget):
             if not asociacion_id:
                 continue
 
-            self.tbl.setCurrentCell(row, 0)
+            self.tbl.setCurrentCell(row, self.COL_RECETA)
             self.tbl.selectRow(row)
             self.tbl.scrollToItem(c0, QAbstractItemView.ScrollHint.PositionAtCenter)
 
@@ -567,9 +654,6 @@ class AuditoriaTab(BaseTabWidget):
         self.img_preview.setPixmap(QPixmap())
         self.img_preview.setText(f"No se pudo cargar la imagen.\n{nice}")
 
-    # -------------------------
-    # Helpers
-    # -------------------------
     def _set_bg(self, row: int, col: int, color) -> None:
         it = self.tbl.item(row, col)
         if it:
