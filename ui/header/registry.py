@@ -12,7 +12,7 @@ def build_header_actions(main_window, current_user) -> dict[str, list[HeaderActi
                 key="recepcion_window",
                 text="Listado Recepcion",
                 kind="window",
-                window_factory=lambda: RecepcionesWindow(main_window, creado_por_usuario_id=current_user.creado_por_usuario_id),
+                window_factory=lambda: RecepcionesWindow(main_window, creado_por_usuario_id=current_user.usuario_id),
             ),
             HeaderAction(
                 key="tab_resumen_recepcion",
