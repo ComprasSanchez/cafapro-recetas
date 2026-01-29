@@ -1,4 +1,5 @@
 from ui.header.actions import HeaderAction
+from ui.windows.excluidos_window import ExcluidosWindow
 from ui.windows.listado_debitos_window import ListadoDebitosWindow
 from ui.windows.periodo_window import PeriodosWindow
 from ui.windows.recepcion_window import RecepcionesWindow
@@ -15,12 +16,6 @@ def build_header_actions(main_window, current_user) -> dict[str, list[HeaderActi
                 window_factory=lambda: RecepcionesWindow(main_window, creado_por_usuario_id=current_user.usuario_id),
             ),
             HeaderAction(
-                key="tab_resumen_recepcion",
-                text="Resumen",
-                kind="tab",
-                tab_key="resumen_recepcion",
-            ),
-            HeaderAction(
                 key="carga_recepcion_tab",
                 text="Carga Recepcion",
                 kind="tab",
@@ -31,6 +26,12 @@ def build_header_actions(main_window, current_user) -> dict[str, list[HeaderActi
                 text="Listado Debitos",
                 kind="window",
                 window_factory=lambda: ListadoDebitosWindow(main_window),
+            ),
+            HeaderAction(
+                key="exluidos_window",
+                text="Exluidos",
+                kind="window",
+                window_factory=lambda: ExcluidosWindow(main_window)
             )
         ],
         "Periodo": [

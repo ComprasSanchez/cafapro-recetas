@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date, time
 from decimal import Decimal
 import sqlalchemy as sa
 from sqlalchemy.orm import Mapped, mapped_column
@@ -69,5 +70,18 @@ class VwArchivoRecetaDebitos(Base):
     descripcion_debito: Mapped[str] = mapped_column(sa.String)
     detalle: Mapped[str | None] = mapped_column(sa.String, nullable=True)
     creado_en: Mapped[sa.DateTime] = mapped_column(sa.DateTime, nullable=False)
+
+class VwArchivosExcluidos(Base):
+    __tablename__ = "vw_archivos_excluidos"
+
+    recepcion_id: Mapped[int] = mapped_column(sa.Integer, primary_key=True)
+    nro_referencia: Mapped[str | None] = mapped_column(sa.String, primary_key=True)
+    nro_receta: Mapped[str | None] = mapped_column(sa.String, primary_key=True)
+    fecha: Mapped[date | None] = mapped_column(sa.Date, primary_key=True)
+    hora: Mapped[time | None] = mapped_column(sa.Time, primary_key=True)
+
+    importe_obs: Mapped[sa.Numeric] = mapped_column(sa.Numeric(12, 2))
+    a_cargo_entidad: Mapped[sa.Numeric] = mapped_column(sa.Numeric(12, 2))
+
 
 
