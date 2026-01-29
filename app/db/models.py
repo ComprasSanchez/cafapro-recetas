@@ -283,7 +283,7 @@ class Recetas(Base):
 
     usuario_id: Mapped[int] = mapped_column(sa.ForeignKey("usuarios.usuario_id"), nullable=False)
     vendedor_id: Mapped[int] = mapped_column(sa.ForeignKey("vendedores.vendedor_id"), nullable=True)
-    creado_en: Mapped[sa.DateTime] = mapped_column(sa.DateTime, nullable=False, server_default=sa.func.now())
+    creado_en: Mapped[sa.DateTime] = mapped_column(sa.DateTime, nullable=True)
 
 
 class RecetasHistorial(Base):

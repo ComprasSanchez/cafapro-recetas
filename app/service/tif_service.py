@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Set, Literal, cast
 
 from sqlalchemy import select
@@ -52,6 +54,14 @@ class TiffService:
     ):
         self._tif = tif or TiffProcessor()
         self._enrich = troquel_enrich or TroquelEnrichmentService()
+
+    @staticmethod
+    def _scan_dt_from_name(path: str) -> datetime:
+        name = Path(path).stem  # "pami_20260127121247004_f"
+        ts = name.split("_")[1]  # "20260127121247004"
+        dt = datetime.strptime(ts[:14], "%Y%m%d%H%M%S")
+        ms = int(ts[14:17])
+        return dt.replace(microsecond=ms * 1000)
 
     @staticmethod
     def _norm_str(x) -> str:
@@ -301,6 +311,7 @@ class TiffService:
                 observacion=None,
                 usuario_id=usuario_id,
                 estado_receta_id=2,
+                creado_en=self._scan_dt_from_name(frente_jpg),
             )
             s.add(receta)
             s.flush()  # receta_id
