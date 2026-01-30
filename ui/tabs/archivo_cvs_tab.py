@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import date
+
 from PySide6.QtCore import Qt, QDate
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QFrame, QHBoxLayout, QLabel, QPushButton,
@@ -7,6 +9,9 @@ from PySide6.QtWidgets import (
     QTableWidgetItem, QTableWidget, QAbstractItemView, QSplitter, QHeaderView, QDateEdit
 )
 
+from app.db.session import session_scope
+from app.service.archivo_service import ArchivoService
+from ui.dialogs.dias_descargado_dialog import DiasDescargadosDialog
 from ui.tabs.base_tab import BaseTabWidget
 from ui.dialogs.recepcion_pick_dialog import RecepcionPickDialog
 
@@ -104,6 +109,9 @@ class ArchivoCvsTab(BaseTabWidget):
         self.btn_subir = QPushButton("Subir")
         self.btn_subir.setFixedSize(90, 26)
 
+        self.btn_dias_descargados = QPushButton("Días Descargados")
+        self.btn_dias_descargados.setFixedSize(120, 26)
+
         right_box = QWidget()
         right_l = QHBoxLayout(right_box)
         right_l.setContentsMargins(0, 0, 0, 0)
@@ -139,7 +147,14 @@ class ArchivoCvsTab(BaseTabWidget):
         grid.addWidget(lb_imed, 1, 4, Qt.AlignmentFlag.AlignRight)
         grid.addWidget(self.in_imed, 1, 5)
 
-        grid.addWidget(self.de_fecha, 1, 9)
+        fecha_box = QWidget()
+        fecha_l = QHBoxLayout(fecha_box)
+        fecha_l.setContentsMargins(0, 0, 0, 0)
+        fecha_l.setSpacing(6)
+        fecha_l.addWidget(self.de_fecha)
+        fecha_l.addWidget(self.btn_dias_descargados)
+
+        grid.addWidget(fecha_box, 1, 9)
 
         grid.setColumnStretch(8, 1)
         grid.addWidget(right_box, 1, 10, Qt.AlignmentFlag.AlignRight)
@@ -148,6 +163,7 @@ class ArchivoCvsTab(BaseTabWidget):
         self.btn_pick_recepcion.clicked.connect(self._on_pick_recepcion)
         self.btn_cargar.clicked.connect(self._on_cargar)
         self.btn_subir.clicked.connect(self._on_subir)
+        self.btn_dias_descargados.clicked.connect(self._on_dias_descargados)
 
         return header
 
@@ -389,9 +405,6 @@ class ArchivoCvsTab(BaseTabWidget):
         finally:
             self.tbl_detalles.setUpdatesEnabled(True)
 
-    # --------------------------
-    # Subir a DB (async)
-    # --------------------------
     def _on_subir(self):
         if not self._recepcion_id:
             QMessageBox.warning(self, "Atención", "Seleccione la recepción.")
@@ -442,6 +455,27 @@ class ArchivoCvsTab(BaseTabWidget):
             resumen += f"\n\nErrores:\n{top}"
 
         QMessageBox.information(self, "Subida finalizada", resumen)
+
+    def _on_dias_descargados(self) -> None:
+        if not self._recepcion_id:
+            QMessageBox.warning(self, "Atención", "Primero seleccioná una recepción.")
+            return
+
+        # Cargamos fechas (rápido) y abrimos calendario
+        with session_scope() as s:
+            fechas = ArchivoService.list_fechas(s, recepcion_id=self._recepcion_id)
+
+        dlg = DiasDescargadosDialog(
+            recepcion_id=self._recepcion_id,
+            fechas_descargadas=fechas,
+            parent=self
+        )
+
+        def on_pick(d: date):
+            self.de_fecha.setDate(QDate(d.year, d.month, d.day))
+
+        dlg.dateSelected.connect(on_pick)
+        dlg.exec()
 
 
 

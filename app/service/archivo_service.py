@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from datetime import date as dt_date, time as dt_time
+from datetime import date as dt_date, time as dt_time, date, datetime
 from typing import Any
 
-from sqlalchemy import select, func, exists
+from sqlalchemy import select, func, exists, distinct, cast, Date
 from sqlalchemy.orm import Session
 
 from app.db.models import Archivo, ArchivoDetalle, Recepcion
@@ -21,6 +21,19 @@ def _dec(v: Any) -> Decimal:
         return Decimal(s)
     except Exception:
         return Decimal("0")
+
+def parse_date_any(v) -> date | None:
+    if v is None or v == "":
+        return None
+    if isinstance(v, datetime):
+        return v.date()
+    if isinstance(v, date):
+        return v
+    s = str(v).strip()
+    try:
+        return date.fromisoformat(s[:10])  # "2026-01-01" o "2026-01-01 00:00:00"
+    except Exception:
+        return None
 
 
 def _parse_date(v: Any) -> dt_date | None:
@@ -225,4 +238,23 @@ class ArchivoService:
 
         offset = int(prev.pendientes or 0) if prev else 0
         return offset + 1
+
+    @staticmethod
+    def list_fechas(s: Session, *, recepcion_id: int) -> list[date]:
+        stmt = (
+            select(distinct(cast(Archivo.fecha, Date)))
+            .where(
+                Archivo.recepcion_id == int(recepcion_id),
+                Archivo.fecha.is_not(None),
+            )
+            .order_by(cast(Archivo.fecha, Date).asc())
+        )
+        rows = s.execute(stmt).all()
+
+        out: list[date] = []
+        for (v,) in rows:
+            d = parse_date_any(v)
+            if d:
+                out.append(d)
+        return out
 
