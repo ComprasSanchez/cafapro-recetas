@@ -16,7 +16,7 @@
    Global
 ------------------------- */
 QWidget {
-  background: #F6F7F9;
+  background: #FFFFFF;
   color: #111827;
   font-family: "Segoe UI";
   font-size: 12px;

@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from sqlalchemy import update
+
 from app.db.session import session_scope
 from app.service.recepcion_service import RecepcionService
 from app.service.tif_service import ProcesarItemIn, TiffService
@@ -28,6 +30,11 @@ class ListImagesOut:
 @dataclass(frozen=True)
 class ProcesarOut:
     resumen: Any
+
+@dataclass(frozen=True)
+class CloseRecepcionOut:
+    recepcion_id: int
+    estado_recepcion_id: int
 
 
 class CargaRecepcionUseCase:
@@ -87,4 +94,10 @@ class CargaRecepcionUseCase:
             ctx.emit_progress(100, "Procesamiento finalizado")
 
         return ProcesarOut(resumen=resumen)
+
+    @staticmethod
+    def cerrar_recepcion(recepcion_id: int) -> CloseRecepcionOut:
+        with session_scope() as s:
+            RecepcionService.cerrar_recepcion(s, recepcion_id=recepcion_id)
+            return CloseRecepcionOut(recepcion_id=recepcion_id, estado_recepcion_id=2)
 

@@ -15,7 +15,12 @@ from ui.dialogs.recepcion_create_dialog import RecepcionCreateDialog
 from ui.dialogs.recepcion_pick_dialog import RecepcionPickDialog
 
 from ui.tabs.base_tab import BaseTabWidget
-from ui.usecase.carga_recepcion_usecase import CargaRecepcionUseCase, LoadRecepcionOut, ListImagesOut, ProcesarOut
+from ui.usecase.carga_recepcion_usecase import (
+    CargaRecepcionUseCase,
+    LoadRecepcionOut,
+    ListImagesOut,
+    ProcesarOut,
+)
 
 
 class CargaRecepcionTab(BaseTabWidget):
@@ -51,15 +56,32 @@ class CargaRecepcionTab(BaseTabWidget):
         return le
 
     @staticmethod
-    def _btn(text: str, *, variant: str = "ghost", size: str = "md", w: int | None = None, h: int | None = None) -> QPushButton:
+    def _btn(
+        text: str,
+        *,
+        variant: str = "ghost",
+        size: str = "md",
+        w: int | None = None,
+        h: int | None = None,
+        enabled: bool = True,
+    ) -> QPushButton:
         b = QPushButton(text)
         b.setProperty("variant", variant)
         b.setProperty("size", size)
+        b.setEnabled(enabled)
         if w is not None:
             b.setFixedWidth(w)
         if h is not None:
             b.setMinimumHeight(h)
         return b
+
+    def _set_actions_enabled(self, enabled: bool) -> None:
+        self.btn_pick_recepcion.setEnabled(enabled)
+        self.btn_new_recepcion.setEnabled(enabled)
+        self.btn_cargar.setEnabled(enabled)
+        self.btn_procesar.setEnabled(enabled)
+        self.btn_cerrar.setEnabled(enabled)
+        self.de_fecha.setEnabled(enabled)
 
     # --------------------------
     # Header
@@ -108,12 +130,15 @@ class CargaRecepcionTab(BaseTabWidget):
         self.btn_cargar = self._btn("Cargar", variant="ghost", size="md", w=90, h=32)
         self.btn_procesar = self._btn("Procesar", variant="primary", size="md", w=90, h=32)
 
+        self.btn_cerrar = self._btn("Cerrar recepción", variant="ghost", size="md", w=140, h=32)
+
         right_box = QWidget()
         right_l = QHBoxLayout(right_box)
         right_l.setContentsMargins(0, 0, 0, 0)
         right_l.setSpacing(8)
         right_l.addWidget(self.btn_cargar)
         right_l.addWidget(self.btn_procesar)
+        right_l.addWidget(self.btn_cerrar)
 
         num_box = QWidget()
         num_l = QHBoxLayout(num_box)
@@ -147,6 +172,7 @@ class CargaRecepcionTab(BaseTabWidget):
         self.btn_new_recepcion.clicked.connect(self._on_new_recepcion)
         self.btn_cargar.clicked.connect(self._on_cargar)
         self.btn_procesar.clicked.connect(self._on_procesar)
+        self.btn_cerrar.clicked.connect(self._on_cerrar_recepcion)
 
         return header
 
@@ -241,6 +267,7 @@ class CargaRecepcionTab(BaseTabWidget):
         self.in_quincena.setText(quincena)
 
         self._clear_images_table()
+        self._set_actions_enabled(True)
         self.footer_set(info=f"Recepción {out.recepcion_id} lista")
 
     # --------------------------
@@ -337,4 +364,38 @@ class CargaRecepcionTab(BaseTabWidget):
                     msg += f"\n... y {len(errs) - 10} más"
 
         QMessageBox.information(self, "Procesar", msg)
+
+    def _on_cerrar_recepcion(self) -> None:
+        if not self._recepcion_id:
+            QMessageBox.warning(self, "Atención", "Primero seleccioná una recepción.")
+            return
+
+        ans = QMessageBox.question(
+            self,
+            "Cerrar recepción",
+            f"¿Querés cerrar la recepción #{self._recepcion_id}?\n"
+            "Se cambiará su estado a CERRADO (estado_recepcion_id = 2).",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if ans != QMessageBox.StandardButton.Yes:
+            return
+
+        self.run_job(
+            self._uc.cerrar_recepcion,  # debe existir en el UseCase
+            recepcion_id=self._recepcion_id,
+            title="Cerrando recepción…",
+            on_result=self._on_recepcion_cerrada,
+            on_error=lambda err: QMessageBox.critical(self, "Error (worker)", err),
+        )
+
+    def _on_recepcion_cerrada(self, out) -> None:
+        rid = getattr(out, "recepcion_id", None) or self._recepcion_id
+        self.footer_set(info=f"Recepción {rid} cerrada")
+        QMessageBox.information(self, "OK", f"Recepción {rid} cerrada (estado=2).")
+
+        # opcional: deshabilitar acciones al cerrar
+        self.btn_cargar.setEnabled(False)
+        self.btn_procesar.setEnabled(False)
+        self.btn_cerrar.setEnabled(False)
+        self.de_fecha.setEnabled(False)
 

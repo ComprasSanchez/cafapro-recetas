@@ -5,10 +5,7 @@ from typing import Optional
 from sqlalchemy import select, func, distinct
 from sqlalchemy.orm import Session
 
-from app.db.models import Recepcion, EstadoRecepcion
-from app.db.models import ObraSocial
-from app.db.models import Periodo
-from app.db.models import Prestador
+from app.db.models import Recepcion, EstadoRecepcion, ObraSocial, Periodo, Prestador
 
 @dataclass(frozen=True)
 class RecepcionListItem:
@@ -39,7 +36,6 @@ class RecepcionRowItem:
     fecha_recepcion: Optional[date]
 
 class RecepcionService:
-
     @staticmethod
     def list_prestadores_con_recepcion(s: Session, *, periodo_id: int) -> list[PrestadorConRecepcionesItem]:
         rows = s.execute(
@@ -74,7 +70,6 @@ class RecepcionService:
 
     @staticmethod
     def list_recepciones(s: Session, *, periodo_id: int, prestador_id: int) -> list[RecepcionRowItem]:
-        # Pediste: numero recepcion, obra social, fecha (yyyy-mm-dd)
         rows = s.execute(
             select(
                 Recepcion.recepcion_id,
@@ -137,7 +132,7 @@ class RecepcionService:
                     estado=estado,
                     fecha_recepcion=fecha_rec,
                     creado_en=creado_en,
-                    imed=imed
+                    imed=imed,
                 )
             )
         return out
@@ -160,7 +155,7 @@ class RecepcionService:
             obra_social_id=int(obra_social_id),
             periodo_id=int(periodo_id),
             prestador_id=int(prestador_id),
-            estado_recepcion_id=estado_recepcion_id,
+            estado_recepcion_id=int(estado_recepcion_id),
             fecha_recepcion=fecha_recepcion,
             observaciones=observaciones,
             creado_por_usuario_id=creado_por_usuario_id,
@@ -177,3 +172,19 @@ class RecepcionService:
         if not rec:
             raise ValueError("La recepción no existe.")
         s.delete(rec)
+
+
+    @staticmethod
+    def cerrar_recepcion(s: Session, recepcion_id: int) -> None:
+        """
+        Cambia estado_recepcion_id a 2 (CERRADO).
+        """
+        rec = s.execute(
+            select(Recepcion).where(Recepcion.recepcion_id == int(recepcion_id))
+        ).scalar_one_or_none()
+
+        if not rec:
+            raise RuntimeError(f"No existe la recepción {recepcion_id}")
+
+        rec.estado_recepcion_id = 2
+        s.flush()
