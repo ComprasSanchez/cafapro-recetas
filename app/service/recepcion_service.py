@@ -1,7 +1,8 @@
 from __future__ import annotations
 from dataclasses import dataclass
+from datetime import date
 from typing import Optional
-from sqlalchemy import select
+from sqlalchemy import select, func, distinct
 from sqlalchemy.orm import Session
 
 from app.db.models import Recepcion, EstadoRecepcion
@@ -21,7 +22,84 @@ class RecepcionListItem:
     creado_en: Optional[object]
     imed: str
 
+@dataclass(frozen=True)
+class PrestadorConRecepcionesItem:
+    prestador_id: int
+    nombre: str
+    codigo: str
+    imed: str
+    cantidad_recepciones: int
+
+
+@dataclass(frozen=True)
+class RecepcionRowItem:
+    recepcion_id: int
+    numero: int
+    obra_social: str
+    fecha_recepcion: Optional[date]
+
 class RecepcionService:
+
+    @staticmethod
+    def list_prestadores_con_recepcion(s: Session, *, periodo_id: int) -> list[PrestadorConRecepcionesItem]:
+        rows = s.execute(
+            select(
+                Prestador.prestador_id,
+                Prestador.nombre,
+                Prestador.codigo,
+                Prestador.imed,
+                func.count(distinct(Recepcion.recepcion_id)).label("cantidad"),
+            )
+            .join(Recepcion, Recepcion.prestador_id == Prestador.prestador_id)
+            .where(
+                Prestador.activo.is_(True),
+                Recepcion.periodo_id == int(periodo_id),
+            )
+            .group_by(Prestador.prestador_id, Prestador.nombre, Prestador.codigo, Prestador.imed)
+            .order_by(Prestador.nombre.nulls_last(), Prestador.codigo)
+        ).all()
+
+        out: list[PrestadorConRecepcionesItem] = []
+        for pid, nom, cod, imed, cant in rows:
+            out.append(
+                PrestadorConRecepcionesItem(
+                    prestador_id=pid,
+                    nombre=nom or "(sin nombre)",
+                    codigo=cod or "",
+                    imed=imed or "",
+                    cantidad_recepciones=int(cant or 0),
+                )
+            )
+        return out
+
+    @staticmethod
+    def list_recepciones(s: Session, *, periodo_id: int, prestador_id: int) -> list[RecepcionRowItem]:
+        # Pediste: numero recepcion, obra social, fecha (yyyy-mm-dd)
+        rows = s.execute(
+            select(
+                Recepcion.recepcion_id,
+                Recepcion.numero,
+                ObraSocial.nombre,
+                Recepcion.fecha_recepcion,
+            )
+            .join(ObraSocial, ObraSocial.obra_social_id == Recepcion.obra_social_id)
+            .where(
+                Recepcion.periodo_id == int(periodo_id),
+                Recepcion.prestador_id == int(prestador_id),
+            )
+            .order_by(Recepcion.fecha_recepcion.desc(), Recepcion.numero.desc(), Recepcion.recepcion_id.desc())
+        ).all()
+
+        return [
+            RecepcionRowItem(
+                recepcion_id=r[0],
+                numero=r[1],
+                obra_social=r[2] or "",
+                fecha_recepcion=r[3],
+            )
+            for r in rows
+        ]
+
     @staticmethod
     def list(s: Session) -> list[RecepcionListItem]:
         rows = s.execute(

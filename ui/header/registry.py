@@ -3,6 +3,7 @@ from ui.windows.excluidos_window import ExcluidosWindow
 from ui.windows.listado_debitos_window import ListadoDebitosWindow
 from ui.windows.periodo_window import PeriodosWindow
 from ui.windows.recepcion_window import RecepcionesWindow
+from ui.windows.resumen_recepcion_winodow import ResumenRecepcionWindow
 from ui.windows.usuario_window import UsuariosWindow
 
 
@@ -32,6 +33,12 @@ def build_header_actions(main_window, current_user) -> dict[str, list[HeaderActi
                 text="Exluidos",
                 kind="window",
                 window_factory=lambda: ExcluidosWindow(main_window)
+            ),
+            HeaderAction(
+                key="resumen_recepcion_window",
+                text="Resumen Recepcion",
+                kind="window",
+                window_factory=lambda: ResumenRecepcionWindow(main_window),
             )
         ],
         "Periodo": [

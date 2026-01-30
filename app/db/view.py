@@ -84,4 +84,24 @@ class VwArchivosExcluidos(Base):
     a_cargo_entidad: Mapped[sa.Numeric] = mapped_column(sa.Numeric(12, 2))
 
 
+class VwResumenRecepcionPrestador(Base):
+    __tablename__ = "vw_resumen_recepcion_prestador"
+
+    # PK lógica (vista)
+    recepcion_id: Mapped[int] = mapped_column(sa.Integer, primary_key=True)
+    prestador_id: Mapped[int] = mapped_column(sa.Integer, primary_key=True)
+    periodo_id: Mapped[int] = mapped_column(sa.Integer, primary_key=True)
+
+    recepcion_numero: Mapped[int | None] = mapped_column(sa.Integer)
+    fecha_recepcion: Mapped[date | None] = mapped_column(sa.Date)
+    estado_recepcion_id: Mapped[int | None] = mapped_column(sa.Integer)
+
+    cantidad_recetas: Mapped[int] = mapped_column(sa.Integer)
+
+    total_general: Mapped[sa.Numeric] = mapped_column(sa.Numeric(12, 2))
+    total_importe_obs: Mapped[sa.Numeric] = mapped_column(sa.Numeric(12, 2))
+    total_a_cargo_entidad: Mapped[sa.Numeric] = mapped_column(sa.Numeric(12, 2))
+
+
+
 
