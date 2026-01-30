@@ -219,7 +219,7 @@ class CargaRecepcionTab(BaseTabWidget):
     # Recepción (async)
     # --------------------------
     def _on_pick_recepcion(self):
-        dlg = RecepcionPickDialog(self)
+        dlg = RecepcionPickDialog(self, all=False)
         if dlg.exec() != dlg.DialogCode.Accepted:
             return
         rid = dlg.selected_recepcion_id()

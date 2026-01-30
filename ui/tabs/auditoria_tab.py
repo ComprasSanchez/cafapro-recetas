@@ -166,7 +166,7 @@ class AuditoriaTab(BaseTabWidget):
         return header
 
     def _on_pick_recepcion(self) -> None:
-        dlg = RecepcionPickDialog(self)
+        dlg = RecepcionPickDialog(self, all=False)
         if dlg.exec() != dlg.DialogCode.Accepted:
             return
         rid = dlg.selected_recepcion_id()

@@ -96,8 +96,9 @@ class RecepcionService:
         ]
 
     @staticmethod
-    def list(s: Session) -> list[RecepcionListItem]:
-        rows = s.execute(
+    @staticmethod
+    def list(s: Session, *, all: bool = True) -> list[RecepcionListItem]:
+        q = (
             select(
                 Recepcion.recepcion_id,
                 Recepcion.numero,
@@ -113,9 +114,12 @@ class RecepcionService:
             .join(Periodo, Periodo.periodo_id == Recepcion.periodo_id)
             .join(Prestador, Prestador.prestador_id == Recepcion.prestador_id)
             .join(EstadoRecepcion, EstadoRecepcion.estado_recepcion_id == Recepcion.estado_recepcion_id)
-            .order_by(Recepcion.recepcion_id.desc())
-        ).all()
+        )
 
+        if not all:
+            q = q.where(Recepcion.estado_recepcion_id == 1)
+
+        rows = s.execute(q.order_by(Recepcion.recepcion_id.desc())).all()
         out: list[RecepcionListItem] = []
         for r in rows:
             (rid, numero, os_nombre, anio, mes, quin, pres_cod, pres_nom,
@@ -126,13 +130,13 @@ class RecepcionService:
                 RecepcionListItem(
                     recepcion_id=rid,
                     numero=numero,
-                    obra_social=os_nombre,
+                    obra_social=os_nombre or "",
                     periodo=periodo_txt,
                     prestador=prestador_txt,
-                    estado=estado,
+                    estado=estado or "",
                     fecha_recepcion=fecha_rec,
                     creado_en=creado_en,
-                    imed=imed,
+                    imed=imed or "",
                 )
             )
         return out

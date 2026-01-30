@@ -68,7 +68,7 @@ class ExcluidosWindow(QDialog):
         root.addLayout(actions)
 
     def _pick_recepcion(self) -> None:
-        dlg = RecepcionPickDialog(self)
+        dlg = RecepcionPickDialog(self, all=False)
         if dlg.exec() != dlg.DialogCode.Accepted:
             return
 

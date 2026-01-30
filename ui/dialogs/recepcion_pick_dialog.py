@@ -13,8 +13,9 @@ from app.service.recepcion_service import RecepcionService
 class RecepcionPickDialog(QDialog):
     """Dialog simple para elegir una recepción existente."""
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, all: bool = True):
         super().__init__(parent)
+        self.all = all  # ✅ guarda el flag
         self.setWindowTitle("Elegir recepción")
         self.setMinimumSize(950, 500)
 
@@ -62,7 +63,7 @@ class RecepcionPickDialog(QDialog):
     def _load(self):
         try:
             with session_scope() as s:
-                rows = RecepcionService.list(s)
+                rows = RecepcionService.list(s, all=self.all)  # ✅ pasa el flag
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudieron cargar recepciones:\n{e}")
             return
@@ -93,3 +94,4 @@ class RecepcionPickDialog(QDialog):
             return None
         rid = it.data(Qt.UserRole)
         return int(rid) if rid is not None else None
+
