@@ -162,7 +162,13 @@ class AuditoriaVisualDialog(QDialog):
         self.tbl_troqueles = QTableWidget()
         self.tbl_troqueles.setColumnCount(7)  # ✅ FIX: ahora sí hay columna Estado
         self.tbl_troqueles.setHorizontalHeaderLabels([
-            "Código barra", "Droga", "Presentación", "Alfabeta", "Monto", "Cant.", "Estado"
+            "Código barra",      # 0
+            "Presentación",      # 1
+            "Cant.",             # 2
+            "Droga",             # 3
+            "Alfabeta",          # 4
+            "Monto",             # 5
+            "Estado",            # 6
         ])
         self.tbl_troqueles.setColumnHidden(6,True)
         self._setup_table(self.tbl_troqueles)
@@ -453,12 +459,19 @@ class AuditoriaVisualDialog(QDialog):
             estado = t.estado
 
             self._set_cell(self.tbl_troqueles, i, 0, str(getattr(t, "codigo_barra", "") or ""))
-            self._set_cell(self.tbl_troqueles, i, 1, str(getattr(t, "droga", "") or ""))
-            self._set_cell(self.tbl_troqueles, i, 2, str(getattr(t, "presentacion", "") or ""))
-            self._set_cell(self.tbl_troqueles, i, 3, str(getattr(t, "code_alfabeta", "") or ""))
-            self._set_cell(self.tbl_troqueles, i, 4, self._fmt_money(Decimal(str(getattr(t, "monto", 0) or 0))))
-            self._set_cell(self.tbl_troqueles, i, 5, str(getattr(t, "cantidad", "") or ""))
-            self._set_cell(self.tbl_troqueles, i, 6, estado)
+            self._set_cell(self.tbl_troqueles, i, 1, str(getattr(t, "presentacion", "") or ""))
+            self._set_cell(self.tbl_troqueles, i, 2, str(getattr(t, "cantidad", "") or ""))
+
+            # resto como venga
+            self._set_cell(self.tbl_troqueles, i, 3, str(getattr(t, "droga", "") or ""))
+            self._set_cell(self.tbl_troqueles, i, 4, str(getattr(t, "code_alfabeta", "") or ""))
+            self._set_cell(
+                self.tbl_troqueles,
+                i,
+                5,
+                self._fmt_money(Decimal(str(getattr(t, "monto", 0) or 0))),
+            )
+            self._set_cell(self.tbl_troqueles, i, 6, str(estado))
 
             # Si querés mantener colores, dejalo; si querés monocromo total, comentá esto.
             color = None
