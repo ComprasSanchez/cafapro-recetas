@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy import select
 
-from app.db.models import EstadoReceta
+from app.db.models import EstadoRecepcion
 
 
 def run(session) -> None:
@@ -10,10 +10,10 @@ def run(session) -> None:
 
     for descripcion in estado_recepcion:
         exists = session.execute(
-            select(EstadoReceta).where(EstadoReceta.descripcion == descripcion)
+            select(EstadoRecepcion).where(EstadoRecepcion.descripcion == descripcion)
         ).scalar_one_or_none()
 
         if not exists:
-            session.add(EstadoReceta(descripcion=descripcion))
+            session.add(EstadoRecepcion(descripcion=descripcion))
 
     session.commit()
