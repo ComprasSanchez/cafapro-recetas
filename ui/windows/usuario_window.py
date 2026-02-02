@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.db.session import session_scope
-from app.service.usuario_service import UsuariosService
+from app.service.catalogos.usuario_service import UsuariosService
 from ui.dialogs.usuario_create_dialog import UsuarioCreateDialog
 
 

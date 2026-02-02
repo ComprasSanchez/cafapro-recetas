@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Prestador
 from app.db.view import VwResumenRecepcionPrestador
-from app.service.recepcion_service import RecepcionService
+from app.service.recepcion.recepcion_service import RecepcionService
 
 @dataclass(frozen=True)
 class ResumenRecepcionItem:

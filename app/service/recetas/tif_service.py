@@ -17,7 +17,7 @@ from app.db.models import (
     Troqueles,
     EstadoTroquelEnum,
 )
-from app.service.troquel_enrichment_service import TroquelEnrichmentService, TroquelEnrichment
+from app.service.recetas.troquel_enrichment_service import TroquelEnrichmentService, TroquelEnrichment
 
 
 @dataclass(frozen=True)

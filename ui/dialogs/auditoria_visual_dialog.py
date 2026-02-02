@@ -15,10 +15,10 @@ from PySide6.QtWidgets import (
 
 from app.db.models import EstadoTroquelEnum
 from app.db.session import session_scope
-from app.service.auditoria_visual_service import AuditoriaVisualService, AuditoriaVisualData
-from app.service.debitos_service import DebitoInput, DebitosService
-from app.service.motivos_debito_service import MotivosDebitosService
-from app.service.recetas_service import RecetaService
+from app.service.auditoria.auditoria_visual_service import AuditoriaVisualService, AuditoriaVisualData
+from app.service.debitos.debitos_service import DebitoInput, DebitosService
+from app.service.debitos.motivos_debito_service import MotivosDebitosService
+from app.service.recetas.recetas_service import RecetaService
 from ui.dialogs.estado_seguimeinto_pick_dialog import EstadoSeguimientoPickDialog
 from ui.label.image_view_label import ImageViewer
 from ui.label.clickable_label import ClickableLabel

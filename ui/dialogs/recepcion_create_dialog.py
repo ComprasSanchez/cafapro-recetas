@@ -8,11 +8,11 @@ from PySide6.QtWidgets import (
 )
 
 from app.db.session import session_scope
-from app.service.obra_social_service import ObraSocialService
-from app.service.periodo_service import PeriodoService
-from app.service.prestador_service import PrestadorService
-from app.service.recepcion_service import RecepcionService
-from app.service.estado_recepcion_service import EstadoRecepcionService
+from app.service.catalogos.obra_social_service import ObraSocialService
+from app.service.catalogos.periodo_service import PeriodoService
+from app.service.catalogos.prestador_service import PrestadorService
+from app.service.recepcion.recepcion_service import RecepcionService
+from app.service.recepcion.estado_recepcion_service import EstadoRecepcionService
 
 
 class RecepcionCreateDialog(QDialog):

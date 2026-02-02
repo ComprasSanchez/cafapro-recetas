@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.db.session import session_scope
-from app.service.recepcion_service import RecepcionService
+from app.service.recepcion.recepcion_service import RecepcionService
 from ui.dialogs.recepcion_create_dialog import RecepcionCreateDialog
 
 

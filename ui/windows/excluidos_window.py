@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.db.session import session_scope
-from app.service.excluidos_service import ExcluidosService
+from app.service.auditoria.excluidos_service import ExcluidosService
 from ui.dialogs.recepcion_pick_dialog import RecepcionPickDialog
 
 

@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.db.session import session_scope
-from app.service.periodo_service import PeriodoService
+from app.service.catalogos.periodo_service import PeriodoService
 
 
 MESES = [

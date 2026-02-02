@@ -11,9 +11,9 @@ from PySide6.QtWidgets import (
 )
 
 from app.db.session import session_scope
-from app.service.estado_seguimiento_service import EstadoSeguimientoService
-from app.service.recetas_service import RecetaService
-from app.service.view_debitos import ViewDebitos
+from app.service.recetas.estado_seguimiento_service import EstadoSeguimientoService
+from app.service.recetas.recetas_service import RecetaService
+from app.service.debitos.view_debitos import ViewDebitos
 
 
 class ListadoDebitosWindow(QDialog):

@@ -3,11 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import update
-
 from app.db.session import session_scope
-from app.service.recepcion_service import RecepcionService
-from app.service.tif_service import ProcesarItemIn, TiffService
+from app.service.recepcion.recepcion_service import RecepcionService
+from app.service.recetas.tif_service import ProcesarItemIn, TiffService
 from core.image_handler import ImageHandler
 
 

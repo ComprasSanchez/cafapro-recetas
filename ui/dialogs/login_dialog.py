@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.db.session import session_scope
-from app.service.auth_service import AuthService, AuthError
+from app.service.integraciones.auth_service import AuthService, AuthError
 
 
 class LoginDialog(QDialog):

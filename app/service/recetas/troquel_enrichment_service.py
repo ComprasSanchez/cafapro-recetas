@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from app.dto.medicamentos_dto import MedicamentoDTO
-from app.service.medicamento_client import MedicamentoClient
+from app.service.integraciones.medicamento_client import MedicamentoClient
 from app.db.models import EstadoTroquelEnum
 
 

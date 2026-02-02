@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.db.session import session_scope
-from app.service.estado_seguimiento_service import EstadoSeguimientoService
+from app.service.recetas.estado_seguimiento_service import EstadoSeguimientoService
 
 
 class EstadoSeguimientoPickDialog(QDialog):

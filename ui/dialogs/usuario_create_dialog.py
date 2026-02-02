@@ -6,8 +6,8 @@ from PySide6.QtWidgets import (
 )
 
 from app.db.session import session_scope
-from app.service.rol_service import RolesService
-from app.service.usuario_service import UsuariosService
+from app.service.catalogos.rol_service import RolesService
+from app.service.catalogos.usuario_service import UsuariosService
 
 
 class UsuarioCreateDialog(QDialog):

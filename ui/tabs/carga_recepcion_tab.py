@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
     QTableWidgetItem, QTableWidget, QAbstractItemView
 )
 
-from app.service.tif_service import ProcesarItemIn
+from app.service.recetas.tif_service import ProcesarItemIn
 from config.config_manager import ConfigManager
 from ui.dialogs.recepcion_create_dialog import RecepcionCreateDialog
 from ui.dialogs.recepcion_pick_dialog import RecepcionPickDialog

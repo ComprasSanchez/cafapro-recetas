@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.db.session import session_scope
-from app.service.archivo_service import ArchivoService
+from app.service.recetas.archivo_service import ArchivoService
 from ui.dialogs.dias_descargado_dialog import DiasDescargadosDialog
 from ui.tabs.base_tab import BaseTabWidget
 from ui.dialogs.recepcion_pick_dialog import RecepcionPickDialog

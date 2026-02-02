@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.db.session import session_scope
-from app.service.recepcion_service import RecepcionService
+from app.service.recepcion.recepcion_service import RecepcionService
 
 
 class RecepcionPickDialog(QDialog):

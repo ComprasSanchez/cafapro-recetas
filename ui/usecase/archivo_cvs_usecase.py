@@ -2,14 +2,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
 
 from sqlalchemy import select
 
 from app.db.models import Archivo
 from app.db.session import session_scope
-from app.service.archivo_service import ArchivoService
-from app.service.recepcion_service import RecepcionService
+from app.service.recetas.archivo_service import ArchivoService
+from app.service.recepcion.recepcion_service import RecepcionService
 from core.imed_cvs_handler import ImedCvsHandler
 
 

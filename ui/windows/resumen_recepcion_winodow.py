@@ -12,9 +12,9 @@ from PySide6.QtWidgets import (
 )
 
 from app.db.session import session_scope
-from app.service.periodo_service import PeriodoService
-from app.service.recepcion_service import RecepcionService  # el nuevo
-from app.service.view_resumen_recepcion_service import ViewResumenRecepcionService  # el nuevo
+from app.service.catalogos.periodo_service import PeriodoService
+from app.service.recepcion.recepcion_service import RecepcionService  # el nuevo
+from app.service.recepcion.view_resumen_recepcion_service import ViewResumenRecepcionService  # el nuevo
 
 def fmt_fecha_ymd(v) -> str:
     if not v:

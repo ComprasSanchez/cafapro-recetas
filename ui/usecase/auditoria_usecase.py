@@ -8,9 +8,9 @@ from pathlib import Path
 from PIL import Image
 
 from app.db.session import session_scope
-from app.service.recepcion_service import RecepcionService
-from app.service.estado_receta_service import EstadoRecetaService
-from app.service.view_auditoria import ViewAuditoriaService
+from app.service.recepcion.recepcion_service import RecepcionService
+from app.service.recetas.estado_receta_service import EstadoRecetaService
+from app.service.auditoria.view_auditoria import ViewAuditoriaService
 
 
 @dataclass(frozen=True)

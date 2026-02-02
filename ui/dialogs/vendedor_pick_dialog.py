@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
 
 from app.db.session import session_scope
 from app.db.models import Vendedores
-from app.service.vendedores_service import VendedoresService
+from app.service.catalogos.vendedores_service import VendedoresService
 
 
 
