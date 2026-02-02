@@ -14,6 +14,7 @@ from app.db.models import (
 @dataclass(frozen=True)
 class DebitoRow:
     debito_id: int
+    motivo_debito_id: int
     motivo_codigo: str
     motivo_descripcion: str
     lado: str
@@ -89,6 +90,7 @@ class AuditoriaVisualService:
         rows = (
             session.query(
                 Debitos.debito_id,
+                Debitos.motivo_debito_id,
                 MotivoDebito.codigo,
                 MotivoDebito.descripcion,
                 MotivoDebito.lado,
@@ -104,11 +106,12 @@ class AuditoriaVisualService:
         debitos = [
             DebitoRow(
                 debito_id=r[0],
-                motivo_codigo=r[1],
-                motivo_descripcion=r[2],
-                lado=str(r[3]),
-                excluyente=str(r[4]),
-                detalle=r[5],
+                motivo_debito_id=r[1],
+                motivo_codigo=r[2],
+                motivo_descripcion=r[3],
+                lado=str(r[4]),
+                excluyente=str(r[5]),
+                detalle=r[6],
             )
             for r in rows
         ]
