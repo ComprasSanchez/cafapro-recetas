@@ -11,7 +11,6 @@ from app.db.models import (
 )
 
 
-
 @dataclass(frozen=True)
 class DebitoRow:
     debito_id: int
@@ -24,34 +23,53 @@ class DebitoRow:
 
 @dataclass(frozen=True)
 class AuditoriaVisualData:
-    asociacion: Asociacion
-    receta: Recetas
-    archivo: Archivo
-    troqueles: List[Troqueles]
-    archivo_detalles: List[ArchivoDetalle]
+    asociacion: type[Asociacion]
+    receta: type[Recetas]
+    archivo: type[Archivo]
+    troqueles: List[type[Troqueles]]
+    archivo_detalles: List[type[ArchivoDetalle]]
     debitos: List[DebitoRow]
-
     total_troqueles: Decimal
 
 
 class AuditoriaVisualService:
     @staticmethod
     def load_by_asociacion_id(session: Session, asociacion_id: int) -> AuditoriaVisualData:
-        # 1) Asociacion
         asociacion = session.get(Asociacion, asociacion_id)
         if not asociacion:
             raise ValueError(f"No existe Asociacion con id={asociacion_id}")
 
+        if not getattr(asociacion, "vigente", True):
+            # Redirigir a la asociación vigente del mismo archivo (lo operativo)
+            asoc_vig = (
+                session.query(Asociacion)
+                .filter(
+                    Asociacion.archivo_id == asociacion.archivo_id,
+                    Asociacion.vigente.is_(True),
+                )
+                .order_by(Asociacion.asociacion_id.desc())
+                .first()
+            )
+            if not asoc_vig:
+                raise ValueError(
+                    f"La asociación {asociacion_id} no es vigente y no existe una vigente para archivo_id={asociacion.archivo_id}"
+                )
+            asociacion = asoc_vig
+
         # 2) Receta + Archivo
         receta = session.get(Recetas, asociacion.receta_id)
         if not receta:
-            raise ValueError(f"Asociacion {asociacion_id} apunta a receta_id inexistente={asociacion.receta_id}")
+            raise ValueError(
+                f"Asociacion {asociacion.asociacion_id} apunta a receta_id inexistente={asociacion.receta_id}"
+            )
 
         archivo = session.get(Archivo, asociacion.archivo_id)
         if not archivo:
-            raise ValueError(f"Asociacion {asociacion_id} apunta a archivo_id inexistente={asociacion.archivo_id}")
+            raise ValueError(
+                f"Asociacion {asociacion.asociacion_id} apunta a archivo_id inexistente={asociacion.archivo_id}"
+            )
 
-        # 3) Troqueles
+        # 3) Troqueles (de la receta vigente)
         troqueles = (
             session.query(Troqueles)
             .filter(Troqueles.receta_id == receta.receta_id)
@@ -59,7 +77,7 @@ class AuditoriaVisualService:
             .all()
         )
 
-        # 4) ArchivoDetalle
+        # 4) ArchivoDetalle (del archivo)
         archivo_detalles = (
             session.query(ArchivoDetalle)
             .filter(ArchivoDetalle.archivo_id == archivo.archivo_id)
@@ -67,7 +85,7 @@ class AuditoriaVisualService:
             .all()
         )
 
-        # 5) Debitos + MotivoDebito
+        # 5) Debitos + MotivoDebito (de la receta)
         rows = (
             session.query(
                 Debitos.debito_id,
