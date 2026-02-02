@@ -65,6 +65,7 @@ class Periodo(Base):
     anio: Mapped[int] = mapped_column(sa.Integer, nullable=False)
     mes: Mapped[int] = mapped_column(sa.Integer, nullable=False)
     quincena: Mapped[int] = mapped_column(sa.Integer, nullable=False)
+    activo: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, server_default=sa.true())
     creado_en: Mapped[date] = mapped_column(sa.DateTime, nullable=False, server_default=sa.func.now())
 
 
@@ -367,3 +368,4 @@ class Vendedores(Base):
     vendedor_id: Mapped[int] = mapped_column(sa.Integer, sa.Identity(), primary_key=True)
     codigo: Mapped[str] = mapped_column(sa.String, nullable=False)
     descripcion: Mapped[str] = mapped_column(sa.String, nullable=False)
+    activo: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, server_default=sa.true())

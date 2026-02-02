@@ -82,9 +82,9 @@ class RecepcionCreateDialog(QDialog):
     def _load_combos(self):
         try:
             with session_scope() as s:
-                obras = ObraSocialService.list(s)
-                periodos = PeriodoService.list(s)
-                prestadores = PrestadorService.list(s)
+                obras = ObraSocialService.list(s, solo_activas=True)
+                periodos = PeriodoService.list(s, solo_activos=True)
+                prestadores = PrestadorService.list(s, solo_activos=True)
                 estados = EstadoRecepcionService.list(s)  # ✅ desde DB
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudieron cargar datos:\n{e}")

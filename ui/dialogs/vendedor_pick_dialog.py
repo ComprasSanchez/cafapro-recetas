@@ -72,7 +72,7 @@ class VendedorPickDialog(QDialog):
 
     def _load(self) -> None:
         with session_scope() as s:
-            self._rows = VendedoresService.list(s)
+            self._rows = VendedoresService.list(s, solo_activos=True)
         self._render(self._rows)
 
     def _apply_filter(self) -> None:
