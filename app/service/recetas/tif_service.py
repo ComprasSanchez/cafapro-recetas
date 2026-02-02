@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Set, Literal, cast
 
-from sqlalchemy import select
+from sqlalchemy import select, update, or_, and_
 from sqlalchemy.orm import Session
 
 from core.process_tif import TiffProcessor, ScanOut
@@ -57,8 +57,10 @@ class TiffService:
 
     @staticmethod
     def _scan_dt_from_name(path: str) -> datetime:
-        name = Path(path).stem  # "pami_20260127121247004_f"
-        ts = name.split("_")[1]  # "20260127121247004"
+        # ejemplo: "pami_20260127121247004_f.jpg" / "pami_20260127125654006_d.jpg"
+        name = Path(path).stem
+        parts = name.split("_")
+        ts = parts[1]  # YYYYMMDDHHMMSSmmm
         dt = datetime.strptime(ts[:14], "%Y%m%d%H%M%S")
         ms = int(ts[14:17])
         return dt.replace(microsecond=ms * 1000)
@@ -68,12 +70,41 @@ class TiffService:
         return str(x).strip() if x is not None else ""
 
     @staticmethod
+    def _extract_token_from_tif_path(full_path: str) -> Optional[str]:
+        stem = Path(full_path).stem  # "pami_20260127125654006"
+        if not stem.startswith("pami_"):
+            return None
+        token = stem.replace("pami_", "", 1).strip()
+        return token or None
+
+    @staticmethod
+    def _exists_processed_token_in_recepcion(s: Session, recepcion_id: int, token: str) -> bool:
+        """
+        SKIP TOTAL SOLO dentro de la misma recepción.
+        Evita reprocesar 2 veces la misma imagen en la misma recepción (ahorro CPU),
+        pero permite que el mismo token se procese en otra recepción.
+        """
+        like_pat = f"%pami_{token}_%"
+        rid = (
+            s.execute(
+                select(Recetas.receta_id)
+                .where(
+                    and_(
+                        Recetas.recepcion_id == int(recepcion_id),
+                        or_(
+                            Recetas.ubicacion_frente.ilike(like_pat),
+                            Recetas.ubicacion_dorso.ilike(like_pat),
+                        ),
+                    )
+                )
+                .limit(1)
+            )
+            .scalar_one_or_none()
+        )
+        return rid is not None
+
+    @staticmethod
     def _match_all_refs(s: Session, refs: List[str]) -> _MatchResult:
-        """
-        Match masivo:
-        - ref_to_archivo[ref] = Archivo si ref es único
-        - ref_to_archivo[ref] = None si falta o es duplicado
-        """
         refs_norm = [str(r).strip() for r in refs if r and str(r).strip()]
         refs_set = set(refs_norm)
         if not refs_set:
@@ -90,7 +121,6 @@ class TiffService:
             by_ref.setdefault(str(a.nro_referencia).strip(), []).append(a)
 
         duplicated = {ref for ref, arr in by_ref.items() if len(arr) > 1}
-        missing = {ref for ref in refs_set if ref not in by_ref}
 
         ref_to_archivo: Dict[str, Optional[Archivo]] = {}
         for ref in refs_set:
@@ -100,6 +130,8 @@ class TiffService:
                 ref_to_archivo[ref] = by_ref[ref][0]
             else:
                 ref_to_archivo[ref] = None
+
+        missing = {ref for ref in refs_set if ref_to_archivo.get(ref) is None and ref not in duplicated}
 
         return _MatchResult(
             ref_to_archivo=ref_to_archivo,
@@ -111,22 +143,31 @@ class TiffService:
         self,
         s: Session,
         recepcion_id: int,
-        usuario_id: int,  # Recetas.usuario_id es NOT NULL
+        usuario_id: int,
         items: List[ProcesarItemIn],
         output_dir: str,
     ) -> ProcesarResumen:
         resumen = ProcesarResumen()
-
-        # cache por corrida: codebar -> enrichment
         enrich_cache: Dict[str, TroquelEnrichment] = {}
 
+        items_filtrados: List[ProcesarItemIn] = []
+        for it in items:
+            token = self._extract_token_from_tif_path(it.full_path)
+            if token and self._exists_processed_token_in_recepcion(s, recepcion_id, token):
+                resumen.ya_asociado += 1
+                continue
+            items_filtrados.append(it)
+
+        if not items_filtrados:
+            return resumen
+
         # =========
-        # 1) Scan de TIFFs (sin render)
+        # 1) Scan
         # =========
         scanned: List[Tuple[ProcesarItemIn, ScanOut]] = []
         all_refs: List[str] = []
 
-        for it in items:
+        for it in items_filtrados:
             try:
                 scan = self._tif.scan(it.full_path)
                 scanned.append((it, scan))
@@ -145,7 +186,7 @@ class TiffService:
         # =========
         # 3) Elegir 1 Archivo por TIFF
         # =========
-        work: List[Tuple[int, ScanOut, str, str]] = []  # (archivo_id, scan, tiff_path, file_name)
+        work: List[Tuple[int, ScanOut, str, str]] = []
 
         for it, scan in scanned:
             refs = [self._norm_str(x) for x in (scan.headers or []) if self._norm_str(x)]
@@ -154,7 +195,6 @@ class TiffService:
                 resumen.sin_match += 1
                 continue
 
-            # si alguna ref está duplicada, no sabemos cuál elegir => cuenta como duplicado
             if any(ref in match.duplicated_refs for ref in refs):
                 resumen.duplicados += 1
                 continue
@@ -170,7 +210,7 @@ class TiffService:
                 resumen.sin_match += 1
                 continue
 
-            # asignar recepcion si cambia
+            # ✅ el Archivo queda en la recepción actual (actualización “operativa”)
             if archivo.recepcion_id != recepcion_id:
                 archivo.recepcion_id = recepcion_id
 
@@ -201,40 +241,74 @@ class TiffService:
             detalles_by_archivo.setdefault(d.archivo_id, []).append(d)
 
         # =========
-        # 4.1) Detectar ya asociados (bulk)
+        # 4.1) Buscar asociaciones vigentes por nro_referencia (bulk)
         # =========
-        asociados_archivo_ids = set(
-            s.execute(
-                select(Asociacion.archivo_id).where(Asociacion.archivo_id.in_(archivo_ids))
+        refs_set: Set[str] = set()
+        for aid in archivo_ids:
+            ar = archivo_by_id.get(aid)
+            ref = self._norm_str(getattr(ar, "nro_referencia", None))
+            if ref:
+                refs_set.add(ref)
+
+        vigente_por_ref: Dict[str, List[Tuple[int, int]]] = {}
+        if refs_set:
+            rows = (
+                s.execute(
+                    select(Asociacion.asociacion_id, Asociacion.receta_id, Archivo.nro_referencia)
+                    .join(Archivo, Archivo.archivo_id == Asociacion.archivo_id)
+                    .where(
+                        Asociacion.vigente.is_(True),
+                        Archivo.nro_referencia.in_(list(refs_set)),
+                    )
+                )
+                .all()
             )
-            .scalars()
-            .all()
-        )
+
+            for asoc_id, receta_id, nro_ref in rows:
+                ref = self._norm_str(nro_ref)
+                if not ref:
+                    continue
+                vigente_por_ref.setdefault(ref, []).append((int(asoc_id), int(receta_id)))
 
         # =========
         # 5) Persistencia
         # =========
         troqueles_to_add: List[Troqueles] = []
         asoc_to_add: List[Asociacion] = []
+        refs_desactivados: Set[str] = set()
 
         for archivo_id, scan, tiff_path, file_name in work:
-            if archivo_id in asociados_archivo_ids:
-                resumen.ya_asociado += 1
-                continue
-
             archivo = archivo_by_id.get(archivo_id)
             if not archivo:
                 resumen.errores.append(f"{file_name}: archivo_id {archivo_id} no existe en DB")
                 continue
 
+            ref = self._norm_str(getattr(archivo, "nro_referencia", None))
+
+            prev = vigente_por_ref.get(ref, []) if ref else []
+            if prev:
+                resumen.ya_asociado += 1
+
+                if ref and ref not in refs_desactivados:
+                    refs_desactivados.add(ref)
+
+                    asoc_ids = [a_id for a_id, _ in prev]
+                    receta_ids = [r_id for _, r_id in prev]
+
+                    s.execute(
+                        update(Asociacion)
+                        .where(Asociacion.asociacion_id.in_(asoc_ids))
+                        .values(vigente=False)
+                    )
+
+                    s.execute(
+                        update(Recetas)
+                        .where(Recetas.receta_id.in_(receta_ids))
+                        .values(vigente=False)
+                    )
+
             dets = detalles_by_archivo.get(archivo_id, [])
 
-            # -------------------------
-            # OPTIMIZACIÓN 1:
-            # - armamos una sola vez:
-            #   - cods_detalle (para match)
-            #   - importe_por_cod (para monto)
-            # -------------------------
             importe_por_cod: Dict[str, float] = {}
             cods_detalle: Set[str] = set()
 
@@ -245,11 +319,6 @@ class TiffService:
                 cods_detalle.add(ca)
                 importe_por_cod[ca] = importe_por_cod.get(ca, 0.0) + float(getattr(d, "importe_obs", 0) or 0)
 
-            # -------------------------
-            # OPTIMIZACIÓN 2:
-            # - una sola pasada por scan.troqueles:
-            #   counts y de ahí keys = codebars
-            # -------------------------
             counts: Dict[str, int] = {}
             for cod in (scan.troqueles or []):
                 cod = self._norm_str(cod)
@@ -264,7 +333,6 @@ class TiffService:
             estado_por_codebar: Dict[str, EstadoTroquelEnum] = {}
             enrich_por_codebar: Dict[str, TroquelEnrichment] = {}
 
-            # 5.1) endpoint + estado (V/A/R)
             for codebar in counts.keys():
                 enr = enrich_cache.get(codebar)
                 if enr is None:
@@ -273,16 +341,13 @@ class TiffService:
 
                 enrich_por_codebar[codebar] = enr
 
-                # Amarillo si el endpoint dice A
                 if enr.estado == EstadoTroquelEnum.A:
                     estado_por_codebar[codebar] = EstadoTroquelEnum.A
                     continue
 
-                # Verde si code_alfabeta matchea con cod_medic, sino Rojo
                 ca = self._norm_str(enr.code_alfabeta)
                 estado_por_codebar[codebar] = EstadoTroquelEnum.V if (ca and ca in cods_detalle) else EstadoTroquelEnum.R
 
-            # 5.2) render (tu render espera dict[str, Literal["V","A","R"]])
             try:
                 estado_render: Dict[str, Literal["V", "A", "R"]] = {
                     k: cast(Literal["V", "A", "R"], v.value) for k, v in estado_por_codebar.items()
@@ -300,8 +365,9 @@ class TiffService:
             frente_jpg = files.get("front_jpg")
             dorso_jpg = files.get("back_jpg")
 
-            # 5.3) crear Receta (SIN UPSERT)
             nro_receta = self._norm_str(archivo.nro_receta) or "-"
+            creado_en = self._scan_dt_from_name(frente_jpg) if frente_jpg else None
+
             receta = Recetas(
                 recepcion_id=recepcion_id,
                 nro_receta=nro_receta,
@@ -311,20 +377,24 @@ class TiffService:
                 observacion=None,
                 usuario_id=usuario_id,
                 estado_receta_id=2,
-                creado_en=self._scan_dt_from_name(frente_jpg),
+                creado_en=creado_en,
+                vigente=True,
             )
             s.add(receta)
-            s.flush()  # receta_id
+            s.flush()
 
-            # 5.4) asociar
-            asoc_to_add.append(Asociacion(receta_id=receta.receta_id, archivo_id=archivo_id))
+            asoc_to_add.append(
+                Asociacion(
+                    receta_id=receta.receta_id,
+                    archivo_id=archivo_id,
+                    vigente=True,
+                )
+            )
 
-            # 5.5) crear troqueles (1 fila por receta+codebar)
             for codebar, qty in counts.items():
                 enr = enrich_por_codebar[codebar]
                 estado = estado_por_codebar.get(codebar, EstadoTroquelEnum.A)
 
-                # ✅ monto SOLO si estado es VERDE (EstadoTroquelEnum.V)
                 monto = 0.0
                 if estado == EstadoTroquelEnum.V:
                     ca = self._norm_str(enr.code_alfabeta)
@@ -337,9 +407,9 @@ class TiffService:
                         droga=enr.droga_concat,
                         presentacion=enr.presentacion,
                         code_alfabeta=int(enr.code_alfabeta or 0),
-                        monto=monto,  # ✅ Numeric: pasamos float
+                        monto=monto,
                         cantidad=qty,
-                        estado=estado,  # Enum V/A/R
+                        estado=estado,
                     )
                 )
 

@@ -260,8 +260,12 @@ class Recetas(Base):
     __table_args__ = (
         sa.Index("ix_recetas_recepcion_id", "recepcion_id"),
         sa.Index("ix_recetas_nro_receta", "nro_receta"),
-        sa.Index("ix_recetas_vigente", "vigente"),
-        sa.UniqueConstraint("nro_receta", name="uq_recetas_nro_receta"),
+        sa.Index(
+            "uq_recetas_nro_receta_vigente",
+            "nro_receta",
+            unique=True,
+            postgresql_where=sa.text("vigente IS TRUE"),
+        ),
     )
 
     receta_id: Mapped[int] = mapped_column(sa.Integer, sa.Identity(), primary_key=True)
