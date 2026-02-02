@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from decimal import Decimal
 
-from PySide6.QtCore import Qt, QTimer, QDate
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QPixmap, QColor, QBrush, QFont
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QSplitter,
     QLabel, QPushButton, QFrame, QScrollArea, QTableWidget,
     QTableWidgetItem, QHeaderView, QAbstractItemView, QMessageBox,
-    QWidget, QCheckBox, QInputDialog, QDateEdit
+    QWidget, QCheckBox, QInputDialog, QLineEdit
 )
 
 from app.db.models import EstadoTroquelEnum
@@ -164,6 +164,7 @@ class AuditoriaVisualDialog(QDialog):
         self.tbl_troqueles.setHorizontalHeaderLabels([
             "Código barra", "Droga", "Presentación", "Alfabeta", "Monto", "Cant.", "Estado"
         ])
+        self.tbl_troqueles.setColumnHidden(6,True)
         self._setup_table(self.tbl_troqueles)
         left_l.addWidget(self.tbl_troqueles, 1)
 
@@ -254,26 +255,26 @@ class AuditoriaVisualDialog(QDialog):
         grid.setHorizontalSpacing(10)
         grid.setVerticalSpacing(6)
 
-        lb_p = QLabel("Prescripción")
-        grid.addWidget(lb_p, 0, 0, alignment=Qt.AlignmentFlag.AlignRight)
+        def mk_row_line_date(r: int, title: str) -> QLineEdit:
+            lb_title = QLabel(title)
 
-        self.in_prescripcion = QDateEdit()
-        self.in_prescripcion.setCalendarPopup(True)
-        self.in_prescripcion.setDisplayFormat("dd/MM/yyyy")
-        self.in_prescripcion.setMinimumHeight(28)
-        self.in_prescripcion.setDate(QDate.currentDate())
-        grid.addWidget(self.in_prescripcion, 0, 1)
+            le = QLineEdit()
+            le.setPlaceholderText("dd/MM/yyyy")
+            le.setInputMask("00/00/0000")
+            le.setMinimumHeight(28)
 
-        def mk_row_label(r: int, title: str) -> QLabel:
-            lb_t = QLabel(title)
-            lb_v = QLabel("—")
-            grid.addWidget(lb_t, r, 0, alignment=Qt.AlignmentFlag.AlignRight)
-            grid.addWidget(lb_v, r, 1)
-            return lb_v
+            grid.addWidget(lb_title, r, 0, alignment=Qt.AlignmentFlag.AlignRight)
+            grid.addWidget(le, r, 1)
+            return le
 
-        self.lb_emision_aut = mk_row_label(1, "Emisión Aut")
-        self.lb_venta = mk_row_label(2, "Venta")
-        self.lb_autorizacion = mk_row_label(3, "Autorización")
+        self.in_prescripcion = mk_row_line_date(0, "Prescripción")
+        self.in_emision = mk_row_line_date(1, "Emisión")
+        self.in_venta = mk_row_line_date(2, "Venta")
+
+        lb_t = QLabel("Autorización")
+        self.lb_autorizacion = QLabel("—")
+        grid.addWidget(lb_t, 3, 0, alignment=Qt.AlignmentFlag.AlignRight)
+        grid.addWidget(self.lb_autorizacion, 3, 1)
 
         lay.addLayout(grid, 1)
         return box
@@ -359,6 +360,7 @@ class AuditoriaVisualDialog(QDialog):
         try:
             with session_scope() as s:
                 self.data = AuditoriaVisualService.load_by_asociacion_id(s, self.asociacion_id)
+                print(vars(self.data))
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudo cargar la Auditoría Visual:\n{e}")
             self.data = None
@@ -397,13 +399,13 @@ class AuditoriaVisualDialog(QDialog):
         imp_obs = Decimal(str(getattr(self.data.archivo, "importe_obs", 0) or 0))
         a_cargo = Decimal(str(getattr(self.data.archivo, "a_cargo_entidad", 0) or 0))
 
-        fp = getattr(self.data.receta, "fecha_prescripcion", None)
-        self.in_prescripcion.setDate(QDate(fp.year, fp.month, fp.day) if fp else QDate.currentDate())
+        self.in_prescripcion.setText("")
+        self.in_emision.setText("")
+        self.in_venta.setText("")
 
         self.lb_big.setText(str(getattr(self.data.archivo, "orden_lote", "") or "—"))
-        self.lb_venta.setText(str(getattr(self.data.archivo, "fecha", "") or "—"))
-        self.lb_emision_aut.setText("—")
-        self.lb_autorizacion.setText(self.in_prescripcion.text())
+
+        self.lb_autorizacion.setText(str(getattr(self.data.archivo, "fecha", "") or "—"))
 
         self.lb_a_cargo.setText(self._fmt_money(a_cargo))
         self.lb_imp_obs.setText(self._fmt_money(imp_obs))
@@ -616,20 +618,24 @@ class AuditoriaVisualDialog(QDialog):
         if not self.data:
             return
 
-        if not self._vendedor_id:
-            QMessageBox.warning(self, "Falta vendedor", "Tenés que seleccionar un vendedor para finalizar.")
-            return
-
         receta_id = int(getattr(self.data.receta, "receta_id", 0) or 0)
         if not receta_id:
             QMessageBox.critical(self, "Error", "No se pudo determinar receta_id.")
             return
 
-        q = self.in_prescripcion.date()
-        if not q.isValid():
-            QMessageBox.warning(self, "Falta fecha", "Tenés que cargar la fecha de prescripción para finalizar.")
+        # ✅ Validación SOLO para Emisión y Venta
+        fecha_emision = self._parse_ddmmyyyy(self.in_emision.text())
+        if not fecha_emision:
+            QMessageBox.warning(self, "Falta fecha", "Tenés que cargar la fecha de Emisión (dd/MM/yyyy).")
             return
-        fecha_prescripcion: date = date(q.year(), q.month(), q.day())
+
+        fecha_venta = self._parse_ddmmyyyy(self.in_venta.text())
+        if not fecha_venta:
+            QMessageBox.warning(self, "Falta fecha", "Tenés que cargar la fecha de Venta (dd/MM/yyyy).")
+            return
+
+        # Prescripción: editable pero NO obligatoria
+        fecha_prescripcion = self._parse_ddmmyyyy(self.in_prescripcion.text())
 
         debitos_inputs = [
             DebitoInput(motivo_debito_id=mid, detalle=det)
@@ -665,10 +671,12 @@ class AuditoriaVisualDialog(QDialog):
                 RecetaService.update_auditoria(
                     s,
                     receta_id=receta_id,
-                    vendedor_id=int(self._vendedor_id),
+                    vendedor_id=self._vendedor_id,
                     estado_seguimiento_id=estado_seg_id,
                     estado_receta_id=1,
                     fecha_prescripcion=fecha_prescripcion,
+                    fecha_emision=fecha_emision,
+                    fecha_venta=fecha_venta,
                     usuario_id=self.creado_por_usuario_id,
                 )
 
@@ -692,3 +700,18 @@ class AuditoriaVisualDialog(QDialog):
             return f"{Decimal(v):.2f}"
         except Exception:
             return "0.00"
+
+    @staticmethod
+    def _parse_ddmmyyyy(s: str) -> date | None:
+        s = (s or "").strip()
+
+        # inputMask incompleto deja "_" en los lugares vacíos
+        if not s or "_" in s:
+            return None
+
+        try:
+            return datetime.strptime(s, "%d/%m/%Y").date()
+        except ValueError:
+            return None
+
+

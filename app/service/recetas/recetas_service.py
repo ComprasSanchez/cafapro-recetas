@@ -104,22 +104,31 @@ class RecetaService:
 
     @staticmethod
     def update_auditoria(
-        session: Session,
-        receta_id: int,
-        vendedor_id: int,
-        estado_seguimiento_id: int | None,
-        fecha_prescripcion: date,
-        estado_receta_id: int = 1,
-        usuario_id: int = None,
+            session: Session,
+            receta_id: int,
+            vendedor_id: int | None,
+            estado_seguimiento_id: int | None,
+            fecha_prescripcion: date | None,
+            fecha_emision: date,
+            fecha_venta: date,
+            estado_receta_id: int = 1,
+            usuario_id: int | None = None,
     ) -> None:
         r = session.get(Recetas, int(receta_id))
         if not r:
             raise ValueError(f"Receta {receta_id} no existe")
 
-        r.vendedor_id = int(vendedor_id)
+        r.vendedor_id = vendedor_id
         r.estado_seguimiento_id = estado_seguimiento_id
         r.estado_receta_id = int(estado_receta_id)
+
+        # Prescripción: editable pero NO obligatoria
         r.fecha_prescripcion = fecha_prescripcion
+
+        # Nuevas: obligatorias por validación del dialog
+        r.fecha_emision = fecha_emision
+        r.fecha_venta = fecha_venta
+
         r.usuario_id = usuario_id
 
     @staticmethod
