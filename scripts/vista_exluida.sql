@@ -10,6 +10,7 @@ SELECT
 FROM archivo a
 LEFT JOIN asociacion x
     ON x.archivo_id = a.archivo_id
+   AND x.vigente IS TRUE
 LEFT JOIN recetas r
     ON r.receta_id = x.receta_id
 WHERE

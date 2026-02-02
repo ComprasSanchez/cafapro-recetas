@@ -255,14 +255,12 @@ class ArchivoDetalle(Base):
 
     creado_en: Mapped[sa.DateTime] = mapped_column(sa.DateTime, nullable=False, server_default=sa.func.now())
 
-# =========================
-# RECETAS + TROQUELES
-# =========================
 class Recetas(Base):
     __tablename__ = "recetas"
     __table_args__ = (
         sa.Index("ix_recetas_recepcion_id", "recepcion_id"),
         sa.Index("ix_recetas_nro_receta", "nro_receta"),
+        sa.Index("ix_recetas_vigente", "vigente"),
         sa.UniqueConstraint("nro_receta", name="uq_recetas_nro_receta"),
     )
 
@@ -283,34 +281,12 @@ class Recetas(Base):
 
     usuario_id: Mapped[int] = mapped_column(sa.ForeignKey("usuarios.usuario_id"), nullable=False)
     vendedor_id: Mapped[int] = mapped_column(sa.ForeignKey("vendedores.vendedor_id"), nullable=True)
+
+    # ✅ NUEVO: receta vigente / histórica
+    vigente: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, server_default=sa.true())
+
     creado_en: Mapped[sa.DateTime] = mapped_column(sa.DateTime, nullable=True)
 
-
-class RecetasHistorial(Base):
-    __tablename__ = "recetas_historial"
-    __table_args__ = (
-        sa.Index("ix_recetas_historial_recepcion_id", "recepcion_id"),
-        sa.Index("ix_recetas_historial_nro_receta", "nro_receta"),
-    )
-
-    receta_historial_id: Mapped[int] = mapped_column(sa.Integer, sa.Identity(), primary_key=True)
-    receta_id: Mapped[int] = mapped_column(sa.ForeignKey("recetas.receta_id"), nullable=False)
-    recepcion_id: Mapped[int] = mapped_column(sa.ForeignKey("recepcion.recepcion_id"), nullable=False)
-
-    nro_receta: Mapped[str] = mapped_column(sa.String, nullable=False)
-    ubicacion_frente: Mapped[str | None] = mapped_column(sa.String, nullable=True)
-    ubicacion_dorso: Mapped[str | None] = mapped_column(sa.String, nullable=True)
-
-    fecha_prescripcion: Mapped[sa.Date | None] = mapped_column(sa.Date, nullable=True)
-    estado_seguimiento_id: Mapped[int] = mapped_column(
-        sa.ForeignKey("estado_seguimiento.estado_seguimiento_id"),
-        nullable=True,
-    )
-
-    usuario_id: Mapped[int] = mapped_column(sa.ForeignKey("usuarios.usuario_id"), nullable=False)
-    vendedor_id: Mapped[int] = mapped_column(sa.ForeignKey("vendedores.vendedor_id"), nullable=True)
-    fecha_historial: Mapped[sa.Date | None] = mapped_column(sa.Date, nullable=True)
-    creado_en: Mapped[sa.DateTime] = mapped_column(sa.DateTime, nullable=False, server_default=sa.func.now())
 
 
 class Troqueles(Base):
@@ -355,23 +331,26 @@ class Debitos(Base):
     motivo_debito_id: Mapped[int] = mapped_column(sa.ForeignKey("motivo_debito.motivo_debito_id"), nullable=False)
     detalle: Mapped[str | None] = mapped_column(sa.String, nullable=True)
 
-
-# =========================
-# ASOCIACION (TABLA INTERMEDIA)
-# =========================
 class Asociacion(Base):
     __tablename__ = "asociacion"
     __table_args__ = (
         sa.UniqueConstraint("receta_id", "archivo_id", name="uq_asociacion_receta_archivo"),
         sa.Index("ix_asociacion_receta_id", "receta_id"),
         sa.Index("ix_asociacion_archivo_id", "archivo_id"),
+
+        # ✅ NUEVOS: para buscar “asociación vigente” rápido
+        sa.Index("ix_asociacion_archivo_vigente", "archivo_id", "vigente"),
+        sa.Index("ix_asociacion_receta_vigente", "receta_id", "vigente"),
     )
 
     asociacion_id: Mapped[int] = mapped_column(sa.Integer, sa.Identity(), primary_key=True)
     receta_id: Mapped[int] = mapped_column(sa.ForeignKey("recetas.receta_id"), nullable=False)
     archivo_id: Mapped[int] = mapped_column(sa.ForeignKey("archivo.archivo_id"), nullable=False)
 
+    vigente: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, server_default=sa.true())
+
     creado_en: Mapped[sa.DateTime] = mapped_column(sa.DateTime, nullable=False, server_default=sa.func.now())
+
 
 class Vendedores(Base):
     __tablename__ = "vendedores"

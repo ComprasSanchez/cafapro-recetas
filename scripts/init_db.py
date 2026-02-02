@@ -34,6 +34,8 @@ def main():
     scripts_dir = Path(__file__).resolve().parent
     _run_sql_file(scripts_dir / "vista_auditoria.sql")
     _run_sql_file(scripts_dir / "vista_debitos.sql")
+    _run_sql_file(scripts_dir / "vista_exluida.sql")
+    _run_sql_file(scripts_dir / "vista_resumen.sql")
 
     print("OK: DB inicializada (tablas + vistas).")
 

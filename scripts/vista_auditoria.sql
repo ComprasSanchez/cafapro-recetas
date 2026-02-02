@@ -5,6 +5,7 @@ WITH receta_por_archivo AS (
         MIN(a.asociacion_id) AS asociacion_id,
         MIN(a.receta_id)     AS receta_id
     FROM asociacion a
+    WHERE a.vigente IS TRUE
     GROUP BY a.archivo_id
 ),
 troq_agregado AS (
@@ -26,6 +27,7 @@ receta_existe_por_archivo AS (
                 FROM recetas r
                 WHERE r.recepcion_id = ar.recepcion_id
                   AND r.nro_receta::text = ar.nro_receta::text
+                  AND r.vigente IS TRUE
             )
         END AS existe_receta
     FROM archivo ar
@@ -44,7 +46,7 @@ SELECT
     r.estado_receta_id AS estado_receta_id,
     er.descripcion     AS estado_receta,
     r.ubicacion_frente AS frente_jpg,
-        CASE
+    CASE
         WHEN rpa.receta_id IS NULL THEN FALSE
         ELSE EXISTS (
             SELECT 1
