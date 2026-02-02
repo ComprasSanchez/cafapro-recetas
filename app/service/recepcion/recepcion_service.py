@@ -15,7 +15,7 @@ class RecepcionListItem:
     periodo: str
     prestador: str
     estado: str
-    fecha_recepcion: object
+    fecha_presentacion: object
     creado_en: Optional[object]
     imed: str
 
@@ -33,7 +33,7 @@ class RecepcionRowItem:
     recepcion_id: int
     numero: int
     obra_social: str
-    fecha_recepcion: Optional[date]
+    fecha_presentacion: Optional[date]
 
 class RecepcionService:
     @staticmethod
@@ -75,14 +75,14 @@ class RecepcionService:
                 Recepcion.recepcion_id,
                 Recepcion.numero,
                 ObraSocial.nombre,
-                Recepcion.fecha_recepcion,
+                Recepcion.fecha_presentacion,
             )
             .join(ObraSocial, ObraSocial.obra_social_id == Recepcion.obra_social_id)
             .where(
                 Recepcion.periodo_id == int(periodo_id),
                 Recepcion.prestador_id == int(prestador_id),
             )
-            .order_by(Recepcion.fecha_recepcion.desc(), Recepcion.numero.desc(), Recepcion.recepcion_id.desc())
+            .order_by(Recepcion.fecha_presentacion.desc(), Recepcion.numero.desc(), Recepcion.recepcion_id.desc())
         ).all()
 
         return [
@@ -90,7 +90,7 @@ class RecepcionService:
                 recepcion_id=r[0],
                 numero=r[1],
                 obra_social=r[2] or "",
-                fecha_recepcion=r[3],
+                fecha_presentacion=r[3],
             )
             for r in rows
         ]
@@ -106,7 +106,7 @@ class RecepcionService:
                 Periodo.anio, Periodo.mes, Periodo.quincena,
                 Prestador.codigo, Prestador.nombre,
                 EstadoRecepcion.descripcion,
-                Recepcion.fecha_recepcion,
+                Recepcion.fecha_presentacion,
                 Recepcion.creado_en,
                 Prestador.imed,
             )
@@ -134,7 +134,7 @@ class RecepcionService:
                     periodo=periodo_txt,
                     prestador=prestador_txt,
                     estado=estado or "",
-                    fecha_recepcion=fecha_rec,
+                    fecha_presentacion=fecha_rec,
                     creado_en=creado_en,
                     imed=imed or "",
                 )
@@ -148,7 +148,7 @@ class RecepcionService:
         periodo_id: int,
         prestador_id: int,
         estado_recepcion_id: int,
-        fecha_recepcion,
+        fecha_presentacion,
         observaciones: str | None = None,
         creado_por_usuario_id: int | None = None,
     ) -> Recepcion:
@@ -160,7 +160,7 @@ class RecepcionService:
             periodo_id=int(periodo_id),
             prestador_id=int(prestador_id),
             estado_recepcion_id=int(estado_recepcion_id),
-            fecha_recepcion=fecha_recepcion,
+            fecha_presentacion=fecha_presentacion,
             observaciones=observaciones,
             creado_por_usuario_id=creado_por_usuario_id,
         )

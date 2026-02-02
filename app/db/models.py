@@ -163,7 +163,7 @@ class Recepcion(Base):
     # antes estaba en lote_temporal
     cantidad_imagenes: Mapped[int] = mapped_column(sa.Integer, nullable=False, server_default=sa.text("0"))
 
-    fecha_recepcion: Mapped[sa.DateTime] = mapped_column(sa.DateTime, nullable=False)
+    fecha_presentacion: Mapped[sa.DateTime] = mapped_column(sa.DateTime, nullable=False)
     observaciones: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     pendientes: Mapped[int] = mapped_column(sa.Integer, nullable=True, server_default=sa.text("0"))
     estado_recepcion_id: Mapped[int] = mapped_column(sa.ForeignKey("estado_recepcion.estado_recepcion_id"), nullable=False)

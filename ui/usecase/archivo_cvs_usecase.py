@@ -9,6 +9,7 @@ from app.db.models import Archivo
 from app.db.session import session_scope
 from app.service.recetas.archivo_service import ArchivoService
 from app.service.recepcion.recepcion_service import RecepcionService
+from app.service.recepcion.arrastre_exclusivos_service import ArrastreExcluidosService
 from core.imed_cvs_handler import ImedCvsHandler
 
 
@@ -46,6 +47,7 @@ class SubirOut:
     skipped: int
     failed: int
     errores: list[str]
+    moved_prev_excluidos: int
 
 
 class ArchivoCvsUseCase:
@@ -58,8 +60,6 @@ class ArchivoCvsUseCase:
             ctx.emit_progress(10, "Leyendo recepción…")
 
         with session_scope() as s:
-            # ajustá según tu firma real
-            # si es svc = RecepcionService(s); rows = svc.list()
             rows = RecepcionService.list(s)
 
         rec = next((x for x in rows if x.recepcion_id == recepcion_id), None)
@@ -80,7 +80,6 @@ class ArchivoCvsUseCase:
             ctx.emit_progress(10, "Leyendo CSV IMED…")
 
         recetas, detalles = self._cvs.read_cvs_by_imed_and_date(imed=imed, date=fecha_str)
-
         recetas = recetas or {}
         detalles = detalles or {}
 
@@ -90,11 +89,16 @@ class ArchivoCvsUseCase:
         return CsvOut(recetas_por_ref=recetas, detalles_por_ref=detalles)
 
     @staticmethod
-    def subir(*, recepcion_id: int, recetas_por_ref: dict[str, dict], detalles_por_ref: dict[str, list[dict]],
-              ctx=None) -> SubirOut:
+    def subir(
+        *,
+        recepcion_id: int,
+        recetas_por_ref: dict[str, dict],
+        detalles_por_ref: dict[str, list[dict]],
+        ctx=None,
+    ) -> SubirOut:
         total = len(recetas_por_ref)
         if total == 0:
-            return SubirOut(inserted=0, skipped=0, failed=0, errores=[])
+            return SubirOut(inserted=0, skipped=0, failed=0, errores=[], moved_prev_excluidos=0)
 
         inserted = 0
         skipped = 0
@@ -102,19 +106,32 @@ class ArchivoCvsUseCase:
         errores: list[str] = []
 
         if ctx:
-            ctx.emit_progress(5, "Preparando subida…")
+            ctx.emit_progress(2, "Preparando…")
+
+        moved_prev = 0
 
         with session_scope() as s:
+            if ctx:
+                ctx.emit_progress(4, "Chequeando pendientes anteriores…")
+
+            moved_prev = ArrastreExcluidosService.run(s, recepcion_id=recepcion_id)
+
+            if ctx and moved_prev > 0:
+                ctx.emit_progress(6, f"Pendientes arrastrados: {moved_prev}")
+
+
             current_orden = ArchivoService.get_start_orden_lote(s, recepcion_id)
 
             items: list[tuple] = []
             for nro_ref, receta in recetas_por_ref.items():
                 ts = parse_aut_ts(receta)
                 items.append((ts, str(nro_ref), receta))
-
             items.sort(key=lambda x: (x[0], x[1]))
 
-            # ✅ 1) Prefetch existentes (1 query)
+            # ---------------------------------------------------------
+            # 3) Prefetch existentes (1 query)
+            #    (scope global por nro_referencia como venías haciendo)
+            # ---------------------------------------------------------
             refs = [ref for _, ref, _ in items]
             existing_refs = set(
                 s.execute(
@@ -127,12 +144,11 @@ class ArchivoCvsUseCase:
             PROGRESS_EVERY = 50
 
             for i, (ts, nro_ref, receta) in enumerate(items, start=1):
-                # ✅ progreso más liviano
                 if ctx and (i % PROGRESS_EVERY == 0 or i == total):
                     pct = int((i / total) * 100)
                     ctx.emit_progress(pct, f"Subiendo {i}/{total}…")
 
-                # ✅ 2) saltar duplicados sin consultar DB por item
+                # saltar duplicados sin consultar DB por item
                 if nro_ref in existing_refs:
                     skipped += 1
                     continue
@@ -140,7 +156,7 @@ class ArchivoCvsUseCase:
                 detalles = detalles_por_ref.get(nro_ref, [])
 
                 try:
-                    creado = ArchivoService.creado = ArchivoService.create_from_imed(
+                    creado = ArchivoService.create_from_imed(
                         s,
                         receta=receta,
                         detalles=detalles,
@@ -155,7 +171,6 @@ class ArchivoCvsUseCase:
                     if creado:
                         inserted += 1
                         current_orden += 1
-                        existing_refs.add(nro_ref)  # por si viene repetido en el dict (raro, pero seguro)
                     else:
                         skipped += 1
 
@@ -171,16 +186,21 @@ class ArchivoCvsUseCase:
                     failed += 1
                     errores.append(f"{nro_ref}: {e}")
 
-                # ✅ 3) flush/commit por chunks (mejora estabilidad + performance)
                 if i % CHUNK == 0:
                     s.flush()
                     s.commit()
 
-            # commit final
             s.flush()
             s.commit()
 
         if ctx:
             ctx.emit_progress(100, "Subida finalizada")
 
-        return SubirOut(inserted=inserted, skipped=skipped, failed=failed, errores=errores)
+        return SubirOut(
+            inserted=inserted,
+            skipped=skipped,
+            failed=failed,
+            errores=errores,
+            moved_prev_excluidos=moved_prev,
+        )
+

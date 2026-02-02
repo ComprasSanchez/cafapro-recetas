@@ -93,7 +93,7 @@ class VwResumenRecepcionPrestador(Base):
     periodo_id: Mapped[int] = mapped_column(sa.Integer, primary_key=True)
 
     recepcion_numero: Mapped[int | None] = mapped_column(sa.Integer)
-    fecha_recepcion: Mapped[date | None] = mapped_column(sa.Date)
+    fecha_presentacion: Mapped[date | None] = mapped_column(sa.Date)
     estado_recepcion_id: Mapped[int | None] = mapped_column(sa.Integer)
 
     cantidad_recetas: Mapped[int] = mapped_column(sa.Integer)

@@ -230,9 +230,9 @@ class ArchivoService:
             .where(
                 Recepcion.prestador_id == cur.prestador_id,
                 Recepcion.obra_social_id == cur.obra_social_id,
-                Recepcion.fecha_recepcion < cur.fecha_recepcion,
+                Recepcion.fecha_presentacion < cur.fecha_presentacion,
             )
-            .order_by(Recepcion.fecha_recepcion.desc())
+            .order_by(Recepcion.fecha_presentacion.desc())
             .limit(1)
         ).scalars().first()
 

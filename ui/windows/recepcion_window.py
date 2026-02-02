@@ -76,7 +76,7 @@ class RecepcionesWindow(QDialog):
 
         self.table = QTableWidget(0, 6)
         self.table.setHorizontalHeaderLabels([
-            "Número Recepción", "Obra social", "Período", "Prestador", "Estado", "Fecha recepción"
+            "Número Recepción", "Obra social", "Período", "Prestador", "Estado", "Fecha presentacion"
         ])
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
@@ -161,7 +161,7 @@ class RecepcionesWindow(QDialog):
             it_est.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.table.setItem(i, 4, it_est)
 
-            it_fecha = QTableWidgetItem(self._fmt_dt(getattr(r, "fecha_recepcion", None)))
+            it_fecha = QTableWidgetItem(self._fmt_dt(getattr(r, "fecha_presentacion", None)))
             it_fecha.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.table.setItem(i, 5, it_fecha)
 

@@ -239,7 +239,7 @@ class ResumenRecepcionWindow(QDialog):
             self._set_cell(self.tbl_recepciones, i, 0, str(r.numero), user_data=r.recepcion_id)
             self._set_cell(self.tbl_recepciones, i, 1, r.obra_social or "")
             # yyyy-mm-dd
-            fecha_txt = fmt_fecha_ymd(r.fecha_recepcion)
+            fecha_txt = fmt_fecha_ymd(r.fecha_presentacion)
             self._set_cell(self.tbl_recepciones, i, 2, fecha_txt)
 
         if receps:

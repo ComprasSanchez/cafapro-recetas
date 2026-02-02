@@ -60,7 +60,7 @@ class RecepcionCreateDialog(QDialog):
         form.addRow("Período", self.cb_periodo)
         form.addRow("Prestador", self.cb_prestador)
         form.addRow("Estado", self.cb_estado)
-        form.addRow("Fecha recepción", self.dt_fecha)
+        form.addRow("Fecha Presentacion", self.dt_fecha)
         form.addRow("Observaciones", self.tx_obs)
 
         root.addLayout(form)
@@ -133,7 +133,7 @@ class RecepcionCreateDialog(QDialog):
                     periodo_id=int(periodo_id),
                     prestador_id=int(prestador_id),
                     estado_recepcion_id=int(estado_recepcion_id),  # ✅ FK
-                    fecha_recepcion=fecha,
+                    fecha_presentacion=fecha,
                     observaciones=obs,
                     creado_por_usuario_id=self.creado_por_usuario_id,
                 )

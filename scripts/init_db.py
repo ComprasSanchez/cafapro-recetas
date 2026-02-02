@@ -36,6 +36,7 @@ def main():
     _run_sql_file(scripts_dir / "vista_debitos.sql")
     _run_sql_file(scripts_dir / "vista_exluida.sql")
     _run_sql_file(scripts_dir / "vista_resumen.sql")
+    _run_sql_file(scripts_dir / "funcion_arrastre.sql")
 
     print("OK: DB inicializada (tablas + vistas).")
 
