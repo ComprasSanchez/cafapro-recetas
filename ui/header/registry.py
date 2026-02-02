@@ -1,10 +1,14 @@
 from ui.header.actions import HeaderAction
 from ui.windows.excluidos_window import ExcluidosWindow
 from ui.windows.listado_debitos_window import ListadoDebitosWindow
+from ui.windows.obra_social_window import ObrasSocialesWindow
 from ui.windows.periodo_window import PeriodosWindow
+from ui.windows.plan_window import PlanWindow
+from ui.windows.prestador_window import PrestadoresWindow
 from ui.windows.recepcion_window import RecepcionesWindow
 from ui.windows.resumen_recepcion_winodow import ResumenRecepcionWindow
 from ui.windows.usuario_window import UsuariosWindow
+from ui.windows.vendedor_window import VendedoresWindow
 
 
 def build_header_actions(main_window, current_user) -> dict[str, list[HeaderAction]]:
@@ -71,6 +75,32 @@ def build_header_actions(main_window, current_user) -> dict[str, list[HeaderActi
                 text="Carga CVS",
                 kind="tab",
                 tab_key="archivo-cvs",
+            )
+        ],
+        "Configuraciones": [
+            HeaderAction(
+                key="Obras Sociales",
+                text="Obras Sociales",
+                kind="window",
+                window_factory= lambda: ObrasSocialesWindow(main_window),
+            ),
+            HeaderAction(
+                key="Planes",
+                text="Planes",
+                kind="window",
+                window_factory=lambda: PlanWindow(main_window),
+            ),
+            HeaderAction(
+                key="Vendedores",
+                text="Vendedores",
+                kind="window",
+                window_factory=lambda: VendedoresWindow(main_window),
+            ),
+            HeaderAction(
+                key="Prestadores",
+                text="Prestadores",
+                kind="window",
+                window_factory=lambda: PrestadoresWindow(main_window),
             )
         ]
     }

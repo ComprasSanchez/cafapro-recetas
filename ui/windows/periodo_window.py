@@ -39,7 +39,6 @@ class PeriodosWindow(QDialog):
 
         title = QLabel("Períodos")
         title.setProperty("role", "title")
-
         hl.addWidget(title)
         hl.addStretch(1)
 
@@ -79,24 +78,21 @@ class PeriodosWindow(QDialog):
         self.btn_create.setProperty("variant", "primary")
         self.btn_create.setMinimumHeight(32)
 
-        self.btn_delete = QPushButton("Eliminar seleccionado")
-        self.btn_delete.setProperty("variant", "ghost")
-        self.btn_delete.setMinimumHeight(32)
-        self.btn_delete.setEnabled(False)
+        self.btn_toggle = QPushButton("Eliminar")
+        self.btn_toggle.setProperty("variant", "ghost")
+        self.btn_toggle.setMinimumHeight(32)
+        self.btn_toggle.setEnabled(False)
 
         card_layout.addWidget(QLabel("Año"))
         card_layout.addWidget(self.sp_anio)
-
         card_layout.addWidget(QLabel("Mes"))
         card_layout.addWidget(self.cb_mes)
-
         card_layout.addWidget(QLabel("Quincena"))
         card_layout.addWidget(self.cb_quincena)
-
         card_layout.addStretch(1)
         card_layout.addWidget(self.btn_refresh)
         card_layout.addWidget(self.btn_create)
-        card_layout.addWidget(self.btn_delete)
+        card_layout.addWidget(self.btn_toggle)
 
         root.addWidget(card)
 
@@ -107,8 +103,8 @@ class PeriodosWindow(QDialog):
         tl.setContentsMargins(12, 12, 12, 12)
         tl.setSpacing(8)
 
-        self.table = QTableWidget(0, 3)
-        self.table.setHorizontalHeaderLabels(["Año", "Mes", "Quincena"])
+        self.table = QTableWidget(0, 4)
+        self.table.setHorizontalHeaderLabels(["Año", "Mes", "Quincena", "Estado"])
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -127,49 +123,61 @@ class PeriodosWindow(QDialog):
         # señales
         self.btn_refresh.clicked.connect(self.load_data)
         self.btn_create.clicked.connect(self.on_create)
-        self.btn_delete.clicked.connect(self.on_delete)
-        self.table.itemSelectionChanged.connect(self._update_delete_state)
+        self.btn_toggle.clicked.connect(self.on_toggle_activo)
+        self.table.itemSelectionChanged.connect(self._update_action_state)
 
         self.load_data()
 
     # ---------------- selection helpers ----------------
-    def _update_delete_state(self) -> None:
-        self.btn_delete.setEnabled(self._selected_periodo_id() is not None)
-
-    def _selected_periodo_id(self) -> int | None:
+    def _selected(self) -> tuple[int | None, bool | None]:
         row = self.table.currentRow()
         if row < 0:
-            return None
-        item = self.table.item(row, 0)  # año
-        if not item:
-            return None
-        pid = item.data(Qt.ItemDataRole.UserRole)
-        return int(pid) if pid is not None else None
+            return None, None
+
+        it = self.table.item(row, 0)  # Año (guardamos metadata acá)
+        if not it:
+            return None, None
+
+        pid = it.data(Qt.ItemDataRole.UserRole)
+        activo = it.data(Qt.ItemDataRole.UserRole + 1)
+        return (int(pid) if pid is not None else None, bool(activo) if activo is not None else None)
+
+    def _update_action_state(self) -> None:
+        pid, activo = self._selected()
+        if pid is None or activo is None:
+            self.btn_toggle.setEnabled(False)
+            self.btn_toggle.setText("Eliminar")
+            return
+
+        self.btn_toggle.setEnabled(True)
+        self.btn_toggle.setText("Eliminar" if activo else "Restaurar")
 
     # ---------------- data ----------------
     def load_data(self) -> None:
         try:
             with session_scope() as s:
-                periodos = PeriodoService.list(s)
+                periodos = PeriodoService.list(s, solo_activos=False)  # ✅ trae todo
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudieron cargar períodos:\n{e}")
             return
 
         self.table.setRowCount(0)
 
+        meses_map = dict(MESES)
+
         for p in periodos:
             r = self.table.rowCount()
             self.table.insertRow(r)
 
-            # col 0: año (guardamos periodo_id oculto)
+            # col 0: año (guardamos periodo_id + activo)
             it_anio = QTableWidgetItem(str(p.anio))
             it_anio.setData(Qt.ItemDataRole.UserRole, p.periodo_id)
+            it_anio.setData(Qt.ItemDataRole.UserRole + 1, p.activo)
             it_anio.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(r, 0, it_anio)
 
-            # col 1: mes (texto)
-            mes_nombre = dict(MESES).get(p.mes, str(p.mes))
-            it_mes = QTableWidgetItem(mes_nombre)
+            # col 1: mes
+            it_mes = QTableWidgetItem(meses_map.get(p.mes, str(p.mes)))
             it_mes.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(r, 1, it_mes)
 
@@ -178,8 +186,14 @@ class PeriodosWindow(QDialog):
             it_q.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(r, 2, it_q)
 
-        self._update_delete_state()
+            # col 3: estado
+            it_estado = QTableWidgetItem("Activo" if p.activo else "Inactivo")
+            it_estado.setTextAlignment(Qt.AlignCenter)
+            self.table.setItem(r, 3, it_estado)
 
+        self._update_action_state()
+
+    # ---------------- actions ----------------
     def on_create(self) -> None:
         anio = int(self.sp_anio.value())
         mes = int(self.cb_mes.currentData())
@@ -194,16 +208,23 @@ class PeriodosWindow(QDialog):
 
         self.load_data()
 
-    def on_delete(self) -> None:
-        pid = self._selected_periodo_id()
+    def on_toggle_activo(self) -> None:
+        pid, activo = self._selected()
         if not pid:
             QMessageBox.information(self, "Atención", "Seleccioná un período primero.")
             return
 
+        if activo:
+            msg = "¿Marcar el período como INACTIVO?"
+            action_text = "Inactivar"
+        else:
+            msg = "¿Restaurar (activar) el período seleccionado?"
+            action_text = "Activar"
+
         resp = QMessageBox.question(
             self,
             "Confirmar",
-            "¿Eliminar el período seleccionado?",
+            msg,
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
         if resp != QMessageBox.StandardButton.Yes:
@@ -211,7 +232,10 @@ class PeriodosWindow(QDialog):
 
         try:
             with session_scope() as s:
-                PeriodoService.delete(s, pid)
+                if activo:
+                    PeriodoService.delete_logico(s, pid)
+                else:
+                    PeriodoService.restore(s, pid)
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
             return
