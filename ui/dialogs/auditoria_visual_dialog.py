@@ -26,16 +26,40 @@ from ui.dialogs.vendedor_pick_dialog import VendedorPickDialog
 
 
 class AuditoriaVisualDialog(QDialog):
-    def __init__(self, asociacion_id: int, parent=None, creado_por_usuario_id=None):
+    """
+    Dialog navegable:
+    - Se crea UNA vez
+    - Recibe asociacion_ids
+    - Finalizar guarda y pasa al siguiente SIN cerrar
+    - Al terminar la lista: accept()
+    """
+
+    def __init__(
+        self,
+        asociacion_ids: list[int],
+        start_index: int = 0,
+        parent=None,
+        creado_por_usuario_id=None,
+    ):
         super().__init__(parent)
         self.showMaximized()
-        self.asociacion_id = asociacion_id
+
         self.creado_por_usuario_id = creado_por_usuario_id
         self.data: AuditoriaVisualData | None = None
+
+        # navegación
+        self._asociacion_ids: list[int] = [int(x) for x in (asociacion_ids or []) if x]
+        self._idx: int = max(0, int(start_index or 0))
+        if self._idx >= len(self._asociacion_ids):
+            self._idx = 0
+
+        self.asociacion_id: int | None = None
 
         self._last_preview_path: str | None = None
         self._current_lado = "F"
         self._vendedor_id: int | None = None
+
+        # ✅ DebitoRow YA TIENE motivo_debito_id
         self._selected_debitos: dict[int, str | None] = {}
 
         self.setWindowTitle("Auditoría Visual")
@@ -53,7 +77,12 @@ class AuditoriaVisualDialog(QDialog):
 
         root.addWidget(self._build_body(), 1)
 
-        self._load()
+        if not self._asociacion_ids:
+            QMessageBox.warning(self, "Sin registros", "No hay asociaciones para auditar.")
+            self.reject()
+            return
+
+        self._goto(self._idx)
 
     # -------------------------
     # UI: Body split
@@ -160,7 +189,7 @@ class AuditoriaVisualDialog(QDialog):
         left_l.addWidget(lb_t, 0)
 
         self.tbl_troqueles = QTableWidget()
-        self.tbl_troqueles.setColumnCount(7)  # ✅ FIX: ahora sí hay columna Estado
+        self.tbl_troqueles.setColumnCount(7)
         self.tbl_troqueles.setHorizontalHeaderLabels([
             "Código barra",      # 0
             "Presentación",      # 1
@@ -170,7 +199,7 @@ class AuditoriaVisualDialog(QDialog):
             "Monto",             # 5
             "Estado",            # 6
         ])
-        self.tbl_troqueles.setColumnHidden(6,True)
+        self.tbl_troqueles.setColumnHidden(6, True)
         self._setup_table(self.tbl_troqueles)
         left_l.addWidget(self.tbl_troqueles, 1)
 
@@ -282,6 +311,11 @@ class AuditoriaVisualDialog(QDialog):
         grid.addWidget(lb_t, 3, 0, alignment=Qt.AlignmentFlag.AlignRight)
         grid.addWidget(self.lb_autorizacion, 3, 1)
 
+        # indicador de progreso
+        self.lb_pos = QLabel("—")
+        self.lb_pos.setObjectName("muted")
+        grid.addWidget(self.lb_pos, 4, 1, alignment=Qt.AlignmentFlag.AlignLeft)
+
         lay.addLayout(grid, 1)
         return box
 
@@ -349,9 +383,14 @@ class AuditoriaVisualDialog(QDialog):
         lay.setContentsMargins(12, 10, 12, 10)
         lay.setSpacing(8)
 
+        self.btn_salir = QPushButton("Salir")
+        self.btn_salir.setMinimumHeight(34)
+        self.btn_salir.clicked.connect(self.reject)
+        lay.addWidget(self.btn_salir, 0)
+
         lay.addStretch(1)
 
-        self.btn_finalizar = QPushButton("Finalizar")
+        self.btn_finalizar = QPushButton("Finalizar y siguiente")
         self.btn_finalizar.setProperty("variant", "primary")
         self.btn_finalizar.setMinimumHeight(34)
         self.btn_finalizar.clicked.connect(self._on_finalizar)
@@ -360,17 +399,62 @@ class AuditoriaVisualDialog(QDialog):
         return box
 
     # -------------------------
+    # Navegación
+    # -------------------------
+    def _goto(self, idx: int) -> None:
+        if not self._asociacion_ids:
+            return
+
+        idx = max(0, min(idx, len(self._asociacion_ids) - 1))
+        self._idx = idx
+        self.asociacion_id = int(self._asociacion_ids[self._idx])
+
+        self.setWindowTitle(f"Auditoría Visual ({self._idx + 1}/{len(self._asociacion_ids)})")
+        self.lb_pos.setText(f"{self._idx + 1} / {len(self._asociacion_ids)}")
+
+        self._load()
+
+    def _next(self) -> None:
+        if self._idx + 1 < len(self._asociacion_ids):
+            self._goto(self._idx + 1)
+        else:
+            self.accept()
+
+    # -------------------------
     # Data load + render
     # -------------------------
     def _load(self) -> None:
+        # reset por registro (evita arrastre)
+        self.data = None
+        self._selected_debitos = {}
+        self._vendedor_id = None
+        self.lb_vendedor.setText("— Seleccioná —")
+        self.lb_vendedor.setToolTip("")
+        self._last_preview_path = None
+        self._current_lado = "F"
+
+        self.in_prescripcion.setText("")
+        self.in_emision.setText("")
+        self.in_venta.setText("")
+        self.lb_autorizacion.setText("—")
+        self.lb_big.setText("—")
+        self._clear_preview("Sin imagen")
+        self.tbl_troqueles.setRowCount(0)
+        self.tbl_arch_det.setRowCount(0)
+
         try:
             with session_scope() as s:
-                self.data = AuditoriaVisualService.load_by_asociacion_id(s, self.asociacion_id)
+                self.data = AuditoriaVisualService.load_by_asociacion_id(s, int(self.asociacion_id))
+
+                # ✅ DebitoRow YA TIENE motivo_debito_id
                 self._selected_debitos = {
-                    d.motivo_debito_id: d.detalle
+                    int(d.motivo_debito_id): d.detalle
                     for d in (self.data.debitos or [])
+                    if getattr(d, "motivo_debito_id", None)
                 }
+
                 self._preload_vendedor(s)
+
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudo cargar la Auditoría Visual:\n{e}")
             self.data = None
@@ -422,8 +506,6 @@ class AuditoriaVisualDialog(QDialog):
             self._current_lado = "F"
             self._clear_preview("Sin imagen")
 
-        # ✅ Motivos: como ya precargamos self._selected_debitos en _load(),
-        # acá va a marcar los checks correctos.
         self._refresh_motivos_catalogo()
 
         self._render_troqueles()
@@ -443,7 +525,6 @@ class AuditoriaVisualDialog(QDialog):
 
         self.lb_big.setText(str(getattr(self.data.archivo, "orden_lote", "") or "—"))
 
-        # ✅ Autorización: siempre del archivo
         self.lb_autorizacion.setText(str(getattr(self.data.archivo, "fecha", "") or "—"))
 
         self.lb_a_cargo.setText(self._fmt_money(a_cargo))
@@ -456,24 +537,17 @@ class AuditoriaVisualDialog(QDialog):
 
         self.tbl_troqueles.setRowCount(len(rows))
         for i, t in enumerate(rows):
-            estado = t.estado
+            estado = getattr(t, "estado", "")
 
             self._set_cell(self.tbl_troqueles, i, 0, str(getattr(t, "codigo_barra", "") or ""))
             self._set_cell(self.tbl_troqueles, i, 1, str(getattr(t, "presentacion", "") or ""))
             self._set_cell(self.tbl_troqueles, i, 2, str(getattr(t, "cantidad", "") or ""))
 
-            # resto como venga
             self._set_cell(self.tbl_troqueles, i, 3, str(getattr(t, "droga", "") or ""))
             self._set_cell(self.tbl_troqueles, i, 4, str(getattr(t, "code_alfabeta", "") or ""))
-            self._set_cell(
-                self.tbl_troqueles,
-                i,
-                5,
-                self._fmt_money(Decimal(str(getattr(t, "monto", 0) or 0))),
-            )
+            self._set_cell(self.tbl_troqueles, i, 5, self._fmt_money(Decimal(str(getattr(t, "monto", 0) or 0))))
             self._set_cell(self.tbl_troqueles, i, 6, str(estado))
 
-            # Si querés mantener colores, dejalo; si querés monocromo total, comentá esto.
             color = None
             if estado == EstadoTroquelEnum.V:
                 color = QColor(17, 151, 59)
@@ -570,7 +644,7 @@ class AuditoriaVisualDialog(QDialog):
                 w.deleteLater()
 
         for m in motivos:
-            motivo_id = m.motivo_debito_id
+            motivo_id = int(getattr(m, "motivo_debito_id", 0) or 0)
 
             row = QWidget()
             row_l = QHBoxLayout(row)
@@ -579,16 +653,15 @@ class AuditoriaVisualDialog(QDialog):
 
             cb = QCheckBox()
             cb.setProperty("motivo_id", motivo_id)
-            cb.setProperty("lado", str(m.lado))
+            cb.setProperty("lado", str(getattr(m, "lado", "")))
             cb.setChecked(motivo_id in self._selected_debitos)
             cb.stateChanged.connect(self._on_motivo_checkbox_changed)
 
-            lb = QLabel(str(m.descripcion))
+            lb = QLabel(str(getattr(m, "descripcion", "") or ""))
             lb.setWordWrap(True)
             lb.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
             lb.setCursor(Qt.CursorShape.PointingHandCursor)
 
-            # click en el texto = toggle checkbox
             def _toggle(_evt, _cb=cb):
                 _cb.setChecked(not _cb.isChecked())
 
@@ -658,7 +731,7 @@ class AuditoriaVisualDialog(QDialog):
         self.lb_vendedor.setToolTip(f"Código: {getattr(v, 'codigo', '')}")
 
     # -------------------------
-    # Finalizar
+    # Finalizar (guarda y siguiente)
     # -------------------------
     def _on_finalizar(self) -> None:
         if not self.data:
@@ -669,7 +742,8 @@ class AuditoriaVisualDialog(QDialog):
             QMessageBox.critical(self, "Error", "No se pudo determinar receta_id.")
             return
 
-        # ✅ Validación SOLO para Emisión y Venta
+        # ✅ NO hacemos vendedor obligatorio (queda como venías)
+
         fecha_emision = self._parse_ddmmyyyy(self.in_emision.text())
         if not fecha_emision:
             QMessageBox.warning(self, "Falta fecha", "Tenés que cargar la fecha de Emisión (dd/MM/yyyy).")
@@ -680,7 +754,6 @@ class AuditoriaVisualDialog(QDialog):
             QMessageBox.warning(self, "Falta fecha", "Tenés que cargar la fecha de Venta (dd/MM/yyyy).")
             return
 
-        # Prescripción: editable pero NO obligatoria
         fecha_prescripcion = self._parse_ddmmyyyy(self.in_prescripcion.text())
 
         debitos_inputs = [
@@ -688,25 +761,16 @@ class AuditoriaVisualDialog(QDialog):
             for mid, det in self._selected_debitos.items()
         ]
 
-        # ✅ Solo si hay débitos: pedir/guardar estado de seguimiento
         estado_seg_id: int | None = None
         if debitos_inputs:
             dlg = EstadoSeguimientoPickDialog(self)
             if dlg.exec() != dlg.DialogCode.Accepted:
-                QMessageBox.warning(
-                    self,
-                    "Falta estado",
-                    "Tenés que seleccionar un estado de seguimiento para finalizar.",
-                )
+                QMessageBox.warning(self, "Falta estado", "Tenés que seleccionar un estado de seguimiento para finalizar.")
                 return
 
             estado_seg_id = dlg.selected_estado_seguimiento_id()
             if not estado_seg_id:
-                QMessageBox.warning(
-                    self,
-                    "Falta estado",
-                    "Tenés que seleccionar un estado de seguimiento para finalizar.",
-                )
+                QMessageBox.warning(self, "Falta estado", "Tenés que seleccionar un estado de seguimiento para finalizar.")
                 return
             estado_seg_id = int(estado_seg_id)
 
@@ -717,7 +781,7 @@ class AuditoriaVisualDialog(QDialog):
                 RecetaService.update_auditoria(
                     s,
                     receta_id=receta_id,
-                    vendedor_id=self._vendedor_id,
+                    vendedor_id=self._vendedor_id,         # ✅ puede ser None
                     estado_seguimiento_id=estado_seg_id,
                     estado_receta_id=1,
                     fecha_prescripcion=fecha_prescripcion,
@@ -726,7 +790,8 @@ class AuditoriaVisualDialog(QDialog):
                     usuario_id=self.creado_por_usuario_id,
                 )
 
-            self.accept()
+            # ✅ en vez de accept(), pasa al siguiente
+            self._next()
 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudo finalizar:\n{e}")
@@ -750,14 +815,9 @@ class AuditoriaVisualDialog(QDialog):
     @staticmethod
     def _parse_ddmmyyyy(s: str) -> date | None:
         s = (s or "").strip()
-
-        # inputMask incompleto deja "_" en los lugares vacíos
         if not s or "_" in s:
             return None
-
         try:
             return datetime.strptime(s, "%d/%m/%Y").date()
         except ValueError:
             return None
-
-

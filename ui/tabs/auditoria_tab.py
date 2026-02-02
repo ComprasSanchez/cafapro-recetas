@@ -1,4 +1,3 @@
-# ui/tabs/auditoria_tab.py
 from __future__ import annotations
 
 from pathlib import Path
@@ -25,7 +24,6 @@ from ui.usecase.auditoria_usecase import (
 class AuditoriaTab(BaseTabWidget):
     ROW_H = 32  # un toque más compacta
 
-    # Columnas (para no hardcodear números por todos lados)
     COL_RECETA = 0
     COL_REF = 1
     COL_LOTE = 2
@@ -256,10 +254,8 @@ class AuditoriaTab(BaseTabWidget):
         hh.setMinimumSectionSize(60)
         hh.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
 
-        # 👉 MODO GENERAL
         hh.setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
 
-        # 👉 Anchos explícitos (NO se rompen)
         hh.resizeSection(self.COL_RECETA, 120)
         hh.resizeSection(self.COL_REF, 170)
         hh.resizeSection(self.COL_LOTE, 70)
@@ -271,7 +267,6 @@ class AuditoriaTab(BaseTabWidget):
         hh.resizeSection(self.COL_OFI, 90)
 
         hh.resizeSection(self.COL_ESTADO, 80)
-
         hh.resizeSection(self.COL_DEBITOS, 80)
 
         self.tbl.itemClicked.connect(self._on_item_clicked)
@@ -322,7 +317,6 @@ class AuditoriaTab(BaseTabWidget):
         self.cb_estado = QComboBox()
         self.cb_estado.setMinimumHeight(28)
         self.cb_estado.setMinimumWidth(240)
-        # se llena en _apply_estados()
         self.cb_estado.addItem("Cargando…", None)
         self.cb_estado.currentIndexChanged.connect(self._apply_filters)
         l.addWidget(self.cb_estado, 0)
@@ -355,10 +349,8 @@ class AuditoriaTab(BaseTabWidget):
         self.cb_estado.blockSignals(True)
         self.cb_estado.clear()
 
-        # ✅ virtuales (porque auditada == tiene estado)
         self.cb_estado.addItem("Todos", None)
 
-        # estados reales
         for eid, desc in out.estados:
             self.cb_estado.addItem(str(desc), int(eid))
 
@@ -386,23 +378,14 @@ class AuditoriaTab(BaseTabWidget):
 
         idxs = list(range(total))
 
-        # Estado (incluye auditadas/no auditadas)
         if estado_sel is not None:
             sid = int(estado_sel)
+            idxs = [i for i in idxs if self._estado_id(base_rows[i]) == sid]
 
-            if sid == -1:
-                idxs = [i for i in idxs if self._estado_id(base_rows[i]) == 0]
-            elif sid == -2:
-                idxs = [i for i in idxs if self._estado_id(base_rows[i]) > 0]
-            else:
-                idxs = [i for i in idxs if self._estado_id(base_rows[i]) == sid]
-
-        # Débitos
         if debitos_flag is not None:
             want = bool(debitos_flag)
             idxs = [i for i in idxs if bool(getattr(base_rows[i], "flag_debitos", False)) == want]
 
-        # Solo diferencias
         if only_diff:
             def is_diff(i: int) -> bool:
                 r = base_rows[i]
@@ -422,10 +405,6 @@ class AuditoriaTab(BaseTabWidget):
         try:
             self.tbl.setSortingEnabled(False)
             self.tbl.setRowCount(len(rows))
-
-            # ✅ colores MÁS visibles
-            deb_yellow = QColor(255, 230, 110)  # con débitos (fila completa)
-            ok_green = QColor(150, 230, 150)    # sin débitos (solo celda Débitos)
 
             for i, r in enumerate(rows):
                 asociacion_id = getattr(r, "asociacion_id", None)
@@ -467,10 +446,9 @@ class AuditoriaTab(BaseTabWidget):
                     c0.setData(Qt.ItemDataRole.UserRole, asociacion_id)
                     c0.setData(Qt.ItemDataRole.UserRole + 1, frente_jpg)
 
-                deb_yellow = QColor(252, 209, 22)
                 if auditada:
-                    color = deb_yellow if flag_debitos else Qt.GlobalColor.green
-                    self._set_bg(i, 8, color)  # 8 = columna "Débitos")
+                    color = QColor(252, 209, 22) if flag_debitos else Qt.GlobalColor.green
+                    self._set_bg(i, self.COL_DEBITOS, color)
 
                 self._set_bg(i, self.COL_OFI, Qt.GlobalColor.green)
 
@@ -481,12 +459,10 @@ class AuditoriaTab(BaseTabWidget):
 
             self.tbl.setSortingEnabled(True)
 
-            if rows:
-                self.tbl.clearSelection()
-                self.tbl.setCurrentCell(-1, -1)
-                self._clear_preview()
-            else:
-                self._clear_preview()
+            self.tbl.clearSelection()
+            self.tbl.setCurrentCell(-1, -1)
+            self._clear_preview()
+
         finally:
             self.tbl.setUpdatesEnabled(True)
             self._rendering_table = False
@@ -582,7 +558,7 @@ class AuditoriaTab(BaseTabWidget):
             self._load_preview_async(self._last_preview_path)
 
     # -------------------------
-    # Auditoría visual
+    # Auditoría visual (✅ NUEVO: abre una sola vez)
     # -------------------------
     def _sync_visual_button_state(self) -> None:
         it = self.tbl.currentItem()
@@ -602,36 +578,37 @@ class AuditoriaTab(BaseTabWidget):
         if start_row < 0:
             return
 
+        # construir lista desde la fila actual hasta el final
+        asociacion_ids: list[int] = []
         for row in range(start_row, self.tbl.rowCount()):
             c0 = self.tbl.item(row, self.COL_RECETA)
             if not c0:
                 continue
-
             asociacion_id = c0.data(Qt.ItemDataRole.UserRole)
-            if not asociacion_id:
-                continue
+            if asociacion_id:
+                asociacion_ids.append(int(asociacion_id))
 
-            self.tbl.setCurrentCell(row, self.COL_RECETA)
-            self.tbl.selectRow(row)
-            self.tbl.scrollToItem(c0, QAbstractItemView.ScrollHint.PositionAtCenter)
+        if not asociacion_ids:
+            QMessageBox.warning(self, "Sin registros", "No hay asociaciones para auditar desde esta fila.")
+            return
 
-            dlg = AuditoriaVisualDialog(
-                asociacion_id=int(asociacion_id),
-                parent=self,
-                creado_por_usuario_id=self.creado_por_usuario_id
-            )
-            result = dlg.exec()
-
-            if result != dlg.DialogCode.Accepted:
-                break
-
-        self.run_job(
-            self._uc.load_auditoria,
-            recepcion_id=self._recepcion_id,
-            title="Actualizando auditoría…",
-            on_result=self._apply_auditoria_rows,
-            on_error=self._ui_error,
+        dlg = AuditoriaVisualDialog(
+            asociacion_ids=asociacion_ids,
+            start_index=0,
+            parent=self,
+            creado_por_usuario_id=self.creado_por_usuario_id,
         )
+        dlg.exec()
+
+        # refresca UNA sola vez
+        if self._recepcion_id:
+            self.run_job(
+                self._uc.load_auditoria,
+                recepcion_id=self._recepcion_id,
+                title="Actualizando auditoría…",
+                on_result=self._apply_auditoria_rows,
+                on_error=self._ui_error,
+            )
 
     # -------------------------
     # UI error helpers
