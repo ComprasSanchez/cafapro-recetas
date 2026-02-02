@@ -360,13 +360,38 @@ class AuditoriaVisualDialog(QDialog):
         try:
             with session_scope() as s:
                 self.data = AuditoriaVisualService.load_by_asociacion_id(s, self.asociacion_id)
-                print(vars(self.data))
+                self._selected_debitos = {
+                    d.motivo_debito_id: d.detalle
+                    for d in (self.data.debitos or [])
+                }
+                self._preload_vendedor(s)
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudo cargar la Auditoría Visual:\n{e}")
             self.data = None
             return
 
         self._render_all()
+
+    def _preload_vendedor(self, s) -> None:
+        if not self.data:
+            return
+
+        vid = getattr(self.data.receta, "vendedor_id", None)
+        if not vid:
+            return
+
+        try:
+            from app.db.models import Vendedores
+            v = s.get(Vendedores, int(vid))
+        except Exception:
+            return
+
+        if not v:
+            return
+
+        self._vendedor_id = int(v.vendedor_id)
+        self.lb_vendedor.setText(str(getattr(v, "descripcion", "") or "—"))
+        self.lb_vendedor.setToolTip(f"Código: {getattr(v, 'codigo', '')}")
 
     def _render_all(self) -> None:
         assert self.data is not None
@@ -391,7 +416,10 @@ class AuditoriaVisualDialog(QDialog):
             self._current_lado = "F"
             self._clear_preview("Sin imagen")
 
+        # ✅ Motivos: como ya precargamos self._selected_debitos en _load(),
+        # acá va a marcar los checks correctos.
         self._refresh_motivos_catalogo()
+
         self._render_troqueles()
         self._render_archivo_detalle()
 
@@ -399,12 +427,17 @@ class AuditoriaVisualDialog(QDialog):
         imp_obs = Decimal(str(getattr(self.data.archivo, "importe_obs", 0) or 0))
         a_cargo = Decimal(str(getattr(self.data.archivo, "a_cargo_entidad", 0) or 0))
 
-        self.in_prescripcion.setText("")
-        self.in_emision.setText("")
-        self.in_venta.setText("")
+        fp = getattr(self.data.receta, "fecha_prescripcion", None)
+        fe = getattr(self.data.receta, "fecha_emision", None)
+        fv = getattr(self.data.receta, "fecha_venta", None)
+
+        self.in_prescripcion.setText(fp.strftime("%d/%m/%Y") if fp else "")
+        self.in_emision.setText(fe.strftime("%d/%m/%Y") if fe else "")
+        self.in_venta.setText(fv.strftime("%d/%m/%Y") if fv else "")
 
         self.lb_big.setText(str(getattr(self.data.archivo, "orden_lote", "") or "—"))
 
+        # ✅ Autorización: siempre del archivo
         self.lb_autorizacion.setText(str(getattr(self.data.archivo, "fecha", "") or "—"))
 
         self.lb_a_cargo.setText(self._fmt_money(a_cargo))
