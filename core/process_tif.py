@@ -7,18 +7,31 @@ from typing import Callable, Dict, List, Optional, Tuple, TypedDict, Literal
 import cv2
 import numpy as np
 from PIL import Image
-from pyzbar.pyzbar import decode, ZBarSymbol
+from pyzbar.pyzbar import decode as zbar_decode, ZBarSymbol
 
 
+# -----------------------------
+# Types
+# -----------------------------
 BBox = Tuple[int, int, int, int]
-TroquelEstado = Literal["V", "A", "R"]  # Verde / Amarillo / Rojo
+TroquelEstado = Literal["V", "A", "R"]
 
 
-class Detection(TypedDict):
-    origin: str
-    type: str
+class HeaderDet(TypedDict):
+    page_idx: int
+    type: str             # "CODE128" | "CODE39"
     value: str
-    bbox: BBox
+    bbox: BBox            # coords globales sobre la página
+    source: str           # "full+zbar"
+
+
+class TroquelDet(TypedDict):
+    page_idx: int
+    type: str             # "EAN13"
+    value: str
+    bbox: BBox            # coords globales sobre la página
+    source: str           # "tile+zbar"
+    masked: bool          # siempre True acá
 
 
 class FilesOut(TypedDict):
@@ -27,272 +40,413 @@ class FilesOut(TypedDict):
 
 
 @dataclass(frozen=True)
-class PageScan:
-    page_idx: int
-    detections: List[Detection]
-
-
-@dataclass(frozen=True)
 class ScanOut:
-    headers: List[str]
-    troqueles: List[str]
-    pages: List[PageScan]  # detecciones por página (para render)
-    base_name: str         # nombre base del tif (sin extensión)
+    base_name: str
+    headers: List[str]                    # values (headers)
+    troqueles: List[str]                  # values (ean13) (permite duplicados reales)
+    header_detections: List[HeaderDet]    # para render
+    troquel_detections: List[TroquelDet]  # para render
 
 
-# =========================
-# SCANNER (solo detecta + extrae values)
-# =========================
-class TiffScanner:
-    SYMBOLS = [
-        ZBarSymbol.EAN13,
-        ZBarSymbol.EAN8,
-        ZBarSymbol.CODE128,
-        ZBarSymbol.CODE39,
-        ZBarSymbol.EAN2,
-        ZBarSymbol.EAN5,
-    ]
+# ============================================================
+# Scanner: FULL solo headers + MASKED solo troqueles
+# ============================================================
+class TiffZBarMaskedScanner:
+    """
+    FULL scan: solo headers (CODE128 / CODE39)
+    TILED+MASK: solo troqueles (EAN13), con enmascarado en memoria para evitar re-detecciones
+    """
 
     def __init__(
         self,
-        header_types=("CODE128", "CODE39"),
-        split_min_ean13: int = 2,
-        dedupe_iou: float = 0.70,
-    ):
-        self.header_types = set(header_types)
-        self.split_min_ean13 = split_min_ean13
-        self.dedupe_iou = dedupe_iou
+        *,
+        tile: int = 700,
+        overlap: float = 0.65,
+        dup_dist_px: int = 220,
+        allow_duplicates: bool = True,
+        max_passes: int = 6,
+        mask_pad: int = 18,
+        max_pages: int = 2,
+        header_types: Tuple[str, ...] = ("CODE128", "CODE39"),
+    ) -> None:
+        self.tile = int(tile)
+        self.overlap = float(overlap)
+        self.dup_dist_px = int(dup_dist_px)
+        self.allow_duplicates = bool(allow_duplicates)
+        self.max_passes = int(max_passes)
+        self.mask_pad = int(mask_pad)
+        self.max_pages = int(max_pages)
+        self.header_types = tuple(header_types)
 
-    def scan(self, tiff_path: str) -> ScanOut:
-        pages_img = self._load_pages(tiff_path)
+    def process(self, tiff_path: str) -> ScanOut:
+        tiff_path = os.path.abspath(tiff_path)
+        if not os.path.isfile(tiff_path):
+            raise FileNotFoundError(tiff_path)
 
+        pages = self.load_pages_bgr(tiff_path)
         base = os.path.splitext(os.path.basename(tiff_path))[0]
 
-        if not pages_img:
-            return ScanOut(headers=[], troqueles=[], pages=[], base_name=base)
+        all_headers: List[str] = []
+        all_troqueles: List[str] = []
+        header_dets: List[HeaderDet] = []
+        troquel_dets: List[TroquelDet] = []
 
-        headers: List[str] = []
-        troqueles: List[str] = []
-        pages: List[PageScan] = []
+        for page_idx, page_bgr in enumerate(pages[: self.max_pages]):
+            # 1) headers (full)
+            h_vals, h_dets = self._scan_page_full_only_headers(
+                page_bgr,
+                page_idx=page_idx,
+                header_types=self.header_types,
+            )
+            all_headers.extend(h_vals)
+            header_dets.extend(h_dets)
 
-        for page_idx, img in enumerate(pages_img[:2]):
-            detections = self._detect(img)
-            self._collect_values(detections, headers, troqueles)
-            pages.append(PageScan(page_idx=page_idx, detections=detections))
+            # 2) troqueles (masked)
+            t_vals, t_dets = self._scan_page_masked_only_troqueles(
+                page_bgr,
+                page_idx=page_idx,
+                tile=self.tile,
+                overlap=self.overlap,
+                dup_dist_px=self.dup_dist_px,
+                allow_duplicates=self.allow_duplicates,
+                max_passes=self.max_passes,
+                mask_pad=self.mask_pad,
+            )
+            all_troqueles.extend(t_vals)
+            troquel_dets.extend(t_dets)
 
-        return ScanOut(headers=headers, troqueles=troqueles, pages=pages, base_name=base)
+        return ScanOut(
+            base_name=base,
+            headers=all_headers,
+            troqueles=all_troqueles,
+            header_detections=header_dets,
+            troquel_detections=troquel_dets,
+        )
 
-    # ---------- Carga ----------
+    # ---------- IO ----------
     @staticmethod
-    def _load_pages(path: str) -> List[np.ndarray]:
+    def load_pages_bgr(tiff_path: str) -> List[np.ndarray]:
+        # Intento cv2.imreadmulti
         try:
-            ok, pages = cv2.imreadmulti(path, flags=cv2.IMREAD_COLOR)
+            ok, pages = cv2.imreadmulti(tiff_path, flags=cv2.IMREAD_COLOR)
             if ok and pages:
                 return pages
-        except cv2.error:
+        except Exception:
             pass
 
+        # Fallback PIL
         pages: List[np.ndarray] = []
-        try:
-            img = Image.open(path)
-            i = 0
-            while True:
-                try:
-                    img.seek(i)
-                except EOFError:
-                    break
-                rgb = img.convert("RGB")
-                arr = np.array(rgb)
-                bgr = cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
-                pages.append(bgr)
-                i += 1
-            img.close()
-        except OSError:
-            pass
-
+        img = Image.open(tiff_path)
+        i = 0
+        while True:
+            try:
+                img.seek(i)
+            except EOFError:
+                break
+            rgb = img.convert("RGB")
+            arr = np.array(rgb)
+            bgr = cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
+            pages.append(bgr)
+            i += 1
+        img.close()
         return pages
 
-    # ---------- Detección ----------
-    def _decode(self, img_gray) -> List[Tuple[str, str, int, int, int, int]]:
-        barcodes = decode(img_gray, symbols=self.SYMBOLS)
-        out = []
+    # ---------- Utils ----------
+    @staticmethod
+    def _clamp(v: int, lo: int, hi: int) -> int:
+        return lo if v < lo else hi if v > hi else v
+
+    @staticmethod
+    def _bbox_center(b: BBox) -> Tuple[float, float]:
+        x, y, w, h = b
+        return (x + w / 2.0, y + h / 2.0)
+
+    @staticmethod
+    def _dist(a: Tuple[float, float], b: Tuple[float, float]) -> float:
+        dx = a[0] - b[0]
+        dy = a[1] - b[1]
+        return float((dx * dx + dy * dy) ** 0.5)
+
+    # ---------- Decode ----------
+    @staticmethod
+    def _decode_zbar(gray: np.ndarray) -> List[Tuple[str, str, BBox]]:
+        barcodes = zbar_decode(
+            gray,
+            symbols=[
+                ZBarSymbol.EAN13,
+                ZBarSymbol.EAN8,
+                ZBarSymbol.CODE128,
+                ZBarSymbol.CODE39,
+            ],
+        )
+        out: List[Tuple[str, str, BBox]] = []
         for b in barcodes:
-            value = b.data.decode("utf-8")
-            btype = b.type
+            value = (b.data.decode("utf-8") or "").strip()
+            btype = (b.type or "").strip()
             x, y, w, h = b.rect
-            out.append((btype, value, x, y, w, h))
+            if value and w > 0 and h > 0:
+                out.append((btype, value, (int(x), int(y), int(w), int(h))))
         return out
 
+    # ---------- Tiling ----------
     @staticmethod
-    def _iou(a: BBox, b: BBox) -> float:
-        ax, ay, aw, ah = a
-        bx, by, bw, bh = b
+    def _iter_tiles(W: int, H: int, tile: int, overlap: float) -> List[BBox]:
+        tile = max(64, int(tile))
+        overlap = float(overlap)
+        overlap = 0.0 if overlap < 0 else 0.9 if overlap > 0.9 else overlap
 
-        inter_w = max(0, min(ax + aw, bx + bw) - max(ax, bx))
-        inter_h = max(0, min(ay + ah, by + bh) - max(ay, by))
-        inter = inter_w * inter_h
-        if inter == 0:
-            return 0.0
+        step = int(round(tile * (1.0 - overlap)))
+        step = max(32, step)
 
-        union = aw * ah + bw * bh - inter
-        return inter / union
+        tiles: List[BBox] = []
 
-    def _add_result(self, results: List[Detection], origin: str, btype: str, value: str, bbox: BBox) -> None:
-        for det in results:
-            if det["type"] == btype and det["value"] == value:
-                if self._iou(det["bbox"], bbox) > self.dedupe_iou:
-                    return
-        results.append({"origin": origin, "type": btype, "value": value, "bbox": bbox})
+        ys = list(range(0, max(1, H - tile + 1), step))
+        xs = list(range(0, max(1, W - tile + 1), step))
 
-    def _detect(self, img_bgr) -> List[Detection]:
-        gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
-        results: List[Detection] = []
+        if not ys or ys[-1] != H - tile:
+            ys.append(max(0, H - tile))
+        if not xs or xs[-1] != W - tile:
+            xs.append(max(0, W - tile))
 
-        # 1) detección completa
-        for btype, value, x, y, w, h in self._decode(gray):
-            self._add_result(results, "full", btype, value, (x, y, w, h))
+        for y in ys:
+            for x in xs:
+                w = min(tile, W - x)
+                h = min(tile, H - y)
+                tiles.append((x, y, w, h))
 
-        to_remove: List[Detection] = []
-        pad = 18
+        return tiles
+
+    # ---------- Mask ----------
+    @classmethod
+    def _mask_region(cls, gray: np.ndarray, bbox: BBox, pad: int = 18) -> None:
+        H, W = gray.shape[:2]
+        x, y, w, h = bbox
+
+        x0 = cls._clamp(x - pad, 0, W - 1)
+        y0 = cls._clamp(y - pad, 0, H - 1)
+        x1 = cls._clamp(x + w + pad, 0, W)
+        y1 = cls._clamp(y + h + pad, 0, H)
+
+        if x1 > x0 and y1 > y0:
+            gray[y0:y1, x0:x1] = 255
+
+    # ---------- Core page scan ----------
+    @classmethod
+    def _scan_page_masked_only_troqueles(
+        cls,
+        page_bgr: np.ndarray,
+        *,
+        page_idx: int,
+        tile: int,
+        overlap: float,
+        dup_dist_px: int,
+        allow_duplicates: bool,
+        max_passes: int,
+        mask_pad: int,
+    ) -> Tuple[List[str], List[TroquelDet]]:
+        troqueles: List[str] = []
+        troquel_dets: List[TroquelDet] = []
+
+        occ_by_value: Dict[str, List[Tuple[float, float]]] = {}
+
+        gray0 = cv2.cvtColor(page_bgr, cv2.COLOR_BGR2GRAY)
+        gray = gray0.copy()
 
         H, W = gray.shape[:2]
+        tiles = cls._iter_tiles(W, H, tile=tile, overlap=overlap)
 
-        for det in list(results):
-            if det["origin"] != "full":
-                continue
+        for _pass in range(max_passes):
+            any_new = False
 
-            x, y, w, h = det["bbox"]
-            if w <= 0 or h <= 0:
-                continue
+            for (tx, ty, tw, th) in tiles:
+                roi = gray[ty : ty + th, tx : tx + tw]
+                if roi.size == 0:
+                    continue
 
-            # ✅ criterio 67% sin decimales
-            is_tallish = (3 * h > 2 * w)  # h/w > 0.67
-            is_widish = (3 * w > 2 * h)  # w/h > 0.67 (por si el contenedor es horizontal)
-            if not (is_tallish or is_widish):
-                continue
+                hits = cls._decode_zbar(roi)
+                if not hits:
+                    continue
 
-            # recorte con padding
-            x0 = max(0, x - pad)
-            y0 = max(0, y - pad)
-            x1 = min(W, x + w + pad)
-            y1 = min(H, y + h + pad)
-            region = gray[y0:y1, x0:x1]
-            if region.size == 0:
-                continue
+                for btype, value, (rx, ry, rw, rh) in hits:
+                    if not (btype == "EAN13" and value.isdigit() and len(value) == 13):
+                        continue
 
-            rh, rw = region.shape[:2]
+                    det_bbox: BBox = (tx + rx, ty + ry, int(rw), int(rh))
+                    c = cls._bbox_center(det_bbox)
+                    prev = occ_by_value.get(value, [])
 
-            # ✅ elegimos split por el bbox original (no por region)
-            if is_tallish:
-                half_h = rh // 2
-                zones = [
-                    ("split_top", region[:half_h, :], 0, 0),
-                    ("split_bottom", region[half_h:, :], 0, half_h),
-                ]
-            else:
-                half_w = rw // 2
-                zones = [
-                    ("split_left", region[:, :half_w], 0, 0),
-                    ("split_right", region[:, half_w:], half_w, 0),
-                ]
+                    if allow_duplicates:
+                        # duplicados reales: colapsar solo misma ocurrencia
+                        if any(cls._dist(c, pc) <= dup_dist_px for pc in prev):
+                            continue
+                    else:
+                        # no duplicados por value
+                        if value in occ_by_value:
+                            continue
 
-            split_ean13 = 0
+                    occ_by_value.setdefault(value, []).append(c)
 
-            for origin, sub_img, x_off, y_off in zones:
-                for t2, v2, sx, sy, sw, sh in self._decode(sub_img):
-                    v2 = (v2 or "").strip()
-
-                    if t2 == "EAN13" and len(v2) == 13 and v2.isdigit():
-                        split_ean13 += 1
-
-                    self._add_result(
-                        results,
-                        origin,
-                        t2,
-                        v2,
-                        (x0 + x_off + sx, y0 + y_off + sy, sw, sh),
+                    troqueles.append(value)
+                    troquel_dets.append(
+                        {
+                            "page_idx": page_idx,
+                            "source": "tile+zbar",
+                            "type": "EAN13",
+                            "value": value,
+                            "bbox": det_bbox,
+                            "masked": True,
+                        }
                     )
 
-            if split_ean13 >= self.split_min_ean13:
-                to_remove.append(det)
+                    cls._mask_region(gray, det_bbox, pad=mask_pad)
+                    any_new = True
 
-        for det in to_remove:
-            if det in results:
-                results.remove(det)
+            if not any_new:
+                break
 
-        return results
+        return troqueles, troquel_dets
 
-    # ---------- extracción ----------
-    def _collect_values(self, detections: List[Detection], headers: List[str], troqueles: List[str]) -> None:
-        ordered = sorted(detections, key=lambda _it: (_it["bbox"][1], _it["bbox"][0]))
+    @classmethod
+    def _scan_page_full_only_headers(
+        cls,
+        page_bgr: np.ndarray,
+        *,
+        page_idx: int,
+        header_types: Tuple[str, ...] = ("CODE128", "CODE39"),
+    ) -> Tuple[List[str], List[HeaderDet]]:
+        headers: List[str] = []
+        header_dets: List[HeaderDet] = []
 
-        for it in ordered:
-            t = it["type"]
-            v = it["value"]
+        gray0 = cv2.cvtColor(page_bgr, cv2.COLOR_BGR2GRAY)
+        full_hits = cls._decode_zbar(gray0)
 
-            if t in self.header_types:
-                headers.append(v)
+        for btype, value, bb in full_hits:
+            if btype in header_types:
+                headers.append(value)
+                header_dets.append(
+                    {
+                        "page_idx": page_idx,
+                        "source": "full+zbar",
+                        "type": btype,
+                        "value": value,
+                        "bbox": bb,
+                    }
+                )
 
-            if t == "EAN13" and len(v) == 13:
-                troqueles.append(v)
+        return headers, header_dets
 
 
-# =========================
-# RENDERER (solo dibuja + escribe jpg)
-# =========================
-class TiffRenderer:
-    def __init__(self, header_types=("CODE128", "CODE39")):
-        self.header_types = set(header_types)
+# ============================================================
+# Renderer: dibuja desde ScanOut (sin re-scan)
+# ============================================================
+class TiffScanRenderer:
+    def __init__(
+        self,
+        *,
+        max_pages: int = 2,
+        rect_thickness: int = 2,
+        font_scale: float = 0.6,
+        font_thickness: int = 2,
+        color_header_bgr: Tuple[int, int, int] = (255, 0, 0),    # azul
+        color_v_bgr: Tuple[int, int, int] = (0, 181, 26),        # verde
+        color_a_bgr: Tuple[int, int, int] = (0, 255, 255),       # amarillo
+        color_r_bgr: Tuple[int, int, int] = (0, 0, 255),         # rojo
+    ) -> None:
+        self.max_pages = int(max_pages)
+        self.rect_thickness = int(rect_thickness)
+        self.font_scale = float(font_scale)
+        self.font_thickness = int(font_thickness)
 
-    @staticmethod
-    def _page_out_path(base: str, page_idx: int, output_dir: Optional[str]) -> str:
-        suffix = "_f.jpg" if page_idx == 0 else "_d.jpg"
-        name = f"{base}{suffix}"
-        return os.path.join(output_dir, name) if output_dir else name
+        self.C_HEADER = color_header_bgr
+        self.C_V = color_v_bgr
+        self.C_A = color_a_bgr
+        self.C_R = color_r_bgr
 
     def render(
         self,
         tiff_path: str,
         scan: ScanOut,
+        *,
         output_dir: Optional[str],
-        estado_por_codebar: Dict[str, TroquelEstado] | None = None,
-        estado_resolver: Callable[[str], TroquelEstado] | None = None,
+        estado_por_codebar: Optional[Dict[str, TroquelEstado]] = None,
+        estado_resolver: Optional[Callable[[str], TroquelEstado]] = None,
+        draw_headers: bool = True,
+        draw_troqueles: bool = True,
+        suffix_front: str = "_f.jpg",
+        suffix_back: str = "_d.jpg",
+        pages_loader: Optional[Callable[[str], List[np.ndarray]]] = None,
     ) -> FilesOut:
-        """
-        Dibuja y guarda:
-        - headers: azul
-        - troqueles: según estado
-            V => verde
-            A => amarillo
-            R => rojo
-
-        estado_por_codebar: dict {EAN13: "V"|"A"|"R"}
-        estado_resolver: función(codebar)->estado (si querés lazy)
-        """
         if output_dir:
             os.makedirs(output_dir, exist_ok=True)
 
-        pages_img = TiffScanner._load_pages(tiff_path)
+        loader = pages_loader or TiffZBarMaskedScanner.load_pages_bgr
+        pages = loader(tiff_path)
+
         files: FilesOut = {"front_jpg": None, "back_jpg": None}
 
-        if not pages_img or not scan.pages:
-            return files
+        def get_estado(codebar: str) -> TroquelEstado:
+            if estado_por_codebar and codebar in estado_por_codebar:
+                return estado_por_codebar[codebar]
+            if estado_resolver:
+                return estado_resolver(codebar)
+            return "A"
 
-        for page_idx, img in enumerate(pages_img[:2]):
-            # detecciones de esa página (si no hay, lista vacía)
-            page_scan = next((p for p in scan.pages if p.page_idx == page_idx), None)
-            detections = page_scan.detections if page_scan else []
+        for page_idx, img in enumerate(pages[: self.max_pages]):
+            canvas = img.copy()
 
-            annotated = img.copy()
-            self._draw_found(
-                annotated,
-                detections,
-                estado_por_codebar=estado_por_codebar,
-                estado_resolver=estado_resolver,
-            )
+            if draw_headers:
+                for d in scan.header_detections:
+                    if d["page_idx"] != page_idx:
+                        continue
+                    x, y, w, h = d["bbox"]
+                    val = d["value"]
+                    typ = d["type"]
 
-            out_path = self._page_out_path(scan.base_name, page_idx, output_dir)
-            cv2.imwrite(out_path, annotated)
+                    cv2.rectangle(canvas, (x, y), (x + w, y + h), self.C_HEADER, self.rect_thickness)
+                    yy = y - 10 if y > 20 else y + h + 20
+                    cv2.putText(
+                        canvas,
+                        f"{typ}:{val}",
+                        (x, max(0, yy)),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        self.font_scale,
+                        self.C_HEADER,
+                        self.font_thickness,
+                    )
+
+            if draw_troqueles:
+                for d in scan.troquel_detections:
+                    if d["page_idx"] != page_idx:
+                        continue
+                    x, y, w, h = d["bbox"]
+                    val = d["value"]
+
+                    estado = get_estado(val)
+                    color = self.C_V if estado == "V" else (self.C_R if estado == "R" else self.C_A)
+
+                    cv2.rectangle(canvas, (x, y), (x + w, y + h), color, self.rect_thickness)
+                    yy = y - 10 if y > 20 else y + h + 20
+                    cv2.putText(
+                        canvas,
+                        f"EAN13:{val} [{estado}]",
+                        (x, max(0, yy)),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        self.font_scale,
+                        color,
+                        self.font_thickness,
+                    )
+
+            suffix = suffix_front if page_idx == 0 else suffix_back
+            out_name = scan.base_name + suffix
+            out_path = os.path.join(output_dir, out_name) if output_dir else out_name
+
+            ok = cv2.imwrite(out_path, canvas)
+            if not ok:
+                if page_idx == 0:
+                    files["front_jpg"] = None
+                else:
+                    files["back_jpg"] = None
+                continue
 
             if page_idx == 0:
                 files["front_jpg"] = out_path
@@ -301,101 +455,63 @@ class TiffRenderer:
 
         return files
 
-    def _draw_found(
-        self,
-        img_bgr,
-        detections: List[Detection],
-        estado_por_codebar: Dict[str, TroquelEstado] | None,
-        estado_resolver: Callable[[str], TroquelEstado] | None,
-    ) -> None:
-        # BGR
-        COLOR_HEADER = (255, 0, 0)      # azul
-        COLOR_V = (0, 181, 26)          # verde
-        COLOR_A = (0, 255, 255)         # amarillo
-        COLOR_R = (0, 0, 255)           # rojo
 
-        def get_estado(codebar: str) -> TroquelEstado:
-            if estado_por_codebar and codebar in estado_por_codebar:
-                return estado_por_codebar[codebar]
-            if estado_resolver:
-                return estado_resolver(codebar)
-            return "A"  # default: amarillo si no sabemos
-
-        ordered = sorted(detections, key=lambda _it: (_it["bbox"][1], _it["bbox"][0]))
-
-        for it in ordered:
-            t = it["type"]
-            v = it["value"]
-
-            is_header = t in self.header_types
-            is_troquel = (t == "EAN13" and len(v) == 13)
-            if not (is_header or is_troquel):
-                continue
-
-            x, y, w, h = it["bbox"]
-
-            if is_header:
-                color = COLOR_HEADER
-                label = f"{t}:{v}"
-            else:
-                estado = get_estado(v)
-                if estado == "V":
-                    color = COLOR_V
-                elif estado == "R":
-                    color = COLOR_R
-                else:
-                    color = COLOR_A
-                label = f"EAN13:{v} [{estado}]"
-
-            cv2.rectangle(img_bgr, (x, y), (x + w, y + h), color, 2)
-            cv2.putText(
-                img_bgr,
-                label,
-                (x, max(0, y - 8)),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.75,
-                color,
-                2,
-            )
-
-
-# =========================
+# ============================================================
 # FACHADA (lo que usa el service)
-# =========================
+# ============================================================
 class TiffProcessor:
     """
-    Wrapper para usar:
-      - scan()  => solo detección/extracción
-      - render() => solo dibujo
+    Compatible con tu uso actual en TiffService:
+      - scan(tiff_path) -> ScanOut (headers/troqueles + detections)
+      - render(tiff_path, scan, output_dir, estado_por_codebar|resolver) -> FilesOut
     """
+
     def __init__(
         self,
-        header_types=("CODE128", "CODE39"),
-        split_min_ean13: int = 2,
-        dedupe_iou: float = 0.70,
-    ):
-        self.scanner = TiffScanner(
+        *,
+        tile: int = 700,
+        overlap: float = 0.65,
+        dup_dist_px: int = 220,
+        allow_duplicates: bool = True,
+        max_passes: int = 6,
+        mask_pad: int = 18,
+        max_pages: int = 2,
+        header_types: Tuple[str, ...] = ("CODE128", "CODE39"),
+    ) -> None:
+        self._scanner = TiffZBarMaskedScanner(
+            tile=tile,
+            overlap=overlap,
+            dup_dist_px=dup_dist_px,
+            allow_duplicates=allow_duplicates,
+            max_passes=max_passes,
+            mask_pad=mask_pad,
+            max_pages=max_pages,
             header_types=header_types,
-            split_min_ean13=split_min_ean13,
-            dedupe_iou=dedupe_iou,
         )
-        self.renderer = TiffRenderer(header_types=header_types)
+        self._renderer = TiffScanRenderer(max_pages=max_pages)
 
     def scan(self, tiff_path: str) -> ScanOut:
-        return self.scanner.scan(tiff_path)
+        return self._scanner.process(tiff_path)
 
     def render(
         self,
+        *,
         tiff_path: str,
         scan: ScanOut,
         output_dir: Optional[str],
-        estado_por_codebar: Dict[str, TroquelEstado] | None = None,
-        estado_resolver: Callable[[str], TroquelEstado] | None = None,
+        estado_por_codebar: Optional[Dict[str, TroquelEstado]] = None,
+        estado_resolver: Optional[Callable[[str], TroquelEstado]] = None,
+        draw_headers: bool = True,
+        draw_troqueles: bool = True,
     ) -> FilesOut:
-        return self.renderer.render(
+        return self._renderer.render(
             tiff_path=tiff_path,
             scan=scan,
             output_dir=output_dir,
             estado_por_codebar=estado_por_codebar,
             estado_resolver=estado_resolver,
+            draw_headers=draw_headers,
+            draw_troqueles=draw_troqueles,
+            pages_loader=TiffZBarMaskedScanner.load_pages_bgr,
         )
+

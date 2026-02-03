@@ -34,7 +34,7 @@ class ProcesarResumen:
     ya_asociado: int = 0
     errores: List[str] = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.errores is None:
             self.errores = []
 
@@ -51,13 +51,18 @@ class TiffService:
         self,
         tif: Optional[TiffProcessor] = None,
         troquel_enrich: Optional[TroquelEnrichmentService] = None,
-    ):
+    ) -> None:
         self._tif = tif or TiffProcessor()
         self._enrich = troquel_enrich or TroquelEnrichmentService()
 
+    # -------------------------
+    # Helpers
+    # -------------------------
     @staticmethod
     def _scan_dt_from_name(path: str) -> datetime:
-        # ejemplo: "pami_20260127121247004_f.jpg" / "pami_20260127125654006_d.jpg"
+        """
+        ejemplo: "pami_20260127121247004_f.jpg" / "pami_20260127125654006_d.jpg"
+        """
         name = Path(path).stem
         parts = name.split("_")
         ts = parts[1]  # YYYYMMDDHHMMSSmmm
@@ -111,37 +116,47 @@ class TiffService:
 
     @staticmethod
     def _match_all_refs(s: Session, refs: List[str]) -> _MatchResult:
-        """
-        Match masivo:
-        - ref_to_archivo[ref] = Archivo si ref es único
-        - ref_to_archivo[ref] = None si falta o es duplicado
-        """
         refs_norm = [str(r).strip() for r in refs if r and str(r).strip()]
         refs_set = set(refs_norm)
         if not refs_set:
             return _MatchResult(ref_to_archivo={}, duplicated_refs=set(), missing_refs=set())
 
         rows = (
-            s.execute(select(Archivo).where(Archivo.nro_referencia.in_(list(refs_set))))
+            s.execute(
+                select(Archivo).where(
+                    or_(
+                        Archivo.nro_referencia.in_(list(refs_set)),
+                        Archivo.nro_receta.in_(list(refs_set)),
+                    )
+                )
+            )
             .scalars()
             .all()
         )
 
-        by_ref: Dict[str, List[Archivo]] = {}
-        for a in rows:
-            by_ref.setdefault(str(a.nro_referencia).strip(), []).append(a)
+        # token -> [Archivo...]
+        by_token: Dict[str, List[Archivo]] = {}
 
-        duplicated = {ref for ref, arr in by_ref.items() if len(arr) > 1}
-        missing = {ref for ref in refs_set if ref not in by_ref}
+        for a in rows:
+            nro_ref = str(getattr(a, "nro_referencia", "") or "").strip()
+            nro_rec = str(getattr(a, "nro_receta", "") or "").strip()
+
+            if nro_ref and nro_ref in refs_set:
+                by_token.setdefault(nro_ref, []).append(a)
+            if nro_rec and nro_rec in refs_set:
+                by_token.setdefault(nro_rec, []).append(a)
+
+        duplicated = {tok for tok, arr in by_token.items() if len(arr) > 1}
+        missing = {tok for tok in refs_set if tok not in by_token}
 
         ref_to_archivo: Dict[str, Optional[Archivo]] = {}
-        for ref in refs_set:
-            if ref in duplicated:
-                ref_to_archivo[ref] = None
-            elif ref in by_ref:
-                ref_to_archivo[ref] = by_ref[ref][0]
+        for tok in refs_set:
+            if tok in duplicated:
+                ref_to_archivo[tok] = None
+            elif tok in by_token:
+                ref_to_archivo[tok] = by_token[tok][0]
             else:
-                ref_to_archivo[ref] = None
+                ref_to_archivo[tok] = None
 
         return _MatchResult(
             ref_to_archivo=ref_to_archivo,
@@ -149,6 +164,9 @@ class TiffService:
             missing_refs=missing,
         )
 
+    # -------------------------
+    # Main
+    # -------------------------
     def procesar(
         self,
         s: Session,
@@ -196,7 +214,7 @@ class TiffService:
         # =========
         # 2) Match masivo por referencias
         # =========
-        match = self._match_all_refs(s, all_refs)
+        match = self._match_all_refs(s, refs=all_refs)
 
         # =========
         # 3) Elegir 1 Archivo por TIFF
@@ -291,22 +309,6 @@ class TiffService:
                 vigente_por_ref.setdefault(ref, []).append((int(asoc_id), int(receta_id)))
 
         # =========
-        # 4.2) Detectar ya asociados por archivo_id (vigente)
-        #     (si hay vigente en ese archivo, se versiona por ref; el contador queda igual)
-        # =========
-        asociados_archivo_ids = set(
-            s.execute(
-                select(Asociacion.archivo_id)
-                .where(
-                    Asociacion.archivo_id.in_(archivo_ids),
-                    Asociacion.vigente.is_(True),
-                )
-            )
-            .scalars()
-            .all()
-        )
-
-        # =========
         # 5) Persistencia
         # =========
         troqueles_to_add: List[Troqueles] = []
@@ -321,6 +323,7 @@ class TiffService:
 
             ref = self._norm_str(getattr(archivo, "nro_referencia", None))
 
+            # 5.0) versionado por ref si había vigente
             prev = vigente_por_ref.get(ref, []) if ref else []
             if prev:
                 resumen.ya_asociado += 1
@@ -331,14 +334,12 @@ class TiffService:
                     asoc_ids = [a_id for a_id, _ in prev]
                     receta_ids = [r_id for _, r_id in prev]
 
-                    # apagar asociaciones anteriores
                     s.execute(
                         update(Asociacion)
                         .where(Asociacion.asociacion_id.in_(asoc_ids))
                         .values(vigente=False)
                     )
 
-                    # apagar recetas anteriores
                     s.execute(
                         update(Recetas)
                         .where(Recetas.receta_id.in_(receta_ids))
@@ -361,7 +362,7 @@ class TiffService:
                 importe_por_cod[ca] = importe_por_cod.get(ca, 0.0) + float(getattr(d, "importe_obs", 0) or 0)
 
             # -------------------------
-            # counts por codebar
+            # counts por codebar (EAN13)
             # -------------------------
             counts: Dict[str, int] = {}
             for cod in (scan.troqueles or []):
@@ -393,9 +394,11 @@ class TiffService:
 
                 # Verde si code_alfabeta matchea con cod_medic, sino Rojo
                 ca = self._norm_str(enr.code_alfabeta)
-                estado_por_codebar[codebar] = EstadoTroquelEnum.V if (ca and ca in cods_detalle) else EstadoTroquelEnum.R
+                estado_por_codebar[codebar] = (
+                    EstadoTroquelEnum.V if (ca and ca in cods_detalle) else EstadoTroquelEnum.R
+                )
 
-            # 5.2) render
+            # 5.2) render (usa SOLO detections del scan nuevo)
             try:
                 estado_render: Dict[str, Literal["V", "A", "R"]] = {
                     k: cast(Literal["V", "A", "R"], v.value) for k, v in estado_por_codebar.items()
@@ -414,11 +417,11 @@ class TiffService:
             dorso_jpg = files.get("back_jpg")
 
             # 5.3) crear Receta NUEVA (vigente) en la recepción actual
-            nro_receta = self._norm_str(archivo.nro_receta) or "-"
+            nro_receta = self._norm_str(getattr(archivo, "nro_receta", None)) or "-"
             creado_en = self._scan_dt_from_name(frente_jpg) if frente_jpg else None
 
             receta = Recetas(
-                recepcion_id=int(recepcion_id),  # ✅ nueva recepción
+                recepcion_id=int(recepcion_id),
                 nro_receta=nro_receta,
                 ubicacion_frente=frente_jpg,
                 ubicacion_dorso=dorso_jpg,
