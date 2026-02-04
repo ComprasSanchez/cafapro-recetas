@@ -33,6 +33,7 @@ class AuditoriaTab(BaseTabWidget):
     COL_OFI = 6
     COL_ESTADO = 7
     COL_DEBITOS = 8
+    COL_ARCHIVOS = 9
 
     def __init__(self, parent=None, creado_por_usuario_id: int | None = None):
         super().__init__(parent)
@@ -231,12 +232,12 @@ class AuditoriaTab(BaseTabWidget):
         left_l.setContentsMargins(0, 0, 0, 0)
         left_l.setSpacing(0)
 
-        self.tbl = QTableWidget(0, 9)
+        self.tbl = QTableWidget(0, 10)
         self.tbl.setHorizontalHeaderLabels([
             "Receta", "Referencia", "Lote",
             "Receta OK", "Archivo OK",
             "Reconocido", "Oficial", "Estado",
-            "Débitos",
+            "Débitos", "Archivo"
         ])
         self.tbl.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tbl.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -268,6 +269,7 @@ class AuditoriaTab(BaseTabWidget):
 
         hh.resizeSection(self.COL_ESTADO, 80)
         hh.resizeSection(self.COL_DEBITOS, 80)
+        hh.setSectionResizeMode(self.COL_ARCHIVOS, QHeaderView.ResizeMode.ResizeToContents)
 
         self.tbl.itemClicked.connect(self._on_item_clicked)
         self.tbl.itemSelectionChanged.connect(self._on_selection_changed)
@@ -442,6 +444,7 @@ class AuditoriaTab(BaseTabWidget):
                 )
 
                 c0 = self.tbl.item(i, self.COL_RECETA)
+
                 if c0:
                     c0.setData(Qt.ItemDataRole.UserRole, asociacion_id)
                     c0.setData(Qt.ItemDataRole.UserRole + 1, frente_jpg)
@@ -456,6 +459,11 @@ class AuditoriaTab(BaseTabWidget):
                     self._set_bg(i, self.COL_RECON, Qt.GlobalColor.red)
                 else:
                     self._set_bg(i, self.COL_RECON, Qt.GlobalColor.green)
+
+                frente_path = (getattr(r, "frente_jpg", "") or "").strip()
+                nombre_archivo = Path(frente_path).name if frente_path else ""
+
+                self._set_item(i, self.COL_ARCHIVOS, nombre_archivo)
 
             self.tbl.setSortingEnabled(True)
 
