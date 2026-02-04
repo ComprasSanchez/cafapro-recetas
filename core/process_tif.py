@@ -62,7 +62,7 @@ class TiffZBarMaskedScanner:
         *,
         tile: int = 700,
         overlap: float = 0.40,
-        dup_dist_px: int = 220,
+        dup_dist_px: int = 240,
         allow_duplicates: bool = True,
         max_passes: int = 6,
         mask_pad: int = 18,
