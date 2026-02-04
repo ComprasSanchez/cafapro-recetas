@@ -168,12 +168,12 @@ class TiffService:
     # Main
     # -------------------------
     def procesar(
-        self,
-        s: Session,
-        recepcion_id: int,
-        usuario_id: int,  # Recetas.usuario_id es NOT NULL
-        items: List[ProcesarItemIn],
-        output_dir: str,
+            self,
+            s: Session,
+            recepcion_id: int,
+            usuario_id: int,  # Recetas.usuario_id es NOT NULL
+            items: List[ProcesarItemIn],
+            output_dir: str,
     ) -> ProcesarResumen:
         resumen = ProcesarResumen()
 
@@ -217,7 +217,7 @@ class TiffService:
         match = self._match_all_refs(s, refs=all_refs)
 
         # =========
-        # 3) Elegir 1 Archivo por TIFF
+        # 3) Elegir 1 Archivo por TIFF (match por referencia)
         # =========
         work: List[Tuple[int, ScanOut, str, str]] = []  # (archivo_id, scan, tiff_path, file_name)
 
@@ -371,32 +371,32 @@ class TiffService:
                     continue
                 counts[cod] = counts.get(cod, 0) + 1
 
-            if not counts:
-                resumen.sin_match += 1
-                continue
-
+            # ✅ IMPORTANTE:
+            # Si no hay troqueles detectados, NO es "sin_match" del archivo.
+            # El match del archivo ya fue por referencia (Archivo <-> TIFF).
             estado_por_codebar: Dict[str, EstadoTroquelEnum] = {}
             enrich_por_codebar: Dict[str, TroquelEnrichment] = {}
 
-            # 5.1) endpoint + estado (V/A/R)
-            for codebar in counts.keys():
-                enr = enrich_cache.get(codebar)
-                if enr is None:
-                    enr = self._enrich.enrich_by_codebar(codebar)
-                    enrich_cache[codebar] = enr
+            # 5.1) endpoint + estado (V/A/R) (solo si hay troqueles detectados)
+            if counts:
+                for codebar in counts.keys():
+                    enr = enrich_cache.get(codebar)
+                    if enr is None:
+                        enr = self._enrich.enrich_by_codebar(codebar)
+                        enrich_cache[codebar] = enr
 
-                enrich_por_codebar[codebar] = enr
+                    enrich_por_codebar[codebar] = enr
 
-                # Amarillo si el endpoint dice A
-                if enr.estado == EstadoTroquelEnum.A:
-                    estado_por_codebar[codebar] = EstadoTroquelEnum.A
-                    continue
+                    # Amarillo si el endpoint dice A
+                    if enr.estado == EstadoTroquelEnum.A:
+                        estado_por_codebar[codebar] = EstadoTroquelEnum.A
+                        continue
 
-                # Verde si code_alfabeta matchea con cod_medic, sino Rojo
-                ca = self._norm_str(enr.code_alfabeta)
-                estado_por_codebar[codebar] = (
-                    EstadoTroquelEnum.V if (ca and ca in cods_detalle) else EstadoTroquelEnum.R
-                )
+                    # Verde si code_alfabeta matchea con cod_medic, sino Rojo
+                    ca = self._norm_str(enr.code_alfabeta)
+                    estado_por_codebar[codebar] = (
+                        EstadoTroquelEnum.V if (ca and ca in cods_detalle) else EstadoTroquelEnum.R
+                    )
 
             # 5.2) render (usa SOLO detections del scan nuevo)
             try:
@@ -407,7 +407,7 @@ class TiffService:
                     tiff_path=tiff_path,
                     scan=scan,
                     output_dir=output_dir,
-                    estado_por_codebar=estado_render,
+                    estado_por_codebar=estado_render,  # puede ser {}
                 )
             except Exception as e:
                 resumen.errores.append(f"{file_name}: render error: {e}")
@@ -444,29 +444,30 @@ class TiffService:
                 )
             )
 
-            # 5.5) crear troqueles
-            for codebar, qty in counts.items():
-                enr = enrich_por_codebar[codebar]
-                estado = estado_por_codebar.get(codebar, EstadoTroquelEnum.A)
+            # 5.5) crear troqueles (solo si hubo detección)
+            if counts:
+                for codebar, qty in counts.items():
+                    enr = enrich_por_codebar[codebar]
+                    estado = estado_por_codebar.get(codebar, EstadoTroquelEnum.A)
 
-                # monto SOLO si estado es VERDE
-                monto = 0.0
-                if estado == EstadoTroquelEnum.V:
-                    ca = self._norm_str(enr.code_alfabeta)
-                    monto = float(importe_por_cod.get(ca, 0.0)) if ca else 0.0
+                    # monto SOLO si estado es VERDE
+                    monto = 0.0
+                    if estado == EstadoTroquelEnum.V:
+                        ca = self._norm_str(enr.code_alfabeta)
+                        monto = float(importe_por_cod.get(ca, 0.0)) if ca else 0.0
 
-                troqueles_to_add.append(
-                    Troqueles(
-                        receta_id=receta.receta_id,
-                        codigo_barra=codebar,
-                        droga=enr.droga_concat,
-                        presentacion=enr.presentacion,
-                        code_alfabeta=int(enr.code_alfabeta or 0),
-                        monto=monto,
-                        cantidad=qty,
-                        estado=estado,
+                    troqueles_to_add.append(
+                        Troqueles(
+                            receta_id=receta.receta_id,
+                            codigo_barra=codebar,
+                            droga=enr.droga_concat,
+                            presentacion=enr.presentacion,
+                            code_alfabeta=int(enr.code_alfabeta or 0),
+                            monto=monto,
+                            cantidad=qty,
+                            estado=estado,
+                        )
                     )
-                )
 
             resumen.ok += 1
 
