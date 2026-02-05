@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QSplitter,
     QLabel, QPushButton, QFrame, QScrollArea, QTableWidget,
     QTableWidgetItem, QHeaderView, QAbstractItemView, QMessageBox,
-    QWidget, QCheckBox, QInputDialog, QLineEdit
+    QWidget, QCheckBox, QInputDialog, QLineEdit, QMenu
 )
 
 from app.db.models import EstadoTroquelEnum
@@ -23,17 +23,10 @@ from ui.dialogs.estado_seguimeinto_pick_dialog import EstadoSeguimientoPickDialo
 from ui.label.image_view_label import ImageViewer
 from ui.label.clickable_label import ClickableLabel
 from ui.dialogs.vendedor_pick_dialog import VendedorPickDialog
+from ui.dialogs.troquel_dialog import TroquelDialog
 
 
 class AuditoriaVisualDialog(QDialog):
-    """
-    Dialog navegable:
-    - Se crea UNA vez
-    - Recibe asociacion_ids
-    - Finalizar guarda y pasa al siguiente SIN cerrar
-    - Al terminar la lista: accept()
-    """
-
     def __init__(
         self,
         asociacion_ids: list[int],
@@ -189,6 +182,8 @@ class AuditoriaVisualDialog(QDialog):
         left_l.addWidget(lb_t, 0)
 
         self.tbl_troqueles = QTableWidget()
+        self.tbl_troqueles.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.tbl_troqueles.customContextMenuRequested.connect(self._on_troqueles_context_menu)
         self.tbl_troqueles.setColumnCount(7)
         self.tbl_troqueles.setHorizontalHeaderLabels([
             "Código barra",      # 0
@@ -244,9 +239,6 @@ class AuditoriaVisualDialog(QDialog):
         hh.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         hh.setHighlightSections(False)
 
-    # -------------------------
-    # Debitos block
-    # -------------------------
     def _build_debitos_block(self) -> QFrame:
         box = QFrame()
         box.setObjectName("card")
@@ -548,12 +540,17 @@ class AuditoriaVisualDialog(QDialog):
             self._set_cell(self.tbl_troqueles, i, 5, self._fmt_money(Decimal(str(getattr(t, "monto", 0) or 0))))
             self._set_cell(self.tbl_troqueles, i, 6, str(estado))
 
+            troq_id = int(getattr(t, "troquel_id", 0) or 0)
+            it0 = self.tbl_troqueles.item(i, 0)
+            if it0 and troq_id:
+                it0.setData(Qt.ItemDataRole.UserRole, troq_id)
+
             color = None
             if estado == EstadoTroquelEnum.V:
                 color = QColor(17, 151, 59)
             elif estado == EstadoTroquelEnum.A:
                 color = QColor(228, 245, 44)
-            elif estado == "R":
+            elif estado == EstadoTroquelEnum.R:
                 color = QColor(165, 32, 25)
             if color is not None:
                 brush = QBrush(color)
@@ -821,3 +818,79 @@ class AuditoriaVisualDialog(QDialog):
             return datetime.strptime(s, "%d/%m/%Y").date()
         except ValueError:
             return None
+
+    def _on_troqueles_context_menu(self, pos) -> None:
+        if not self.data or not self.asociacion_id:
+            return
+
+        tbl = self.tbl_troqueles
+        row = tbl.rowAt(pos.y())
+
+        # si click derecho sobre fila, la seleccionamos
+        if row >= 0:
+            tbl.selectRow(row)
+
+        menu = QMenu(self)
+
+        act_add = menu.addAction("Agregar troquel…")
+        act_edit = menu.addAction("Editar cantidad…")
+        act_edit.setEnabled(row >= 0)
+
+        chosen = menu.exec(tbl.viewport().mapToGlobal(pos))
+        if not chosen:
+            return
+
+        if chosen == act_add:
+            self._ctx_add_troquel()
+        elif chosen == act_edit:
+            self._ctx_edit_troquel_qty()
+
+    def _ctx_add_troquel(self) -> None:
+        if not self.asociacion_id:
+            return
+
+        dlg = TroquelDialog(
+            mode="create",
+            asociacion_id=int(self.asociacion_id),
+            parent=self,
+        )
+        if dlg.exec() != dlg.DialogCode.Accepted:
+            return
+
+        # refrescar data
+        self._load()
+
+    def _ctx_edit_troquel_qty(self) -> None:
+        row = self.tbl_troqueles.currentRow()
+        if row < 0:
+            QMessageBox.information(self, "Sin selección", "Seleccioná un troquel para editar.")
+            return
+
+        it0 = self.tbl_troqueles.item(row, 0)
+        if not it0:
+            return
+
+        troquel_id = int(it0.data(Qt.ItemDataRole.UserRole) or 0)
+        if not troquel_id:
+            QMessageBox.warning(self, "Error", "No se pudo determinar troquel_id.")
+            return
+
+        codigo = (self.tbl_troqueles.item(row, 0).text() if self.tbl_troqueles.item(row, 0) else "").strip()
+        qty_txt = (self.tbl_troqueles.item(row, 2).text() if self.tbl_troqueles.item(row, 2) else "1").strip()
+
+        try:
+            qty = int(qty_txt)
+        except Exception:
+            qty = 1
+
+        dlg = TroquelDialog(
+            mode="update",
+            troquel_id=troquel_id,
+            codigo_barra=codigo,
+            cantidad=qty,
+            parent=self,
+        )
+        if dlg.exec() != dlg.DialogCode.Accepted:
+            return
+
+        self._load()

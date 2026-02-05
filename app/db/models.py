@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from enum import Enum as PyEnum
 import sqlalchemy as sa
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -310,7 +311,7 @@ class Troqueles(Base):
     droga: Mapped[str] = mapped_column(sa.String, nullable=True)
     presentacion: Mapped[str] = mapped_column(sa.String, nullable=True)
     code_alfabeta: Mapped[int] = mapped_column(sa.Integer, nullable=False)
-    monto: Mapped[sa.Numeric] = mapped_column(sa.Numeric(12, 2), nullable=False, server_default=sa.text("0"))
+    monto: Mapped[Decimal] = mapped_column(sa.Numeric(12, 2), nullable=False, server_default=sa.text("0"))
     cantidad: Mapped[int] = mapped_column(sa.Integer, nullable=False, server_default=sa.text("1"))
     estado: Mapped[EstadoTroquelEnum] = mapped_column(estado_troquel_enum, nullable=False)
 
