@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Set, Literal, cast
 
@@ -15,7 +15,7 @@ from app.db.models import (
     Recetas,
     Asociacion,
     Troqueles,
-    EstadoTroquelEnum,
+    EstadoTroquelEnum, Recepcion, Debitos,
 )
 from app.service.recetas.troquel_enrichment_service import TroquelEnrichmentService, TroquelEnrichment
 
@@ -115,6 +115,16 @@ class TiffService:
         return rid is not None
 
     @staticmethod
+    def _archivo_ts(a: Archivo) -> datetime:
+        # fecha y hora siempre vienen (según vos)
+        return datetime.combine(a.fecha, a.hora)
+
+    @staticmethod
+    def _esta_vencido(archivo_ts: datetime, fecha_presentacion: datetime) -> bool:
+        cutoff = fecha_presentacion - timedelta(days=60)
+        return archivo_ts < cutoff
+
+    @staticmethod
     def _match_all_refs(s: Session, refs: List[str]) -> _MatchResult:
         refs_norm = [str(r).strip() for r in refs if r and str(r).strip()]
         refs_set = set(refs_norm)
@@ -174,8 +184,14 @@ class TiffService:
             usuario_id: int,  # Recetas.usuario_id es NOT NULL
             items: List[ProcesarItemIn],
             output_dir: str,
-    ) -> ProcesarResumen:
+        ) -> ProcesarResumen:
         resumen = ProcesarResumen()
+        rec = (s.execute(select(Recepcion).where(Recepcion.recepcion_id == recepcion_id)).scalar_one_or_none())
+        if not rec:
+            raise RuntimeError(f"No existe la recepción {recepcion_id}")
+
+        fecha_presentacion = rec.fecha_presentacion
+        MOTIVO_DEBITO_VENCIDO_60_ID = 11
 
         # cache por corrida: codebar -> enrichment
         enrich_cache: Dict[str, TroquelEnrichment] = {}
@@ -323,6 +339,12 @@ class TiffService:
 
             ref = self._norm_str(getattr(archivo, "nro_referencia", None))
 
+            archivo_ts = self._archivo_ts(archivo)
+            esta_vencido = self._esta_vencido(archivo_ts, fecha_presentacion)
+
+            if getattr(archivo, "vencido", False) != esta_vencido:
+                archivo.vencido = esta_vencido
+
             # 5.0) versionado por ref si había vigente
             prev = vigente_por_ref.get(ref, []) if ref else []
             if prev:
@@ -444,6 +466,26 @@ class TiffService:
                 )
             )
 
+            debitos_to_add: List[Debitos] = []
+            if esta_vencido:
+                # evitar duplicado si el proceso corre dos veces
+                exists = (
+                    s.execute(
+                        select(Debitos.debito_id).where(
+                            Debitos.receta_id == receta.receta_id,
+                            Debitos.motivo_debito_id == MOTIVO_DEBITO_VENCIDO_60_ID,
+                        ).limit(1)
+                    ).scalar_one_or_none()
+                )
+                if exists is None:
+                    debitos_to_add.append(
+                        Debitos(
+                            receta_id=receta.receta_id,
+                            motivo_debito_id=MOTIVO_DEBITO_VENCIDO_60_ID,
+                            detalle="Vencido por 60 días (auto)",
+                        )
+                    )
+
             # 5.5) crear troqueles (solo si hubo detección)
             if counts:
                 for codebar, qty in counts.items():
@@ -468,6 +510,9 @@ class TiffService:
                             estado=estado,
                         )
                     )
+
+            if debitos_to_add:
+                s.add_all(debitos_to_add)
 
             resumen.ok += 1
 

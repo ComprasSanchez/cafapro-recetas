@@ -1,11 +1,13 @@
 from __future__ import annotations
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta, datetime
 from typing import Optional
-from sqlalchemy import select, func, distinct
+
+from sqlalchemy import select, func, distinct, update, and_
 from sqlalchemy.orm import Session
 
-from app.db.models import Recepcion, EstadoRecepcion, ObraSocial, Periodo, Prestador
+from app.db.models import Recepcion, EstadoRecepcion, ObraSocial, Periodo, Prestador, Archivo, Asociacion
+
 
 @dataclass(frozen=True)
 class RecepcionListItem:
@@ -180,15 +182,40 @@ class RecepcionService:
 
     @staticmethod
     def cerrar_recepcion(s: Session, recepcion_id: int) -> None:
-        """
-        Cambia estado_recepcion_id a 2 (CERRADO).
-        """
-        rec = s.execute(
-            select(Recepcion).where(Recepcion.recepcion_id == int(recepcion_id))
-        ).scalar_one_or_none()
-
+        rec = (
+            s.execute(select(Recepcion).where(Recepcion.recepcion_id == int(recepcion_id)))
+            .scalar_one_or_none()
+        )
         if not rec:
             raise RuntimeError(f"No existe la recepción {recepcion_id}")
+
+        cutoff = rec.fecha_presentacion - timedelta(days=60)
+
+        # Archivos de la recepción que NO tienen asociación vigente
+        archivos_sin_asoc = (
+            s.execute(
+                select(Archivo)
+                .outerjoin(
+                    Asociacion,
+                    and_(
+                        Asociacion.archivo_id == Archivo.archivo_id,
+                        Asociacion.vigente.is_(True),
+                    )
+                )
+                .where(
+                    Archivo.recepcion_id == int(recepcion_id),
+                    Asociacion.asociacion_id.is_(None),  # <- no hay vigente
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+        for a in archivos_sin_asoc:
+            # fecha y hora siempre vienen
+            archivo_ts = datetime.combine(a.fecha, a.hora)
+            if archivo_ts < cutoff:
+                a.vencido = True
 
         rec.estado_recepcion_id = 2
         s.flush()

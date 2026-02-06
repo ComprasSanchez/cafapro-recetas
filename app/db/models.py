@@ -194,8 +194,8 @@ class Archivo(Base):
     # --- Campos “IMED receta” lo más parecidos posible ---
     beneficiario: Mapped[str | None] = mapped_column(sa.String, nullable=False)
 
-    fecha: Mapped[sa.Date | None] = mapped_column(sa.Date, nullable=False)
-    hora: Mapped[sa.Time | None] = mapped_column(sa.Time, nullable=False)
+    fecha: Mapped[sa.Date] = mapped_column(sa.Date, nullable=False)
+    hora: Mapped[sa.Time] = mapped_column(sa.Time, nullable=False)
 
     nro_referencia: Mapped[str | None] = mapped_column(sa.String, nullable=False)
     nro_receta: Mapped[str | None] = mapped_column(sa.String, nullable=False)
@@ -221,6 +221,7 @@ class Archivo(Base):
     creado_en: Mapped[sa.DateTime] = mapped_column(
         sa.DateTime, nullable=False, server_default=sa.func.now()
     )
+    vencido: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, server_default=sa.false())
 
 
 class ArchivoDetalle(Base):
