@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from pathlib import Path
 from decimal import Decimal
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, QThreadPool
 from PySide6.QtGui import QPixmap, QColor, QBrush, QFont
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QSplitter,
@@ -24,6 +23,7 @@ from ui.label.image_view_label import ImageViewer
 from ui.label.clickable_label import ClickableLabel
 from ui.dialogs.vendedor_pick_dialog import VendedorPickDialog
 from ui.dialogs.troquel_dialog import TroquelDialog
+from ui.utils.worker import Worker
 
 
 class AuditoriaVisualDialog(QDialog):
@@ -35,7 +35,8 @@ class AuditoriaVisualDialog(QDialog):
         creado_por_usuario_id=None,
     ):
         super().__init__(parent)
-        self.showMaximized()
+        self._pool = QThreadPool.globalInstance()
+        self._preview_req_id = 0
 
         self.creado_por_usuario_id = creado_por_usuario_id
         self.data: AuditoriaVisualData | None = None
@@ -69,6 +70,7 @@ class AuditoriaVisualDialog(QDialog):
         root.setSpacing(10)
 
         root.addWidget(self._build_body(), 1)
+        self.showMaximized()
 
         if not self._asociacion_ids:
             QMessageBox.warning(self, "Sin registros", "No hay asociaciones para auditar.")
@@ -598,31 +600,108 @@ class AuditoriaVisualDialog(QDialog):
 
         self._refresh_motivos_catalogo()
 
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        # re-fit si ya hay imagen cargada
+        if self._last_preview_path and self.img_preview.pixmap() is not None:
+            QTimer.singleShot(0, lambda: self.img_preview.fit_to(self.scroll.viewport().size()))
+
     def _clear_preview(self, text: str) -> None:
-        self.img_preview.setPixmap(QPixmap())
+        self.img_preview.set_pixmap(None)
         self.img_preview.setText(text)
         self._last_preview_path = None
 
-    def _set_preview_and_fit(self, path: str) -> None:
-        p = Path(path)
-        if not p.exists():
-            self.img_preview.set_pixmap(None)
-            self.img_preview.setText(f"No existe: {p}")
-            self._last_preview_path = None
+    def _set_preview_and_fit(self, key_or_url: str) -> None:
+        from app.infra.storage_url import build_public_url
+
+        url = build_public_url(key_or_url)
+        if not url:
+            self._clear_preview("Sin imagen")
             return
 
-        pix = QPixmap(str(p))
-        if pix.isNull():
-            self.img_preview.set_pixmap(None)
-            self.img_preview.setText("No se pudo leer la imagen.")
-            self._last_preview_path = None
+        self._last_preview_path = url
+
+        # “token” para evitar que una respuesta vieja pise a la nueva
+        self._preview_req_id += 1
+        req_id = self._preview_req_id
+
+        self.img_preview.setText("Cargando…")
+        self.img_preview.set_pixmap(None)
+
+        vw = max(200, self.scroll.viewport().width() - 12)
+        vh = max(200, self.scroll.viewport().height() - 12)
+
+        w = Worker(self._load_preview_from_url, url=url, vw=vw, vh=vh, req_id=req_id)
+        w.signals.finished.connect(self._apply_preview_bytes)
+        w.signals.error.connect(self._ui_error_preview)
+        self._pool.start(w)
+
+    def _load_preview_from_url(self, *, url: str, vw: int, vh: int, req_id: int) -> dict:
+        import io
+        import httpx
+        from PIL import Image
+
+        r = httpx.get(url, timeout=10.0)
+        r.raise_for_status()
+
+        pil_img = Image.open(io.BytesIO(r.content)).convert("RGB")
+
+        vw = max(200, int(vw))
+        vh = max(200, int(vh))
+
+        scale = min(vw / pil_img.width, vh / pil_img.height)
+        scale = max(scale, 0.30)
+
+        new_w = int(pil_img.width * scale)
+        new_h = int(pil_img.height * scale)
+
+        pil_img = pil_img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+
+        buf = io.BytesIO()
+        pil_img.save(buf, format="PNG")
+
+        return {
+            "url": url,
+            "png_bytes": buf.getvalue(),
+            "w": new_w,
+            "h": new_h,
+            "req_id": req_id,
+        }
+
+    def _apply_preview_bytes(self, out: dict) -> None:
+        url = (out.get("url") or "").strip()
+        req_id = int(out.get("req_id") or 0)
+
+        # descartar si llegó tarde (click rápido / cambio de registro)
+        if req_id != self._preview_req_id:
+            return
+
+        if not url or (self._last_preview_path and self._last_preview_path != url):
+            return
+
+        png_bytes = out.get("png_bytes") or b""
+        if not png_bytes:
+            self._clear_preview("No se pudo cargar la imagen.")
+            return
+
+        pix = QPixmap()
+        ok = pix.loadFromData(png_bytes)
+        if not ok or pix.isNull():
+            self._clear_preview("No se pudo leer la imagen.")
             return
 
         self.img_preview.setText("")
         self.img_preview.set_pixmap(pix)
-        self._last_preview_path = str(p)
 
         QTimer.singleShot(0, lambda: self.img_preview.fit_to(self.scroll.viewport().size()))
+
+    def _ui_error_preview(self, err_text: str) -> None:
+        # si el error viene tarde, igual no pasa nada: mostramos algo genérico
+        lines = [l.strip() for l in (err_text or "").splitlines() if l.strip()]
+        nice = lines[-1] if lines else "Error cargando imagen."
+
+        self.img_preview.set_pixmap(None)
+        self.img_preview.setText(f"No se pudo cargar la imagen.\n{nice}")
 
     # -------------------------
     # Motivos

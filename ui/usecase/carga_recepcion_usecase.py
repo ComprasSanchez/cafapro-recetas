@@ -3,7 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from app.config.settings import settings
 from app.db.session import session_scope
+from app.infra.s3_storage import S3Storage, S3Cfg
 from app.service.recepcion.recepcion_service import RecepcionService
 from app.service.recetas.tif_service import ProcesarItemIn, TiffService
 from core.image_handler import ImageHandler
@@ -74,18 +76,27 @@ class CargaRecepcionUseCase:
         return ListImagesOut(rows=rows)
 
     @staticmethod
-    def procesar(*, recepcion_id: int, usuario_id: int, items: list[ProcesarItemIn], output_dir: str, ctx=None) -> ProcesarOut:
+    def procesar(*, recepcion_id: int, usuario_id: int, items: list[ProcesarItemIn], ctx=None) -> ProcesarOut:
         if ctx:
             ctx.emit_progress(5, "Procesando TIFFs…")
 
+        storage = S3Storage(
+            S3Cfg(
+                bucket=settings.S3_BUCKET,
+                region=settings.AWS_REGION,
+                access_key_id=settings.AWS_ACCESS_KEY_ID,
+                secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+                cache_control=settings.S3_CACHE_CONTROL,
+            )
+        )
+
         with session_scope() as s:
-            svc = TiffService()
+            svc = TiffService(storage=storage)
             resumen = svc.procesar(
                 s=s,
                 recepcion_id=recepcion_id,
                 usuario_id=usuario_id,
                 items=items,
-                output_dir=output_dir,
             )
 
         if ctx:

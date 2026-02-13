@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-
 from sqlalchemy import text
-
 from app.db.engine import engine
-from app.db.models import Base  # o app.db.base import Base
+from app.db.models import Base
 
 
 def _run_sql_file(path: Path) -> None:
@@ -17,28 +15,37 @@ def _run_sql_file(path: Path) -> None:
         print(f"SKIP: {path.name} vacío")
         return
 
+    # Intento simple de idempotencia para VIEWS / FUNCTIONS si tus .sql no traen OR REPLACE
+    normalized = sql.lstrip().upper()
+    if normalized.startswith("CREATE VIEW "):
+        sql = sql.replace("CREATE VIEW", "CREATE OR REPLACE VIEW", 1)
+    elif normalized.startswith("CREATE FUNCTION "):
+        sql = sql.replace("CREATE FUNCTION", "CREATE OR REPLACE FUNCTION", 1)
+
     with engine.begin() as conn:
         conn.execute(text(sql))
 
     print(f"OK: ejecutado {path.name}")
 
 
-def main():
+def main() -> None:
     print("DB:", engine.url)
 
-    # 1) Tablas
+    # OJO: create_all NO actualiza, solo crea lo que falta
     Base.metadata.create_all(bind=engine)
     print(f"OK: create_all() ejecutado. Tablas registradas: {len(Base.metadata.tables)}")
 
-    # 2) Vistas (desde .sql)
     scripts_dir = Path(__file__).resolve().parent
-    _run_sql_file(scripts_dir / "vista_auditoria.sql")
-    _run_sql_file(scripts_dir / "vista_debitos.sql")
-    _run_sql_file(scripts_dir / "vista_exluida.sql")
-    _run_sql_file(scripts_dir / "vista_resumen.sql")
-    _run_sql_file(scripts_dir / "funcion_arrastre.sql")
+    for name in [
+        "vista_auditoria.sql",
+        "vista_debitos.sql",
+        "vista_exluida.sql",
+        "vista_resumen.sql",
+        "funcion_arrastre.sql",
+    ]:
+        _run_sql_file(scripts_dir / name)
 
-    print("OK: DB inicializada (tablas + vistas).")
+    print("OK: DB inicializada (tablas + vistas/funciones).")
 
 
 if __name__ == "__main__":

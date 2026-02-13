@@ -335,14 +335,11 @@ class CargaRecepcionTab(BaseTabWidget):
             QMessageBox.warning(self, "Atención", "No hay rutas válidas para procesar.")
             return
 
-        output_dir = self.cfg.get_output_dir(self._recepcion_id)
-
         self.run_job(
             self._uc.procesar,
             recepcion_id=self._recepcion_id,
             usuario_id=self.creado_por_usuario_id,
             items=items,
-            output_dir=output_dir,
             title="Procesando…",
             on_result=self._show_procesar_result,
         )

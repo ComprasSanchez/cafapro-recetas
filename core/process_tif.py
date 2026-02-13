@@ -35,8 +35,9 @@ class TroquelDet(TypedDict):
 
 
 class FilesOut(TypedDict):
-    front_jpg: Optional[str]
-    back_jpg: Optional[str]
+    front_bytes: Optional[bytes]
+    back_bytes: Optional[bytes]
+
 
 
 @dataclass(frozen=True)
@@ -347,10 +348,11 @@ class TiffScanRenderer:
         rect_thickness: int = 2,
         font_scale: float = 0.6,
         font_thickness: int = 2,
-        color_header_bgr: Tuple[int, int, int] = (255, 0, 0),    # azul
-        color_v_bgr: Tuple[int, int, int] = (0, 181, 26),        # verde
-        color_a_bgr: Tuple[int, int, int] = (0, 255, 255),       # amarillo
-        color_r_bgr: Tuple[int, int, int] = (0, 0, 255),         # rojo
+        color_header_bgr: Tuple[int, int, int] = (255, 0, 0),
+        color_v_bgr: Tuple[int, int, int] = (0, 181, 26),
+        color_a_bgr: Tuple[int, int, int] = (0, 255, 255),
+        color_r_bgr: Tuple[int, int, int] = (0, 0, 255),
+        jpg_quality: int = 95,
     ) -> None:
         self.max_pages = int(max_pages)
         self.rect_thickness = int(rect_thickness)
@@ -362,27 +364,23 @@ class TiffScanRenderer:
         self.C_A = color_a_bgr
         self.C_R = color_r_bgr
 
-    def render(
+        self.jpg_quality = int(jpg_quality)
+
+    def render_bytes(
         self,
         tiff_path: str,
         scan: ScanOut,
         *,
-        output_dir: Optional[str],
         estado_por_codebar: Optional[Dict[str, TroquelEstado]] = None,
         estado_resolver: Optional[Callable[[str], TroquelEstado]] = None,
         draw_headers: bool = True,
         draw_troqueles: bool = True,
-        suffix_front: str = "_f.jpg",
-        suffix_back: str = "_d.jpg",
         pages_loader: Optional[Callable[[str], List[np.ndarray]]] = None,
     ) -> FilesOut:
-        if output_dir:
-            os.makedirs(output_dir, exist_ok=True)
-
         loader = pages_loader or TiffZBarMaskedScanner.load_pages_bgr
         pages = loader(tiff_path)
 
-        files: FilesOut = {"front_jpg": None, "back_jpg": None}
+        out: FilesOut = {"front_bytes": None, "back_bytes": None}
 
         def get_estado(codebar: str) -> TroquelEstado:
             if estado_por_codebar and codebar in estado_por_codebar:
@@ -401,7 +399,6 @@ class TiffScanRenderer:
                     x, y, w, h = d["bbox"]
                     val = d["value"]
                     typ = d["type"]
-
                     cv2.rectangle(canvas, (x, y), (x + w, y + h), self.C_HEADER, self.rect_thickness)
                     yy = y - 10 if y > 20 else y + h + 20
                     cv2.putText(
@@ -420,7 +417,6 @@ class TiffScanRenderer:
                         continue
                     x, y, w, h = d["bbox"]
                     val = d["value"]
-
                     estado = get_estado(val)
                     color = self.C_V if estado == "V" else (self.C_R if estado == "R" else self.C_A)
 
@@ -436,24 +432,17 @@ class TiffScanRenderer:
                         self.font_thickness,
                     )
 
-            suffix = suffix_front if page_idx == 0 else suffix_back
-            out_name = scan.base_name + suffix
-            out_path = os.path.join(output_dir, out_name) if output_dir else out_name
-
-            ok = cv2.imwrite(out_path, canvas)
+            ok, buf = cv2.imencode(".jpg", canvas, [int(cv2.IMWRITE_JPEG_QUALITY), self.jpg_quality])
             if not ok:
-                if page_idx == 0:
-                    files["front_jpg"] = None
-                else:
-                    files["back_jpg"] = None
                 continue
 
             if page_idx == 0:
-                files["front_jpg"] = out_path
+                out["front_bytes"] = buf.tobytes()
             else:
-                files["back_jpg"] = out_path
+                out["back_bytes"] = buf.tobytes()
 
-        return files
+        return out
+
 
 
 # ============================================================
@@ -493,21 +482,19 @@ class TiffProcessor:
     def scan(self, tiff_path: str) -> ScanOut:
         return self._scanner.process(tiff_path)
 
-    def render(
+    def render_bytes(
         self,
         *,
         tiff_path: str,
         scan: ScanOut,
-        output_dir: Optional[str],
         estado_por_codebar: Optional[Dict[str, TroquelEstado]] = None,
         estado_resolver: Optional[Callable[[str], TroquelEstado]] = None,
         draw_headers: bool = True,
         draw_troqueles: bool = True,
     ) -> FilesOut:
-        return self._renderer.render(
+        return self._renderer.render_bytes(
             tiff_path=tiff_path,
             scan=scan,
-            output_dir=output_dir,
             estado_por_codebar=estado_por_codebar,
             estado_resolver=estado_resolver,
             draw_headers=draw_headers,

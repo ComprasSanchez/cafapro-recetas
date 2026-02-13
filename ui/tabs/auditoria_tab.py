@@ -505,15 +505,19 @@ class AuditoriaTab(BaseTabWidget):
         if not c0:
             return
 
-        frente_jpg = (c0.data(Qt.ItemDataRole.UserRole + 1) or "").strip()
-        if not frente_jpg:
+        raw = (c0.data(Qt.ItemDataRole.UserRole + 1) or "").strip()
+        if not raw:
             self._clear_preview()
             self._last_preview_path = None
             self._sync_visual_button_state()
             return
 
-        self._last_preview_path = frente_jpg
-        self._load_preview_async(frente_jpg)
+        src = self._uc.resolve_preview_src(raw)
+
+        self._last_preview_path = src
+
+        self._load_preview_async(src)
+
         self._sync_visual_button_state()
 
     def _load_preview_async(self, path: str) -> None:
@@ -534,7 +538,7 @@ class AuditoriaTab(BaseTabWidget):
         )
 
     def _apply_preview_bytes(self, out: PreviewBytesOut) -> None:
-        if self._last_preview_path and Path(self._last_preview_path) != Path(out.path):
+        if self._last_preview_path and (self._last_preview_path != out.path):
             return
 
         img = out.img_bytes
