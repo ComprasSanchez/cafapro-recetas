@@ -3,39 +3,124 @@ from __future__ import annotations
 from datetime import date
 
 from PySide6.QtCore import Qt, QDate, Signal, QRect
-from PySide6.QtGui import (
-    QPainter, QPen, QColor,
-    QTextCharFormat, QBrush
-)
+from PySide6.QtGui import QPainter, QPen, QColor, QTextCharFormat, QBrush
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout,
-    QLabel, QPushButton, QCalendarWidget
+    QLabel, QPushButton, QCalendarWidget, QWidget
 )
 
 
-def to_qdate(d: date) -> QDate:
-    return QDate(d.year, d.month, d.day)
+MESES_ES = {
+    1: "Enero",
+    2: "Febrero",
+    3: "Marzo",
+    4: "Abril",
+    5: "Mayo",
+    6: "Junio",
+    7: "Julio",
+    8: "Agosto",
+    9: "Septiembre",
+    10: "Octubre",
+    11: "Noviembre",
+    12: "Diciembre",
+}
+
+
+def _add_months(anchor: QDate, delta_months: int) -> QDate:
+    d = QDate(anchor.year(), anchor.month(), 1)
+    return d.addMonths(delta_months)
+
+
+def _month_title_es(qd_first_day: QDate) -> str:
+    return f"{MESES_ES.get(qd_first_day.month(), str(qd_first_day.month()))} {qd_first_day.year()}"
 
 
 class BorderCalendar(QCalendarWidget):
     """
-    Calendario que:
-    - deja que Qt pinte los fondos (setDateTextFormat)
-    - agrega BORDE SOLO al día de HOY
+    Calendario fijo:
+    - Qt pinta fondos (setDateTextFormat)
+    - Borde SOLO al día de hoy
+    - Navegación bloqueada (sin barra, sin wheel, sin teclas)
+    - Días fuera del mes: tachados + “gris” y no seleccionables
     """
     def __init__(self, parent=None):
         super().__init__(parent)
+
         self._today = QDate.currentDate()
         self._pen_today = QPen(QColor(30, 160, 30))
         self._pen_today.setWidth(2)
+
+        # mes “lockeado” (se setea en lock_to_month)
+        self._locked_year = self._today.year()
+        self._locked_month = self._today.month()
+
+        # Bloquear UI default
+        self.setNavigationBarVisible(False)
+        self.setGridVisible(True)
+        self.setNavigationBarVisible(False)
+        self.setVerticalHeaderFormat(QCalendarWidget.VerticalHeaderFormat.NoVerticalHeader)
+        self.setHorizontalHeaderFormat(QCalendarWidget.HorizontalHeaderFormat.ShortDayNames)
 
     def refresh_today(self) -> None:
         self._today = QDate.currentDate()
         self.updateCells()
 
+    def lock_to_month(self, first_day_of_month: QDate) -> None:
+        """Fija el calendario a ese mes y deshabilita seleccionar días fuera del mes."""
+        y = first_day_of_month.year()
+        m = first_day_of_month.month()
+
+        # lock interno
+        self._locked_year = y
+        self._locked_month = m
+
+        # fija la página
+        self.setCurrentPage(y, m)
+
+        # rango: solo ese mes (esto evita clicks fuera del mes)
+        last_day = QDate(y, m, QDate(y, m, 1).daysInMonth())
+        self.setMinimumDate(first_day_of_month)
+        self.setMaximumDate(last_day)
+
+        # selección por defecto
+        self.setSelectedDate(first_day_of_month)
+
+    # ---- bloquear navegación ----
+    def wheelEvent(self, e):
+        e.ignore()
+        return
+
+    def keyPressEvent(self, e):
+        if e.key() in (
+            Qt.Key.Key_PageUp,
+            Qt.Key.Key_PageDown,
+            Qt.Key.Key_Home,
+            Qt.Key.Key_End,
+        ):
+            e.ignore()
+            return
+        super().keyPressEvent(e)
+
+    def mouseDoubleClickEvent(self, e):
+        e.ignore()
+        return
+
     def paintCell(self, painter: QPainter, rect: QRect, qdate: QDate) -> None:
         super().paintCell(painter, rect, qdate)
 
+        # Días fuera del mes lockeado: tachado + gris
+        if qdate.year() != self._locked_year or qdate.month() != self._locked_month:
+            painter.save()
+            painter.setPen(QPen(QColor(150, 150, 150)))
+
+            # tachado diagonal
+            r = rect.adjusted(4, 4, -4, -4)
+            painter.drawLine(r.topLeft(), r.bottomRight())
+
+            painter.restore()
+            return  # no dibujar borde de HOY acá
+
+        # Borde SOLO al día de hoy (si pertenece al mes)
         if qdate == self._today:
             painter.save()
             painter.setPen(self._pen_today)
@@ -47,9 +132,11 @@ class BorderCalendar(QCalendarWidget):
 
 class DiasDescargadosDialog(QDialog):
     """
-    - Fondo verde: días descargados (fechas_descargadas)
-    - Borde: día de hoy (aunque no esté descargado)
-    - Click en día: emite dateSelected(date) y cierra
+    3 meses fijo en horizontal:
+    ORDEN (izq->der): mes actual | mes -1 | mes -2
+    - Fondo verde: días descargados
+    - Borde: hoy
+    - Click día: emite dateSelected(date) y cierra
     """
     dateSelected = Signal(object)  # date
 
@@ -59,18 +146,22 @@ class DiasDescargadosDialog(QDialog):
         self._fechas = set(fechas_descargadas)
 
         self.setWindowTitle(f"Días descargados - Recepción {self.recepcion_id}")
-        self.setMinimumSize(520, 420)
+        self.setMinimumSize(980, 460)
         self.setModal(True)
 
         # formatos
         self._fmt_clear = QTextCharFormat()
 
         self._fmt_ok = QTextCharFormat()
-        self._fmt_ok.setBackground(QBrush(QColor(190, 245, 190)))  # fondo verde suave
+        self._fmt_ok.setBackground(QBrush(QColor(190, 245, 190)))
         self._fmt_ok.setToolTip("Descargado")
 
+        # Anchor = mes actual (1er día)
+        a = QDate.currentDate()
+        self._anchor = QDate(a.year(), a.month(), 1)
+
         self._build_ui()
-        self._apply_data()
+        self._apply_three_months()
 
     def _build_ui(self):
         root = QVBoxLayout(self)
@@ -88,50 +179,80 @@ class DiasDescargadosDialog(QDialog):
         top.addWidget(self.btn_close, 0)
         root.addLayout(top)
 
-        self.cal = BorderCalendar()
-        self.cal.setGridVisible(True)
-        self.cal.setVerticalHeaderFormat(QCalendarWidget.VerticalHeaderFormat.NoVerticalHeader)
-        self.cal.clicked.connect(self._on_clicked_day)
+        # Contenedor horizontal (3 columnas)
+        row = QHBoxLayout()
+        row.setSpacing(12)
 
-        # si cambiás de mes, re-aplicamos formatos (porque solo limpiamos el mes visible)
-        self.cal.currentPageChanged.connect(self._render_visible_month)
+        self.w_curr = self._make_month_column()  # mes actual
+        self.w_m1 = self._make_month_column()    # mes -1
+        self.w_m2 = self._make_month_column()    # mes -2
 
-        root.addWidget(self.cal, 1)
+        # ORDEN: actual | -1 | -2
+        row.addWidget(self.w_curr, 1)
+        row.addWidget(self.w_m1, 1)
+        row.addWidget(self.w_m2, 1)
 
-    def _apply_data(self):
+        root.addLayout(row, 1)
+
+    def _make_month_column(self) -> QWidget:
+        w = QWidget()
+        lay = QVBoxLayout(w)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(6)
+
+        title = QLabel("")
+        title.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+        title.setStyleSheet("font-weight: 600;")
+
+        cal = BorderCalendar()
+        cal.clicked.connect(self._on_clicked_day)
+
+        lay.addWidget(title, 0)
+        lay.addWidget(cal, 1)
+
+        w._title = title  # type: ignore[attr-defined]
+        w._cal = cal      # type: ignore[attr-defined]
+        return w
+
+    def _apply_three_months(self) -> None:
         self.lb_info.setText(f"Días descargados: {len(self._fechas)}")
 
-        # ir al primer día descargado
-        if self._fechas:
-            self.cal.showSelectedDate()
+        d_curr = _add_months(self._anchor, 0)    # actual
+        d_m1 = _add_months(self._anchor, -1)     # -1
+        d_m2 = _add_months(self._anchor, -2)     # -2
 
-        self._render_visible_month()
-        self.cal.refresh_today()
+        self._set_month(self.w_curr, d_curr)
+        self._set_month(self.w_m1, d_m1)
+        self._set_month(self.w_m2, d_m2)
 
-    def _render_visible_month(self):
-        """
-        Limpia y aplica formatos SOLO para el mes visible.
-        (Es rápido y no rompe otros meses.)
-        """
-        year = self.cal.yearShown()
-        month = self.cal.monthShown()
+        # borde hoy (en los 3)
+        self.w_curr._cal.refresh_today()  # type: ignore[attr-defined]
+        self.w_m1._cal.refresh_today()    # type: ignore[attr-defined]
+        self.w_m2._cal.refresh_today()    # type: ignore[attr-defined]
 
+    def _set_month(self, col: QWidget, first_day: QDate) -> None:
+        title: QLabel = col._title  # type: ignore[attr-defined]
+        cal: BorderCalendar = col._cal  # type: ignore[attr-defined]
+
+        title.setText(_month_title_es(first_day))
+        cal.lock_to_month(first_day)
+        self._render_month(cal, first_day)
+
+    def _render_month(self, cal: BorderCalendar, month_first_day: QDate) -> None:
+        year = month_first_day.year()
+        month = month_first_day.month()
         days = QDate(year, month, 1).daysInMonth()
 
-        # limpiar mes visible
+        # limpiar mes
         for d in range(1, days + 1):
-            self.cal.setDateTextFormat(QDate(year, month, d), self._fmt_clear)
+            cal.setDateTextFormat(QDate(year, month, d), self._fmt_clear)
 
-        # aplicar fondo verde a los descargados dentro del mes visible
+        # aplicar descargados
         for fd in self._fechas:
             if fd.year == year and fd.month == month:
-                self.cal.setDateTextFormat(QDate(fd.year, fd.month, fd.day), self._fmt_ok)
-
-        # repintar borde de hoy
-        self.cal.refresh_today()
+                cal.setDateTextFormat(QDate(fd.year, fd.month, fd.day), self._fmt_ok)
 
     def _on_clicked_day(self, qd: QDate):
         d = date(qd.year(), qd.month(), qd.day())
         self.dateSelected.emit(d)
         self.accept()
-
