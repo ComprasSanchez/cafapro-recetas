@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Set, Literal, cast
 import os
+import numpy as np
 
 from sqlalchemy import select, update, or_, and_
 from sqlalchemy.orm import Session
@@ -25,7 +26,6 @@ from app.infra.s3_storage import S3Storage
 
 from app.service.integraciones.medicamento_client import MedicamentoClient
 from app.dto.medicamentos_dto import MedicamentoDTO
-
 
 
 @dataclass(frozen=True)
@@ -189,6 +189,7 @@ class TiffService:
             items: List[ProcesarItemIn],
     ) -> ProcesarResumen:
         resumen = ProcesarResumen()
+        med_cache: Dict[str, Optional[MedicamentoDTO]] = {}
 
         # -----------------------------------------
         # 0) Cargar recepción + prestador.imed
@@ -230,13 +231,13 @@ class TiffService:
         # -----------------------------------------
         # 2) Scan TIFF (headers + troqueles + detections)
         # -----------------------------------------
-        scanned: List[Tuple[ProcesarItemIn, ScanOut]] = []
+        scanned: List[Tuple[ProcesarItemIn, ScanOut, List[np.ndarray]]] = []
         all_refs: List[str] = []
 
         for it in items_filtrados:
             try:
-                scan = self._tif.scan(it.full_path)
-                scanned.append((it, scan))
+                scan, pages = self._tif.scan_with_pages(it.full_path)
+                scanned.append((it, scan, pages))
                 all_refs.extend(scan.headers or [])
             except Exception as e:
                 resumen.errores.append(f"{it.file_name}: scan error: {e}")
@@ -252,9 +253,9 @@ class TiffService:
         # -----------------------------------------
         # 4) Elegir 1 Archivo por TIFF (por ref)
         # -----------------------------------------
-        work: List[Tuple[int, ScanOut, str, str]] = []  # (archivo_id, scan, tiff_path, file_name)
+        work: List[Tuple[int, ScanOut, List[np.ndarray], str, str]] = []
 
-        for it, scan in scanned:
+        for it, scan, pages  in scanned:
             refs = [self._norm_str(x) for x in (scan.headers or []) if self._norm_str(x)]
 
             if not refs:
@@ -277,12 +278,12 @@ class TiffService:
                 resumen.sin_match += 1
                 continue
 
-            work.append((archivo.archivo_id, scan, it.full_path, it.file_name))
+            work.append((archivo.archivo_id, scan, pages, it.full_path, it.file_name))
 
         if not work:
             return resumen
 
-        archivo_ids = [aid for aid, _, _, _ in work]
+        archivo_ids = [w[0] for w in work]
 
         # -----------------------------------------
         # 5) Garantía: Archivos de la corrida asignados a recepción actual
@@ -348,7 +349,7 @@ class TiffService:
         asoc_to_add: List[Asociacion] = []
         refs_desactivados: Set[str] = set()
 
-        for archivo_id, scan, tiff_path, file_name in work:
+        for archivo_id, scan, pages, tiff_path, file_name in work:
             archivo = archivo_by_id.get(archivo_id)
             if not archivo:
                 resumen.errores.append(f"{file_name}: archivo_id {archivo_id} no existe en DB")
@@ -421,7 +422,11 @@ class TiffService:
 
             if counts:
                 for codebar in counts.keys():
-                    dto = self._client.get_by_codebar(codebar)  # 404 => None
+                    if codebar in med_cache:
+                        dto = med_cache[codebar]
+                    else:
+                        dto = self._client.get_by_codebar(codebar)  # 404 => None
+                        med_cache[codebar] = dto
 
                     if dto is None:
                         estado_por_codebar[codebar] = EstadoTroquelEnum.A
@@ -445,7 +450,8 @@ class TiffService:
                 files = self._tif.render_bytes(
                     tiff_path=tiff_path,
                     scan=scan,
-                    estado_por_codebar=estado_render,  # puede ser {}
+                    pages=pages,
+                    estado_por_codebar=estado_render,
                 )
             except Exception as e:
                 resumen.errores.append(f"{file_name}: render error: {e}")

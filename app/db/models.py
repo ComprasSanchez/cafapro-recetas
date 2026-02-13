@@ -100,9 +100,6 @@ class EstadoRecepcion(Base):
     estado_recepcion_id: Mapped[int] = mapped_column(sa.Integer, sa.Identity(), primary_key=True)
     descripcion: Mapped[str] = mapped_column(sa.String, nullable=False)
 
-# =========================
-# PLAN (obra_social + periodo)
-# =========================
 class Plan(Base):
     __tablename__ = "plan"
     __table_args__ = (sa.UniqueConstraint("obra_social_id", "nombre", "codigo", name="uq_plan_obra"),)
@@ -116,9 +113,7 @@ class Plan(Base):
     creado_en: Mapped[sa.DateTime] = mapped_column(sa.DateTime, nullable=False, server_default=sa.func.now())
 
 
-# =========================
-# USUARIOS
-# =========================
+
 class Roles(Base):
     __tablename__ = "roles"
 
@@ -319,9 +314,6 @@ class Troqueles(Base):
     creado_en: Mapped[sa.DateTime] = mapped_column(sa.DateTime, nullable=False, server_default=sa.func.now())
 
 
-# =========================
-# DEBITOS + MOTIVOS
-# =========================
 class MotivoDebito(Base):
     __tablename__ = "motivo_debito"
 

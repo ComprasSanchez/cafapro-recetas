@@ -124,6 +124,42 @@ class TiffZBarMaskedScanner:
             troquel_detections=troquel_dets,
         )
 
+    def process_pages(self, pages: List[np.ndarray], base_name: str) -> ScanOut:
+        all_headers: List[str] = []
+        all_troqueles: List[str] = []
+        header_dets: List[HeaderDet] = []
+        troquel_dets: List[TroquelDet] = []
+
+        for page_idx, page_bgr in enumerate(pages[: self.max_pages]):
+            h_vals, h_dets = self._scan_page_full_only_headers(
+                page_bgr,
+                page_idx=page_idx,
+                header_types=self.header_types,
+            )
+            all_headers.extend(h_vals)
+            header_dets.extend(h_dets)
+
+            t_vals, t_dets = self._scan_page_masked_only_troqueles(
+                page_bgr,
+                page_idx=page_idx,
+                tile=self.tile,
+                overlap=self.overlap,
+                dup_dist_px=self.dup_dist_px,
+                allow_duplicates=self.allow_duplicates,
+                max_passes=self.max_passes,
+                mask_pad=self.mask_pad,
+            )
+            all_troqueles.extend(t_vals)
+            troquel_dets.extend(t_dets)
+
+        return ScanOut(
+            base_name=base_name,
+            headers=all_headers,
+            troqueles=all_troqueles,
+            header_detections=header_dets,
+            troquel_detections=troquel_dets,
+        )
+
     # ---------- IO ----------
     @staticmethod
     def load_pages_bgr(tiff_path: str) -> List[np.ndarray]:
@@ -170,14 +206,30 @@ class TiffZBarMaskedScanner:
 
     # ---------- Decode ----------
     @staticmethod
-    def _decode_zbar(gray: np.ndarray) -> List[Tuple[str, str, BBox]]:
+    def _decode_headers(gray: np.ndarray) -> List[Tuple[str, str, BBox]]:
+        barcodes = zbar_decode(
+            gray,
+            symbols=[
+                ZBarSymbol.CODE128,
+                ZBarSymbol.CODE39,
+            ],
+        )
+        out: List[Tuple[str, str, BBox]] = []
+        for b in barcodes:
+            value = (b.data.decode("utf-8") or "").strip()
+            btype = (b.type or "").strip()
+            x, y, w, h = b.rect
+            if value and w > 0 and h > 0:
+                out.append((btype, value, (int(x), int(y), int(w), int(h))))
+        return out
+
+    @staticmethod
+    def _decode_troqueles(gray: np.ndarray) -> List[Tuple[str, str, BBox]]:
         barcodes = zbar_decode(
             gray,
             symbols=[
                 ZBarSymbol.EAN13,
-                ZBarSymbol.EAN8,
-                ZBarSymbol.CODE128,
-                ZBarSymbol.CODE39,
+                # ZBarSymbol.EAN8,  # solo si realmente lo usás
             ],
         )
         out: List[Tuple[str, str, BBox]] = []
@@ -264,7 +316,7 @@ class TiffZBarMaskedScanner:
                 if roi.size == 0:
                     continue
 
-                hits = cls._decode_zbar(roi)
+                hits = cls._decode_troqueles(roi)
                 if not hits:
                     continue
 
@@ -319,7 +371,7 @@ class TiffZBarMaskedScanner:
         header_dets: List[HeaderDet] = []
 
         gray0 = cv2.cvtColor(page_bgr, cv2.COLOR_BGR2GRAY)
-        full_hits = cls._decode_zbar(gray0)
+        full_hits = cls._decode_headers(gray0)
 
         for btype, value, bb in full_hits:
             if btype in header_types:
@@ -352,7 +404,7 @@ class TiffScanRenderer:
         color_v_bgr: Tuple[int, int, int] = (0, 181, 26),
         color_a_bgr: Tuple[int, int, int] = (0, 255, 255),
         color_r_bgr: Tuple[int, int, int] = (0, 0, 255),
-        jpg_quality: int = 95,
+        jpg_quality: int = 85,
     ) -> None:
         self.max_pages = int(max_pages)
         self.rect_thickness = int(rect_thickness)
@@ -376,9 +428,11 @@ class TiffScanRenderer:
         draw_headers: bool = True,
         draw_troqueles: bool = True,
         pages_loader: Optional[Callable[[str], List[np.ndarray]]] = None,
+        pages: Optional[List[np.ndarray]] = None,
     ) -> FilesOut:
-        loader = pages_loader or TiffZBarMaskedScanner.load_pages_bgr
-        pages = loader(tiff_path)
+        if pages is None:
+            loader = pages_loader or TiffZBarMaskedScanner.load_pages_bgr
+            pages = loader(tiff_path)
 
         out: FilesOut = {"front_bytes": None, "back_bytes": None}
 
@@ -491,6 +545,7 @@ class TiffProcessor:
         estado_resolver: Optional[Callable[[str], TroquelEstado]] = None,
         draw_headers: bool = True,
         draw_troqueles: bool = True,
+        pages: Optional[List[np.ndarray]] = None,
     ) -> FilesOut:
         return self._renderer.render_bytes(
             tiff_path=tiff_path,
@@ -500,5 +555,13 @@ class TiffProcessor:
             draw_headers=draw_headers,
             draw_troqueles=draw_troqueles,
             pages_loader=TiffZBarMaskedScanner.load_pages_bgr,
+            pages=pages,
         )
+
+    def scan_with_pages(self, tiff_path: str) -> tuple[ScanOut, List[np.ndarray]]:
+        pages = TiffZBarMaskedScanner.load_pages_bgr(tiff_path)
+        base = os.path.splitext(os.path.basename(tiff_path))[0]
+        scan = self._scanner.process_pages(pages, base_name=base)
+        return scan, pages
+
 
