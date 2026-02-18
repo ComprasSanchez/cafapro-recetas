@@ -123,7 +123,7 @@ class AuditoriaUseCase:
             # si no hay base, devolvemos el key tal cual (y va a fallar más claro)
             return v
 
-        key = quote(v.lstrip("/"))
+        key = quote(v.lstrip("/"), safe="/")
         return f"https://{base}/{key}"
 
     @staticmethod

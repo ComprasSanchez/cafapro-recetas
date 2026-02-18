@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Set, Literal, cast
+from typing import Dict, List, Optional, Tuple, Set, Literal
+from collections import Counter
 import os
-import numpy as np
 
+import numpy as np
 from sqlalchemy import select, update, or_, and_
 from sqlalchemy.orm import Session
 
@@ -23,7 +25,6 @@ from app.db.models import (
     Prestador,
 )
 from app.infra.s3_storage import S3Storage
-
 from app.service.integraciones.medicamento_client import MedicamentoClient
 from app.dto.medicamentos_dto import MedicamentoDTO
 
@@ -152,10 +153,6 @@ class TiffService:
         return _MatchResult(ref_to_archivo=ref_to_archivo, duplicated_refs=duplicated, missing_refs=missing)
 
     @staticmethod
-    def _obs_slug_from_nombre(nombre: str) -> str:
-        return (nombre or "").strip().lower()
-
-    @staticmethod
     def _year_month_from_basename_or_fallback(base_name: str, archivo: Archivo, tif_path: str) -> tuple[str, str]:
         # base_name: "pami_20260202155525044" o "apross_123456"
         part = base_name.split("_", 1)[1] if "_" in base_name else base_name
@@ -182,11 +179,11 @@ class TiffService:
         )
 
     def procesar(
-            self,
-            s: Session,
-            recepcion_id: int,
-            usuario_id: int,
-            items: List[ProcesarItemIn],
+        self,
+        s: Session,
+        recepcion_id: int,
+        usuario_id: int,
+        items: List[ProcesarItemIn],
     ) -> ProcesarResumen:
         resumen = ProcesarResumen()
         med_cache: Dict[str, Optional[MedicamentoDTO]] = {}
@@ -255,7 +252,7 @@ class TiffService:
         # -----------------------------------------
         work: List[Tuple[int, ScanOut, List[np.ndarray], str, str]] = []
 
-        for it, scan, pages  in scanned:
+        for it, scan, pages in scanned:
             refs = [self._norm_str(x) for x in (scan.headers or []) if self._norm_str(x)]
 
             if not refs:
@@ -389,39 +386,45 @@ class TiffService:
             dets = detalles_by_archivo.get(archivo_id, [])
 
             # -------------------------
-            # cods_detalle + importe_por_cod
+            # cods_detalle + importe_por_cod + cant_por_cod
             # -------------------------
             importe_por_cod: Dict[str, float] = {}
             cods_detalle: Set[str] = set()
+            cant_por_cod: Dict[str, int] = {}
 
             for d in dets:
                 ca = self._norm_str(getattr(d, "cod_medic", None))
                 if not ca:
                     continue
+
                 cods_detalle.add(ca)
+
+                # importes
                 importe_por_cod[ca] = importe_por_cod.get(ca, 0.0) + float(getattr(d, "importe_obs", 0) or 0)
 
-            # -------------------------
-            # counts por codebar (EAN13)
-            # -------------------------
-            counts: Dict[str, int] = {}
-            for cod in (scan.troqueles or []):
-                cod = self._norm_str(cod)
-                if not cod:
-                    continue
-                counts[cod] = counts.get(cod, 0) + 1
+                # cantidades esperadas (sumo por cod_medic)
+                cant_por_cod[ca] = cant_por_cod.get(ca, 0) + int(getattr(d, "cantidad", 0) or 0)
 
             # -------------------------
-            # A/V/R (sin cache): consulto directo a la API
-            # A = 404 (dto None)
-            # V = dto existe y code_alfabeta coincide con cod_medic
-            # R = dto existe y NO coincide
+            # counts por codebar (EAN13) (scan)
             # -------------------------
-            estado_por_codebar: Dict[str, EstadoTroquelEnum] = {}
+            counts: Dict[str, int] = dict(
+                Counter(self._norm_str(c) for c in (scan.troqueles or []) if self._norm_str(c))
+            )
+
+            # -------------------------
+            # Estados:
+            # - UI/Render: V si matchea, independientemente de cantidad
+            # - DB:        V si matchea y cantidad ok; R si matchea pero cantidad NO ok
+            # - A: API 404
+            # - R: API ok pero no matchea
+            # -------------------------
+            estado_db_por_codebar: Dict[str, EstadoTroquelEnum] = {}
+            estado_render_por_codebar: Dict[str, Literal["V", "A", "R"]] = {}
             dto_por_codebar: Dict[str, MedicamentoDTO] = {}
 
             if counts:
-                for codebar in counts.keys():
+                for codebar, qty_scan in counts.items():
                     if codebar in med_cache:
                         dto = med_cache[codebar]
                     else:
@@ -429,29 +432,41 @@ class TiffService:
                         med_cache[codebar] = dto
 
                     if dto is None:
-                        estado_por_codebar[codebar] = EstadoTroquelEnum.A
+                        estado_db_por_codebar[codebar] = EstadoTroquelEnum.A
+                        estado_render_por_codebar[codebar] = "A"
                         continue
 
                     dto_por_codebar[codebar] = dto
 
                     ca = str(dto.code_alfabeta or "").strip()
-                    if ca and ca in cods_detalle:
-                        estado_por_codebar[codebar] = EstadoTroquelEnum.V
+                    match_detalle = bool(ca) and (ca in cods_detalle)
+
+                    if not match_detalle:
+                        # no matchea => rojo en UI y en DB
+                        estado_db_por_codebar[codebar] = EstadoTroquelEnum.R
+                        estado_render_por_codebar[codebar] = "R"
+                        continue
+
+                    # matchea => verde SIEMPRE en UI
+                    estado_render_por_codebar[codebar] = "V"
+
+                    # DB: solo R si cantidad no coincide
+                    qty_det = int(cant_por_cod.get(ca, 0))
+                    if qty_det != int(qty_scan):
+                        estado_db_por_codebar[codebar] = EstadoTroquelEnum.R
                     else:
-                        estado_por_codebar[codebar] = EstadoTroquelEnum.R
+                        estado_db_por_codebar[codebar] = EstadoTroquelEnum.V
 
             # -------------------------
             # Render a BYTES (sin disco)
+            #   OJO: render usa estado_render_por_codebar (color UI)
             # -------------------------
             try:
-                estado_render: Dict[str, Literal["V", "A", "R"]] = {
-                    k: cast(Literal["V", "A", "R"], v.value) for k, v in estado_por_codebar.items()
-                }
                 files = self._tif.render_bytes(
                     tiff_path=tiff_path,
                     scan=scan,
                     pages=pages,
-                    estado_por_codebar=estado_render,
+                    estado_por_codebar=estado_render_por_codebar,
                 )
             except Exception as e:
                 resumen.errores.append(f"{file_name}: render error: {e}")
@@ -536,10 +551,10 @@ class TiffService:
                         )
                     )
 
-            # troqueles (usa dto_por_codebar + estado_por_codebar)
+            # troqueles (usa dto_por_codebar + estado_db_por_codebar)
             if counts:
                 for codebar, qty in counts.items():
-                    estado = estado_por_codebar.get(codebar, EstadoTroquelEnum.A)
+                    estado = estado_db_por_codebar.get(codebar, EstadoTroquelEnum.A)
                     dto = dto_por_codebar.get(codebar)  # None si A
 
                     droga_concat = dto.drogas_concat if dto else None
@@ -557,8 +572,8 @@ class TiffService:
                             droga=droga_concat,
                             presentacion=presentacion,
                             code_alfabeta=code_alfabeta,
-                            monto=monto,
-                            cantidad=qty,
+                            monto= Decimal(monto),
+                            cantidad=int(qty),
                             estado=estado,
                         )
                     )
@@ -571,4 +586,3 @@ class TiffService:
             s.add_all(troqueles_to_add)
 
         return resumen
-

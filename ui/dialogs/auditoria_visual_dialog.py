@@ -613,15 +613,15 @@ class AuditoriaVisualDialog(QDialog):
         self.img_preview.setText(text)
         self._last_preview_path = None
 
-    def _set_preview_and_fit(self, key_or_url: str) -> None:
-        url = AuditoriaUseCase.resolve_preview_src(key_or_url)
-        if not url:
+    def _set_preview_and_fit(self, key_or_path: str) -> None:
+        raw = (key_or_path or "").strip()
+        if not raw:
             self._clear_preview("Sin imagen")
             return
 
-        self._last_preview_path = url
+        # guardo "raw" como referencia (no URL final)
+        self._last_preview_path = raw
 
-        # “token” para evitar que una respuesta vieja pise a la nueva
         self._preview_req_id += 1
         req_id = self._preview_req_id
 
@@ -631,52 +631,29 @@ class AuditoriaVisualDialog(QDialog):
         vw = max(200, self.scroll.viewport().width() - 12)
         vh = max(200, self.scroll.viewport().height() - 12)
 
-        w = Worker(self._load_preview_from_url, url=url, vw=vw, vh=vh, req_id=req_id)
+        w = Worker(self._load_preview_via_usecase, raw=raw, vw=vw, vh=vh, req_id=req_id)
         w.signals.finished.connect(self._apply_preview_bytes)
         w.signals.error.connect(self._ui_error_preview)
         self._pool.start(w)
 
-    def _load_preview_from_url(self, *, url: str, vw: int, vh: int, req_id: int) -> dict:
-        import io
-        import httpx
-        from PIL import Image
-
-        r = httpx.get(url, timeout=10.0)
-        r.raise_for_status()
-
-        pil_img = Image.open(io.BytesIO(r.content)).convert("RGB")
-
-        vw = max(200, int(vw))
-        vh = max(200, int(vh))
-
-        scale = min(vw / pil_img.width, vh / pil_img.height)
-        scale = max(scale, 0.30)
-
-        new_w = int(pil_img.width * scale)
-        new_h = int(pil_img.height * scale)
-
-        pil_img = pil_img.resize((new_w, new_h), Image.Resampling.LANCZOS)
-
-        buf = io.BytesIO()
-        pil_img.save(buf, format="PNG")
-
+    def _load_preview_via_usecase(self, *, raw: str, vw: int, vh: int, req_id: int) -> dict:
+        out = AuditoriaUseCase.load_preview_bytes(path=raw, vw=vw, vh=vh)
         return {
-            "url": url,
-            "png_bytes": buf.getvalue(),
-            "w": new_w,
-            "h": new_h,
+            "path": out.path,  # url o path final resuelto
+            "png_bytes": out.img_bytes,
+            "w": out.w,
+            "h": out.h,
             "req_id": req_id,
+            "raw": raw,
         }
 
     def _apply_preview_bytes(self, out: dict) -> None:
-        url = (out.get("url") or "").strip()
         req_id = int(out.get("req_id") or 0)
+        raw = (out.get("raw") or "").strip()
 
-        # descartar si llegó tarde (click rápido / cambio de registro)
         if req_id != self._preview_req_id:
             return
-
-        if not url or (self._last_preview_path and self._last_preview_path != url):
+        if self._last_preview_path and self._last_preview_path != raw:
             return
 
         png_bytes = out.get("png_bytes") or b""
@@ -692,7 +669,6 @@ class AuditoriaVisualDialog(QDialog):
 
         self.img_preview.setText("")
         self.img_preview.set_pixmap(pix)
-
         QTimer.singleShot(0, lambda: self.img_preview.fit_to(self.scroll.viewport().size()))
 
     def _ui_error_preview(self, err_text: str) -> None:
