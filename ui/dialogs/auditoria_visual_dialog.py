@@ -25,6 +25,8 @@ from ui.dialogs.vendedor_pick_dialog import VendedorPickDialog
 from ui.dialogs.troquel_dialog import TroquelDialog
 from ui.utils.worker import Worker
 
+from ui.usecase.auditoria_usecase import AuditoriaUseCase
+
 
 class AuditoriaVisualDialog(QDialog):
     def __init__(
@@ -612,9 +614,7 @@ class AuditoriaVisualDialog(QDialog):
         self._last_preview_path = None
 
     def _set_preview_and_fit(self, key_or_url: str) -> None:
-        from app.infra.storage_url import build_public_url
-
-        url = build_public_url(key_or_url)
+        url = AuditoriaUseCase.resolve_preview_src(key_or_url)
         if not url:
             self._clear_preview("Sin imagen")
             return
