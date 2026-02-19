@@ -58,6 +58,13 @@ class AuditoriaVisualDialog(QDialog):
         # ✅ DebitoRow YA TIENE motivo_debito_id
         self._selected_debitos: dict[int, str | None] = {}
 
+        self._preview_cache: dict[tuple[str, int, int], bytes] = {}
+        self._motivos_cache: dict[str, list] = {}
+
+        self._resize_timer = QTimer(self)
+        self._resize_timer.setSingleShot(True)
+        self._resize_timer.timeout.connect(self._refit_preview)
+
         self.setWindowTitle("Auditoría Visual")
         self.setModal(True)
         self.setWindowFlags(
@@ -520,7 +527,6 @@ class AuditoriaVisualDialog(QDialog):
         self.in_venta.setText(fv.strftime("%d/%m/%Y") if fv else "")
 
         self.lb_big.setText(str(getattr(self.data.archivo, "orden_lote", "") or "—"))
-
         self.lb_autorizacion.setText(str(getattr(self.data.archivo, "fecha", "") or "—"))
 
         self.lb_a_cargo.setText(self._fmt_money(a_cargo))
@@ -604,9 +610,12 @@ class AuditoriaVisualDialog(QDialog):
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
-        # re-fit si ya hay imagen cargada
+        # PERF: debounce
+        self._resize_timer.start(120)
+
+    def _refit_preview(self) -> None:
         if self._last_preview_path and self.img_preview.pixmap() is not None:
-            QTimer.singleShot(0, lambda: self.img_preview.fit_to(self.scroll.viewport().size()))
+            self.img_preview.fit_to(self.scroll.viewport().size())
 
     def _clear_preview(self, text: str) -> None:
         self.img_preview.set_pixmap(None)
@@ -622,14 +631,26 @@ class AuditoriaVisualDialog(QDialog):
         # guardo "raw" como referencia (no URL final)
         self._last_preview_path = raw
 
+        vw = max(200, self.scroll.viewport().width() - 12)
+        vh = max(200, self.scroll.viewport().height() - 12)
+
+        # PERF: cache instantáneo
+        cache_key = (raw, vw, vh)
+        if cache_key in self._preview_cache:
+            png_bytes = self._preview_cache[cache_key]
+            pix = QPixmap()
+            ok = pix.loadFromData(png_bytes)
+            if ok and not pix.isNull():
+                self.img_preview.setText("")
+                self.img_preview.set_pixmap(pix)
+                QTimer.singleShot(0, lambda: self.img_preview.fit_to(self.scroll.viewport().size()))
+                return
+
         self._preview_req_id += 1
         req_id = self._preview_req_id
 
         self.img_preview.setText("Cargando…")
         self.img_preview.set_pixmap(None)
-
-        vw = max(200, self.scroll.viewport().width() - 12)
-        vh = max(200, self.scroll.viewport().height() - 12)
 
         w = Worker(self._load_preview_via_usecase, raw=raw, vw=vw, vh=vh, req_id=req_id)
         w.signals.finished.connect(self._apply_preview_bytes)
@@ -637,7 +658,23 @@ class AuditoriaVisualDialog(QDialog):
         self._pool.start(w)
 
     def _load_preview_via_usecase(self, *, raw: str, vw: int, vh: int, req_id: int) -> dict:
+        # PERF: cache en worker también (por si llega repetido)
+        key = (raw, vw, vh)
+        if key in self._preview_cache:
+            return {
+                "path": raw,
+                "png_bytes": self._preview_cache[key],
+                "w": vw,
+                "h": vh,
+                "req_id": req_id,
+                "raw": raw,
+            }
+
         out = AuditoriaUseCase.load_preview_bytes(path=raw, vw=vw, vh=vh)
+
+        if out.img_bytes:
+            self._preview_cache[key] = out.img_bytes
+
         return {
             "path": out.path,  # url o path final resuelto
             "png_bytes": out.img_bytes,
@@ -661,6 +698,11 @@ class AuditoriaVisualDialog(QDialog):
             self._clear_preview("No se pudo cargar la imagen.")
             return
 
+        # PERF: asegurar cache del tamaño actual
+        vw = max(200, self.scroll.viewport().width() - 12)
+        vh = max(200, self.scroll.viewport().height() - 12)
+        self._preview_cache[(raw, vw, vh)] = png_bytes
+
         pix = QPixmap()
         ok = pix.loadFromData(png_bytes)
         if not ok or pix.isNull():
@@ -672,7 +714,6 @@ class AuditoriaVisualDialog(QDialog):
         QTimer.singleShot(0, lambda: self.img_preview.fit_to(self.scroll.viewport().size()))
 
     def _ui_error_preview(self, err_text: str) -> None:
-        # si el error viene tarde, igual no pasa nada: mostramos algo genérico
         lines = [l.strip() for l in (err_text or "").splitlines() if l.strip()]
         nice = lines[-1] if lines else "Error cargando imagen."
 
@@ -682,12 +723,19 @@ class AuditoriaVisualDialog(QDialog):
     # -------------------------
     # Motivos
     # -------------------------
+    def _get_motivos(self, lado: str):
+        if lado in self._motivos_cache:
+            return self._motivos_cache[lado]
+        with session_scope() as s:
+            ms = MotivosDebitosService.list_motivos(s, lado)
+        self._motivos_cache[lado] = ms
+        return ms
+
     def _refresh_motivos_catalogo(self) -> None:
         if not self.data:
             return
 
-        with session_scope() as s:
-            motivos = MotivosDebitosService.list_motivos(s, self._current_lado)
+        motivos = self._get_motivos(self._current_lado)
 
         while self.motivos_layout.count() > 1:
             item = self.motivos_layout.takeAt(0)
@@ -794,10 +842,10 @@ class AuditoriaVisualDialog(QDialog):
             QMessageBox.critical(self, "Error", "No se pudo determinar receta_id.")
             return
 
-        # ✅ NO hacemos vendedor obligatorio (queda como venías)
-
+        # ✅ Emisión NO obligatoria
         fecha_emision = self._parse_ddmmyyyy(self.in_emision.text())
 
+        # ✅ Venta sigue obligatoria
         fecha_venta = self._parse_ddmmyyyy(self.in_venta.text())
         if not fecha_venta:
             QMessageBox.warning(self, "Falta fecha", "Tenés que cargar la fecha de Venta (dd/MM/yyyy).")
@@ -839,7 +887,6 @@ class AuditoriaVisualDialog(QDialog):
                     usuario_id=self.creado_por_usuario_id,
                 )
 
-            # ✅ en vez de accept(), pasa al siguiente
             self._next()
 
         except Exception as e:
@@ -878,7 +925,6 @@ class AuditoriaVisualDialog(QDialog):
         tbl = self.tbl_troqueles
         row = tbl.rowAt(pos.y())
 
-        # si click derecho sobre fila, la seleccionamos
         if row >= 0:
             tbl.selectRow(row)
 
@@ -909,7 +955,6 @@ class AuditoriaVisualDialog(QDialog):
         if dlg.exec() != dlg.DialogCode.Accepted:
             return
 
-        # refrescar data
         self._load()
 
     def _ctx_edit_troquel_qty(self) -> None:

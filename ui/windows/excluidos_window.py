@@ -3,6 +3,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTableWidget, QTableWidgetItem, QMessageBox, QHeaderView
@@ -61,10 +62,18 @@ class ExcluidosWindow(QDialog):
 
         # Actions
         actions = QHBoxLayout()
+
+        self.btn_copy = QPushButton("Copiar tabla")
+        self.btn_copy.setEnabled(False)
+        self.btn_copy.clicked.connect(self._copy_table_to_clipboard)
+        actions.addWidget(self.btn_copy)
+
         actions.addStretch(1)
+
         btn_close = QPushButton("Cerrar")
         btn_close.clicked.connect(self.reject)
         actions.addWidget(btn_close)
+
         root.addLayout(actions)
 
     def _pick_recepcion(self) -> None:
@@ -107,8 +116,40 @@ class ExcluidosWindow(QDialog):
             imp_obs = Decimal(str(getattr(r, "importe_obs", 0) or 0))
             a_cargo = Decimal(str(getattr(r, "a_cargo_entidad", 0) or 0))
 
-            self._set(i, 4, f"{imp_obs:.2f}", align_center=True)
-            self._set(i, 5, f"{a_cargo:.2f}", align_center=True)
+            self._set(i, 4, self._fmt_ar(imp_obs), align_center=True)
+            self._set(i, 5, self._fmt_ar(a_cargo), align_center=True)
+
+        self.btn_copy.setEnabled(self.table.rowCount() > 0)
+
+    def _copy_table_to_clipboard(self) -> None:
+        # Formato: TAB separated (ideal para pegar en Excel/Sheets)
+        # Encabezados pedidos (sin "Etiqueta")
+        headers = ["Nº Referencia", "Nº Receta", "Fecha", "Hora", "Neto"]
+
+        lines: list[str] = []
+        lines.append("\t".join(headers))
+
+        # Tomamos: ref(0) receta(1) fecha(2) hora(3) neto(4)
+        for r in range(self.table.rowCount()):
+            ref = self._item_text(r, 0)
+            rec = self._item_text(r, 1)
+            fecha = self._item_text(r, 2)
+            hora = self._item_text(r, 3)
+            neto = self._item_text(r, 4)
+            lines.append("\t".join([ref, rec, fecha, hora, neto]))
+
+        QGuiApplication.clipboard().setText("\n".join(lines))
+        QMessageBox.information(self, "Copiado", "La tabla se copió al portapapeles.")
+
+    def _item_text(self, row: int, col: int) -> str:
+        it = self.table.item(row, col)
+        return (it.text() if it else "").strip()
+
+    @staticmethod
+    def _fmt_ar(v: Decimal) -> str:
+        # 69671,08 (coma decimal) como en tu ejemplo
+        s = f"{Decimal(v):.2f}"
+        return s.replace(".", ",")
 
     def _set(self, row: int, col: int, text: str, align_center: bool = False) -> None:
         it = QTableWidgetItem(text)
@@ -117,4 +158,3 @@ class ExcluidosWindow(QDialog):
             | Qt.AlignmentFlag.AlignVCenter
         )
         self.table.setItem(row, col, it)
-
