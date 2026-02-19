@@ -797,9 +797,6 @@ class AuditoriaVisualDialog(QDialog):
         # ✅ NO hacemos vendedor obligatorio (queda como venías)
 
         fecha_emision = self._parse_ddmmyyyy(self.in_emision.text())
-        if not fecha_emision:
-            QMessageBox.warning(self, "Falta fecha", "Tenés que cargar la fecha de Emisión (dd/MM/yyyy).")
-            return
 
         fecha_venta = self._parse_ddmmyyyy(self.in_venta.text())
         if not fecha_venta:
