@@ -85,7 +85,7 @@ class VwArchivosExcluidos(Base):
 
 
 class VwResumenRecepcionPrestador(Base):
-    __tablename__ = "vw_resumen_recepcion_prestador"
+    __tablename__ = "vw_resumen_recepcion"
 
     # PK lógica (vista)
     recepcion_id: Mapped[int] = mapped_column(sa.Integer, primary_key=True)
