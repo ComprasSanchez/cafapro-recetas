@@ -247,7 +247,7 @@ class ArchivoCvsTab(BaseTabWidget):
         if dlg.exec() != dlg.DialogCode.Accepted:
             return
 
-        rid = dlg.selected_recepcion_id()
+        rid = dlg.selected()[0]
         if not rid:
             return
 

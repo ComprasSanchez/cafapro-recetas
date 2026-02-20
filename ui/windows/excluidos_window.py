@@ -81,12 +81,12 @@ class ExcluidosWindow(QDialog):
         if dlg.exec() != dlg.DialogCode.Accepted:
             return
 
-        rid = dlg.selected_recepcion_id()
+        rid, numero = dlg.selected()
         if not rid:
             return
 
         self._recepcion_id = int(rid)
-        self.lb_recepcion.setText(f"Recepción: {self._recepcion_id}")
+        self.lb_recepcion.setText(f"Recepción: {numero}")
         self.btn_reload.setEnabled(True)
 
         self._load()

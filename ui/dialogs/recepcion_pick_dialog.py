@@ -15,7 +15,7 @@ class RecepcionPickDialog(QDialog):
 
     def __init__(self, parent=None, all: bool = True):
         super().__init__(parent)
-        self.all = all  # ✅ guarda el flag
+        self.all = all
         self.setWindowTitle("Elegir recepción")
         self.setMinimumSize(950, 500)
 
@@ -58,12 +58,12 @@ class RecepcionPickDialog(QDialog):
         self._load()
 
     def _update_ok(self):
-        self.btn_ok.setEnabled(self.selected_recepcion_id() is not None)
+        self.btn_ok.setEnabled(self.selected() is not None)
 
     def _load(self):
         try:
             with session_scope() as s:
-                rows = RecepcionService.list(s, all=self.all)  # ✅ pasa el flag
+                rows = RecepcionService.list(s, all=self.all)
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudieron cargar recepciones:\n{e}")
             return
@@ -74,7 +74,7 @@ class RecepcionPickDialog(QDialog):
             self.table.insertRow(i)
 
             it_num = QTableWidgetItem(str(r.numero))
-            it_num.setData(Qt.UserRole, r.recepcion_id)
+            it_num.setData(Qt.UserRole, r.recepcion_id)  # guarda el id acá
             it_num.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(i, 0, it_num)
 
@@ -85,13 +85,22 @@ class RecepcionPickDialog(QDialog):
 
         self._update_ok()
 
-    def selected_recepcion_id(self) -> int | None:
+    def selected(self) -> tuple[int, str] | None:
+        """
+        Devuelve (recepcion_id, numero_texto_de_la_primera_columna)
+        Ej: (123, "115")
+        """
         row = self.table.currentRow()
         if row < 0:
             return None
-        it = self.table.item(row, 0)
+
+        it = self.table.item(row, 0)  # primera columna: "Número"
         if not it:
             return None
-        rid = it.data(Qt.UserRole)
-        return int(rid) if rid is not None else None
 
+        rid = it.data(Qt.UserRole)
+        if rid is None:
+            return None
+
+        numero = it.text()  # valor visible en la primera columna
+        return int(rid), numero
