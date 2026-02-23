@@ -283,6 +283,7 @@ class ArchivoCvsTab(BaseTabWidget):
     def _on_cargar(self) -> None:
         imed = self.in_imed.text().strip()
         fecha = self.de_fecha.date().toString("dd/MM/yyyy")
+        obs = self.in_obra.text().strip()
 
         if not imed:
             QMessageBox.warning(self, "Atención", "Primero seleccioná una recepción (para tener IMED).")
@@ -292,6 +293,7 @@ class ArchivoCvsTab(BaseTabWidget):
             self._uc.load_csv,
             imed=imed,
             fecha_str=fecha,
+            obs=obs,
             title="Cargando CSV…",
             on_result=self._apply_csv,
         )

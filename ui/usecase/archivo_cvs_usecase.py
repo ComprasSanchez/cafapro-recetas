@@ -75,11 +75,11 @@ class ArchivoCvsUseCase:
             obs=str(getattr(rec, "obra_social", "") or ""),
         )
 
-    def load_csv(self, *, imed: str, fecha_str: str, ctx=None) -> CsvOut:
+    def load_csv(self, *, imed: str, fecha_str: str, obs: str,ctx=None) -> CsvOut:
         if ctx:
             ctx.emit_progress(10, "Leyendo CSV IMED…")
 
-        recetas, detalles = self._cvs.read_cvs_by_imed_and_date(imed=imed, date=fecha_str)
+        recetas, detalles = self._cvs.read_cvs_by_imed_and_date(imed=imed, date=fecha_str, obs=obs)
         recetas = recetas or {}
         detalles = detalles or {}
 

@@ -169,9 +169,12 @@ class ImedCvsHandler:
     # -------------------------
     # Paths
     # -------------------------
-    def get_path_cvs(self, imed: str, date: str) -> Path:
+    def get_path_cvs(self, imed: str, date: str, obs: str) -> Path:
         yyyymmdd = self._yyyymmdd_from_date(date)
-        filename = f"a_{imed.strip()}_{yyyymmdd}.csv"
+
+        prefix = self._prefix_by_obs(obs)
+
+        filename = f"{prefix}{imed.strip()}_{yyyymmdd}.csv"
         path = (self.imed_folder / filename).resolve()
 
         if not path.exists():
@@ -182,8 +185,8 @@ class ImedCvsHandler:
     # -------------------------
     # Lectura CSV
     # -------------------------
-    def read_cvs_by_imed_and_date(self, imed: str, date: str) -> Tuple[RecetasPorRef, DetallesPorRef]:
-        path = self.get_path_cvs(imed, date)
+    def read_cvs_by_imed_and_date(self, imed: str, date: str, obs: str) -> Tuple[RecetasPorRef, DetallesPorRef]:
+        path = self.get_path_cvs(imed, date, obs)
         return self.read_cvs(path)
 
     def read_cvs(self, path: str | Path) -> Tuple[RecetasPorRef, DetallesPorRef]:
@@ -290,3 +293,13 @@ class ImedCvsHandler:
 
             d = parse_detalle_row(fila)
             out[current_ref].append(d)
+
+    @staticmethod
+    def _prefix_by_obs(obs: str) -> str:
+        o = (obs or "").strip().upper()
+
+        # contemplá variantes comunes
+        if o == "APROSS":
+            return "aa_"
+        # default PAMI
+        return "a_"
