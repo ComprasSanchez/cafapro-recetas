@@ -110,18 +110,22 @@ class TiffService:
         return Path(full_path).stem  # "pami_20260202155525044"
 
     @staticmethod
-    def _match_all_refs(s: Session, refs: List[str]) -> _MatchResult:
-        refs_norm = [str(r).strip() for r in refs if r and str(r).strip()]
-        refs_set = set(refs_norm)
+    def _match_all_refs(s: Session, recepcion_id: int, refs: List[str]) -> _MatchResult:
+        # 1) normalizar tokens
+        refs_set: Set[str] = {str(r).strip() for r in refs if r and str(r).strip()}
         if not refs_set:
             return _MatchResult(ref_to_archivo={}, duplicated_refs=set(), missing_refs=set())
 
+        # 2) query SOLO dentro de la recepción
         rows = (
             s.execute(
                 select(Archivo).where(
-                    or_(
-                        Archivo.nro_referencia.in_(list(refs_set)),
-                        Archivo.nro_receta.in_(list(refs_set)),
+                    and_(
+                        Archivo.recepcion_id == int(recepcion_id),
+                        or_(
+                            Archivo.nro_referencia.in_(list(refs_set)),
+                            Archivo.nro_receta.in_(list(refs_set)),
+                        ),
                     )
                 )
             )
@@ -129,10 +133,12 @@ class TiffService:
             .all()
         )
 
+        # 3) indexar por token (ref o receta)
         by_token: Dict[str, List[Archivo]] = {}
         for a in rows:
-            nro_ref = str(getattr(a, "nro_referencia", "") or "").strip()
-            nro_rec = str(getattr(a, "nro_receta", "") or "").strip()
+            nro_ref = (getattr(a, "nro_referencia", "") or "").strip()
+            nro_rec = (getattr(a, "nro_receta", "") or "").strip()
+
             if nro_ref and nro_ref in refs_set:
                 by_token.setdefault(nro_ref, []).append(a)
             if nro_rec and nro_rec in refs_set:
@@ -145,10 +151,10 @@ class TiffService:
         for tok in refs_set:
             if tok in duplicated:
                 ref_to_archivo[tok] = None
-            elif tok in by_token:
-                ref_to_archivo[tok] = by_token[tok][0]
             else:
-                ref_to_archivo[tok] = None
+                # único o inexistente
+                arr = by_token.get(tok)
+                ref_to_archivo[tok] = arr[0] if arr else None
 
         return _MatchResult(ref_to_archivo=ref_to_archivo, duplicated_refs=duplicated, missing_refs=missing)
 
@@ -245,7 +251,7 @@ class TiffService:
         # -----------------------------------------
         # 3) Match masivo por referencias (headers)
         # -----------------------------------------
-        match = self._match_all_refs(s, refs=all_refs)
+        match = self._match_all_refs(s, recepcion_id, all_refs)
 
         # -----------------------------------------
         # 4) Elegir 1 Archivo por TIFF (por ref)
@@ -283,16 +289,6 @@ class TiffService:
         archivo_ids = [w[0] for w in work]
 
         # -----------------------------------------
-        # 5) Garantía: Archivos de la corrida asignados a recepción actual
-        # -----------------------------------------
-        s.execute(
-            update(Archivo)
-            .where(Archivo.archivo_id.in_(archivo_ids))
-            .values(recepcion_id=int(recepcion_id))
-        )
-        s.flush()
-
-        # -----------------------------------------
         # 6) Bulk load Archivos + Detalles
         # -----------------------------------------
         archivos = (
@@ -312,47 +308,40 @@ class TiffService:
             detalles_by_archivo.setdefault(d.archivo_id, []).append(d)
 
         # -----------------------------------------
-        # 7) Asociaciones vigentes por nro_referencia (bulk)
+        # 7) Asociaciones vigentes por recepción (bulk, sin IN por refs)
         # -----------------------------------------
-        refs_set: Set[str] = set()
-        for aid in archivo_ids:
-            ar = archivo_by_id.get(aid)
-            ref = self._norm_str(getattr(ar, "nro_referencia", None))
-            if ref:
-                refs_set.add(ref)
-
-        vigente_por_ref: Dict[str, List[Tuple[int, int]]] = {}  # ref -> [(asoc_id, receta_id)]
-        if refs_set:
-            rows = (
-                s.execute(
-                    select(Asociacion.asociacion_id, Asociacion.receta_id, Archivo.nro_referencia)
-                    .join(Archivo, Archivo.archivo_id == Asociacion.archivo_id)
-                    .where(
-                        Asociacion.vigente.is_(True),
-                        Archivo.nro_referencia.in_(list(refs_set)),
-                    )
+        rows_prev = (
+            s.execute(
+                select(Asociacion.asociacion_id, Asociacion.receta_id, Asociacion.archivo_id)
+                .join(Archivo, Archivo.archivo_id == Asociacion.archivo_id)
+                .where(
+                    Asociacion.vigente.is_(True),
+                    Archivo.recepcion_id == int(recepcion_id),
                 )
-                .all()
             )
-            for asoc_id, receta_id, nro_ref in rows:
-                ref = self._norm_str(nro_ref)
-                if ref:
-                    vigente_por_ref.setdefault(ref, []).append((int(asoc_id), int(receta_id)))
+            .all()
+        )
+
+        # archivo_id -> [(asoc_id, receta_id)]
+        vigente_por_archivo: Dict[int, List[Tuple[int, int]]] = {}
+        for asoc_id, receta_id, archivo_id in rows_prev:
+            vigente_por_archivo.setdefault(int(archivo_id), []).append((int(asoc_id), int(receta_id)))
 
         # -----------------------------------------
         # 8) Persistencia
         # -----------------------------------------
         troqueles_to_add: List[Troqueles] = []
         asoc_to_add: List[Asociacion] = []
-        refs_desactivados: Set[str] = set()
+        recetas_vencidas: List[int] = []
 
+        asoc_ids_to_disable: Set[int] = set()
+        receta_ids_to_disable: Set[int] = set()
         for archivo_id, scan, pages, tiff_path, file_name in work:
             archivo = archivo_by_id.get(archivo_id)
             if not archivo:
                 resumen.errores.append(f"{file_name}: archivo_id {archivo_id} no existe en DB")
                 continue
 
-            ref = self._norm_str(getattr(archivo, "nro_referencia", None))
 
             # vencido
             archivo_ts = self._archivo_ts(archivo)
@@ -361,27 +350,12 @@ class TiffService:
             if getattr(archivo, "vencido", False) != esta_vencido:
                 archivo.vencido = esta_vencido
 
-            # versionado por ref
-            prev = vigente_por_ref.get(ref, []) if ref else []
+            prev = vigente_por_archivo.get(int(archivo_id), [])
             if prev:
                 resumen.ya_asociado += 1
-                if ref and ref not in refs_desactivados:
-                    refs_desactivados.add(ref)
-
-                    asoc_ids = [a_id for a_id, _ in prev]
-                    receta_ids = [r_id for _, r_id in prev]
-
-                    s.execute(
-                        update(Asociacion)
-                        .where(Asociacion.asociacion_id.in_(asoc_ids))
-                        .values(vigente=False)
-                    )
-
-                    s.execute(
-                        update(Recetas)
-                        .where(Recetas.receta_id.in_(receta_ids))
-                        .values(vigente=False)
-                    )
+                for a_id, r_id in prev:
+                    asoc_ids_to_disable.add(int(a_id))
+                    receta_ids_to_disable.add(int(r_id))
 
             dets = detalles_by_archivo.get(archivo_id, [])
 
@@ -532,24 +506,7 @@ class TiffService:
 
             # debito vencido
             if esta_vencido:
-                exists = (
-                    s.execute(
-                        select(Debitos.debito_id)
-                        .where(
-                            Debitos.receta_id == receta.receta_id,
-                            Debitos.motivo_debito_id == MOTIVO_DEBITO_VENCIDO_60_ID,
-                        )
-                        .limit(1)
-                    ).scalar_one_or_none()
-                )
-                if exists is None:
-                    s.add(
-                        Debitos(
-                            receta_id=receta.receta_id,
-                            motivo_debito_id=MOTIVO_DEBITO_VENCIDO_60_ID,
-                            detalle="Vencido por 60 días (auto)",
-                        )
-                    )
+                recetas_vencidas.append(int(receta.receta_id))
 
             # troqueles (usa dto_por_codebar + estado_db_por_codebar)
             if counts:
@@ -579,6 +536,42 @@ class TiffService:
                     )
 
             resumen.ok += 1
+
+        # Aplicar versionado en batch (1 update por tabla)
+        if asoc_ids_to_disable:
+            s.execute(
+                update(Asociacion)
+                .where(Asociacion.asociacion_id.in_(list(asoc_ids_to_disable)))
+                .values(vigente=False)
+            )
+
+        if receta_ids_to_disable:
+            s.execute(
+                update(Recetas)
+                .where(Recetas.receta_id.in_(list(receta_ids_to_disable)))
+                .values(vigente=False)
+            )
+
+        if recetas_vencidas:
+            ya_tienen = set(
+                s.execute(
+                    select(Debitos.receta_id).where(
+                        Debitos.motivo_debito_id == MOTIVO_DEBITO_VENCIDO_60_ID,
+                        Debitos.receta_id.in_(recetas_vencidas),
+                    )
+                ).scalars().all()
+            )
+
+            for rid in recetas_vencidas:
+                if rid in ya_tienen:
+                    continue
+                s.add(
+                    Debitos(
+                        receta_id=rid,
+                        motivo_debito_id=MOTIVO_DEBITO_VENCIDO_60_ID,
+                        detalle="Vencido por 60 días (auto)",
+                    )
+                )
 
         if asoc_to_add:
             s.add_all(asoc_to_add)

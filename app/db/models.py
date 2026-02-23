@@ -176,6 +176,9 @@ class Archivo(Base):
     __table_args__ = (
         sa.Index("ix_archivo_recepcion_id", "recepcion_id"),
         sa.Index("ix_archivo_nro_referencia", "nro_referencia"),
+
+        sa.Index("ix_archivo_recepcion_nro_referencia", "recepcion_id", "nro_referencia"),
+        sa.Index("ix_archivo_recepcion_nro_receta", "recepcion_id", "nro_receta"),
     )
 
     archivo_id: Mapped[int] = mapped_column(sa.Integer, sa.Identity(), primary_key=True)

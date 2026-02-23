@@ -42,7 +42,6 @@ class MedicamentoClient:
         Lanza excepción si hay errores transitorios (timeout/5xx) luego de reintentos.
         """
         codebar = (codebar or "").strip()
-        print(codebar)
 
         # inválido => lo tratamos como "no encontrado"
         if not self._is_valid_codebar(codebar):
