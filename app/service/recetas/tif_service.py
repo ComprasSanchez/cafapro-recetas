@@ -562,7 +562,7 @@ class TiffService:
                     code_alfabeta = int(dto.code_alfabeta or 0) if dto else 0
 
                     monto = 0.0
-                    if estado == EstadoTroquelEnum.V and code_alfabeta:
+                    if code_alfabeta and str(code_alfabeta) in cods_detalle:
                         monto = float(importe_por_cod.get(str(code_alfabeta), 0.0))
 
                     troqueles_to_add.append(

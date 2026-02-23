@@ -4,14 +4,6 @@ from config.config_manager import ConfigManager
 
 
 class ImageHandler:
-    """
-    Clase encargada de:
-      - Cargar (o pedir) la carpeta base de imágenes desde la config.
-      - Buscar imágenes .tif según:
-          * carpeta de sucursal (name_folder)
-          * nombre de la obra social en el archivo (obs)
-          * timestamp en el nombre del archivo para sacar la hora
-    """
 
     def __init__(self, parent=None):
         """
@@ -37,6 +29,15 @@ class ImageHandler:
                 "Vuelve a ejecutar la configuración."
             )
 
+    @staticmethod
+    def _obs_prefix(obs: str) -> str:
+        o = (obs or "").strip().lower()
+        if "apross" in o:
+            return "apross_"
+        if "pami" in o:
+            return "pami_"
+        raise ValueError(f"No se pudo determinar el prefijo para obs='{obs}'")
+
 
     def get_images_tif(self, name_folder: str, date: str | None, obs: str):
         target_path = os.path.join(self.image_folder, name_folder)
@@ -44,8 +45,7 @@ class ImageHandler:
         if not os.path.exists(target_path):
             raise FileNotFoundError(f"No existe la carpeta: {target_path}")
 
-        obs_lower = obs.lower()
-        results = []
+        prefix = self._obs_prefix(obs)
 
         # Convertir fecha del filtro a datetime.date
         filter_date = None
@@ -55,6 +55,8 @@ class ImageHandler:
             except ValueError:
                 raise ValueError(f"Formato incorrecto de fecha '{date}'. Use DD/MM/YYYY")
 
+        results = []
+
         for file in os.listdir(target_path):
             lower_name = file.lower()
 
@@ -62,44 +64,37 @@ class ImageHandler:
             if not lower_name.endswith(".tif"):
                 continue
 
-            # Debe contener la obra social
-            if obs_lower not in lower_name:
+            # ✅ Debe empezar con el prefijo correcto
+            if not lower_name.startswith(prefix):
                 continue
 
             full_path = os.path.join(target_path, file)
 
-            # Obtener fecha de creación/modificación
+            # fecha real
             ctime = os.path.getctime(full_path)
             file_datetime = datetime.datetime.fromtimestamp(ctime)
             file_date_str = file_datetime.strftime("%d/%m/%Y")
 
-            # Filtrar por fecha REAL si se pasó una fecha
             if filter_date and file_datetime.date() != filter_date:
                 continue
 
-            # Extraer la hora desde el nombre (timestamp)
+            # hora desde el nombre (después del primer "_")
             try:
                 after_prefix = file.split("_", 1)[1]
                 timestamp_part = after_prefix.split(".", 1)[0]
             except IndexError:
                 continue
 
-            if len(timestamp_part) < 14 or not timestamp_part.isdigit():
+            if len(timestamp_part) < 14 or not timestamp_part[:14].isdigit():
                 continue
 
             hh = timestamp_part[8:10]
             mm = timestamp_part[10:12]
             ss = timestamp_part[12:14]
-
             time_str = f"{hh}:{mm}:{ss}"
 
             results.append(
-                {
-                    "name": file,
-                    "date": file_date_str,  # ← AHORA ES LA FECHA REAL DEL ARCHIVO
-                    "time": time_str,
-                    "full_path": full_path
-                }
+                {"name": file, "date": file_date_str, "time": time_str, "full_path": full_path}
             )
 
         return results
