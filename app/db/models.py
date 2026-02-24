@@ -262,7 +262,8 @@ class Recetas(Base):
         sa.Index("ix_recetas_recepcion_id", "recepcion_id"),
         sa.Index("ix_recetas_nro_receta", "nro_receta"),
         sa.Index(
-            "uq_recetas_nro_receta_vigente",
+            "uq_recetas_recepcion_nro_receta_vigente",
+            "recepcion_id",
             "nro_receta",
             unique=True,
             postgresql_where=sa.text("vigente IS TRUE"),

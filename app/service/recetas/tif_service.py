@@ -152,7 +152,6 @@ class TiffService:
             if tok in duplicated:
                 ref_to_archivo[tok] = None
             else:
-                # único o inexistente
                 arr = by_token.get(tok)
                 ref_to_archivo[tok] = arr[0] if arr else None
 
@@ -265,7 +264,6 @@ class TiffService:
                 resumen.sin_match += 1
                 continue
 
-            # si alguna ref es duplicada => no sabemos qué archivo elegir
             if any(ref in match.duplicated_refs for ref in refs):
                 resumen.duplicados += 1
                 continue
@@ -308,24 +306,53 @@ class TiffService:
             detalles_by_archivo.setdefault(d.archivo_id, []).append(d)
 
         # -----------------------------------------
-        # 7) Asociaciones vigentes por recepción (bulk, sin IN por refs)
+        # 7) VERSIONADO CORRECTO: por nro_receta dentro de la MISMA recepción
+        #    Pisamos el escaneo anterior: desactivar receta(s) vigente(s) + asociaciones vigentes
+        #    ANTES de crear recetas nuevas (evita choque con unique por vigencia).
         # -----------------------------------------
-        rows_prev = (
-            s.execute(
-                select(Asociacion.asociacion_id, Asociacion.receta_id, Asociacion.archivo_id)
-                .join(Archivo, Archivo.archivo_id == Asociacion.archivo_id)
-                .where(
-                    Asociacion.vigente.is_(True),
-                    Archivo.recepcion_id == int(recepcion_id),
-                )
-            )
-            .all()
-        )
+        nro_recetas_new: Set[str] = set()
+        for aid in archivo_ids:
+            ar = archivo_by_id.get(aid)
+            if not ar:
+                continue
+            nr = (getattr(ar, "nro_receta", None) or "").strip()
+            if nr:
+                nro_recetas_new.add(nr)
 
-        # archivo_id -> [(asoc_id, receta_id)]
-        vigente_por_archivo: Dict[int, List[Tuple[int, int]]] = {}
-        for asoc_id, receta_id, archivo_id in rows_prev:
-            vigente_por_archivo.setdefault(int(archivo_id), []).append((int(asoc_id), int(receta_id)))
+        receta_ids_prev: List[int] = []
+        if nro_recetas_new:
+            receta_ids_prev = (
+                s.execute(
+                    select(Recetas.receta_id)
+                    .where(
+                        Recetas.recepcion_id == int(recepcion_id),
+                        Recetas.vigente.is_(True),
+                        Recetas.nro_receta.in_(list(nro_recetas_new)),
+                    )
+                )
+                .scalars()
+                .all()
+            )
+
+        if receta_ids_prev:
+            # asociaciones primero
+            s.execute(
+                update(Asociacion)
+                .where(
+                    Asociacion.receta_id.in_(receta_ids_prev),
+                    Asociacion.vigente.is_(True),
+                )
+                .values(vigente=False)
+            )
+            # recetas después
+            s.execute(
+                update(Recetas)
+                .where(Recetas.receta_id.in_(receta_ids_prev))
+                .values(vigente=False)
+            )
+
+            # contador informativo
+            resumen.ya_asociado += len(receta_ids_prev)
 
         # -----------------------------------------
         # 8) Persistencia
@@ -334,34 +361,21 @@ class TiffService:
         asoc_to_add: List[Asociacion] = []
         recetas_vencidas: List[int] = []
 
-        asoc_ids_to_disable: Set[int] = set()
-        receta_ids_to_disable: Set[int] = set()
         for archivo_id, scan, pages, tiff_path, file_name in work:
             archivo = archivo_by_id.get(archivo_id)
             if not archivo:
                 resumen.errores.append(f"{file_name}: archivo_id {archivo_id} no existe en DB")
                 continue
 
-
             # vencido
             archivo_ts = self._archivo_ts(archivo)
             esta_vencido = self._esta_vencido(archivo_ts, fecha_presentacion)
-
             if getattr(archivo, "vencido", False) != esta_vencido:
                 archivo.vencido = esta_vencido
 
-            prev = vigente_por_archivo.get(int(archivo_id), [])
-            if prev:
-                resumen.ya_asociado += 1
-                for a_id, r_id in prev:
-                    asoc_ids_to_disable.add(int(a_id))
-                    receta_ids_to_disable.add(int(r_id))
-
             dets = detalles_by_archivo.get(archivo_id, [])
 
-            # -------------------------
             # cods_detalle + importe_por_cod + cant_por_cod
-            # -------------------------
             importe_por_cod: Dict[str, float] = {}
             cods_detalle: Set[str] = set()
             cant_por_cod: Dict[str, int] = {}
@@ -370,29 +384,15 @@ class TiffService:
                 ca = self._norm_str(getattr(d, "cod_medic", None))
                 if not ca:
                     continue
-
                 cods_detalle.add(ca)
-
-                # importes
                 importe_por_cod[ca] = importe_por_cod.get(ca, 0.0) + float(getattr(d, "importe_obs", 0) or 0)
-
-                # cantidades esperadas (sumo por cod_medic)
                 cant_por_cod[ca] = cant_por_cod.get(ca, 0) + int(getattr(d, "cantidad", 0) or 0)
 
-            # -------------------------
-            # counts por codebar (EAN13) (scan)
-            # -------------------------
+            # counts por codebar
             counts: Dict[str, int] = dict(
                 Counter(self._norm_str(c) for c in (scan.troqueles or []) if self._norm_str(c))
             )
 
-            # -------------------------
-            # Estados:
-            # - UI/Render: V si matchea, independientemente de cantidad
-            # - DB:        V si matchea y cantidad ok; R si matchea pero cantidad NO ok
-            # - A: API 404
-            # - R: API ok pero no matchea
-            # -------------------------
             estado_db_por_codebar: Dict[str, EstadoTroquelEnum] = {}
             estado_render_por_codebar: Dict[str, Literal["V", "A", "R"]] = {}
             dto_por_codebar: Dict[str, MedicamentoDTO] = {}
@@ -411,30 +411,19 @@ class TiffService:
                         continue
 
                     dto_por_codebar[codebar] = dto
-
                     ca = str(dto.code_alfabeta or "").strip()
                     match_detalle = bool(ca) and (ca in cods_detalle)
 
                     if not match_detalle:
-                        # no matchea => rojo en UI y en DB
                         estado_db_por_codebar[codebar] = EstadoTroquelEnum.R
                         estado_render_por_codebar[codebar] = "R"
                         continue
 
-                    # matchea => verde SIEMPRE en UI
                     estado_render_por_codebar[codebar] = "V"
-
-                    # DB: solo R si cantidad no coincide
                     qty_det = int(cant_por_cod.get(ca, 0))
-                    if qty_det != int(qty_scan):
-                        estado_db_por_codebar[codebar] = EstadoTroquelEnum.R
-                    else:
-                        estado_db_por_codebar[codebar] = EstadoTroquelEnum.V
+                    estado_db_por_codebar[codebar] = EstadoTroquelEnum.V if qty_det == int(qty_scan) else EstadoTroquelEnum.R
 
-            # -------------------------
-            # Render a BYTES (sin disco)
-            #   OJO: render usa estado_render_por_codebar (color UI)
-            # -------------------------
+            # Render bytes
             try:
                 files = self._tif.render_bytes(
                     tiff_path=tiff_path,
@@ -449,13 +438,9 @@ class TiffService:
             front_bytes = files.get("front_bytes")
             back_bytes = files.get("back_bytes")
 
-            # -------------------------
-            # Keys S3: {imed}/{yyyy}/{mm}/{base}_f|_d.jpg
-            # base = nombre tif sin extensión (respeta pami/apross/etc)
-            # -------------------------
-            base_name = self._base_from_tif_path(tiff_path)  # ej "pami_20260202155525044"
+            # Keys S3
+            base_name = self._base_from_tif_path(tiff_path)
             yyyy, mm = self._year_month_from_basename_or_fallback(base_name, archivo, tiff_path)
-
             front_key, back_key = self._build_s3_keys(
                 prestador_imed=prestador_imed,
                 yyyy=yyyy,
@@ -463,9 +448,7 @@ class TiffService:
                 base_name=base_name,
             )
 
-            # -------------------------
             # Subir S3
-            # -------------------------
             try:
                 if front_bytes:
                     self._storage.put_jpg(front_key, front_bytes)
@@ -475,9 +458,7 @@ class TiffService:
                 resumen.errores.append(f"{file_name}: S3 upload error: {e}")
                 continue
 
-            # -------------------------
-            # Crear receta (guardando KEYS)
-            # -------------------------
+            # Crear receta
             nro_receta = self._norm_str(getattr(archivo, "nro_receta", None)) or "-"
 
             receta = Recetas(
@@ -493,7 +474,7 @@ class TiffService:
                 vigente=True,
             )
             s.add(receta)
-            s.flush()
+            s.flush()  # seguimos con flush por receta (sin tocar relaciones)
 
             # asociar (vigente)
             asoc_to_add.append(
@@ -504,15 +485,15 @@ class TiffService:
                 )
             )
 
-            # debito vencido
+            # debito vencido (deferido)
             if esta_vencido:
                 recetas_vencidas.append(int(receta.receta_id))
 
-            # troqueles (usa dto_por_codebar + estado_db_por_codebar)
+            # troqueles
             if counts:
                 for codebar, qty in counts.items():
                     estado = estado_db_por_codebar.get(codebar, EstadoTroquelEnum.A)
-                    dto = dto_por_codebar.get(codebar)  # None si A
+                    dto = dto_por_codebar.get(codebar)
 
                     droga_concat = dto.drogas_concat if dto else None
                     presentacion = dto.presentacion if dto else None
@@ -529,7 +510,7 @@ class TiffService:
                             droga=droga_concat,
                             presentacion=presentacion,
                             code_alfabeta=code_alfabeta,
-                            monto= Decimal(monto),
+                            monto=Decimal(monto),
                             cantidad=int(qty),
                             estado=estado,
                         )
@@ -537,21 +518,7 @@ class TiffService:
 
             resumen.ok += 1
 
-        # Aplicar versionado en batch (1 update por tabla)
-        if asoc_ids_to_disable:
-            s.execute(
-                update(Asociacion)
-                .where(Asociacion.asociacion_id.in_(list(asoc_ids_to_disable)))
-                .values(vigente=False)
-            )
-
-        if receta_ids_to_disable:
-            s.execute(
-                update(Recetas)
-                .where(Recetas.receta_id.in_(list(receta_ids_to_disable)))
-                .values(vigente=False)
-            )
-
+        # Debitos vencido (bulk)
         if recetas_vencidas:
             ya_tienen = set(
                 s.execute(
