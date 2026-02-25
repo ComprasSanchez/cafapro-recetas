@@ -11,7 +11,7 @@ import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import numpy as np
-from sqlalchemy import select, update, or_, and_
+from sqlalchemy import select, update, or_, and_, tuple_
 from sqlalchemy.orm import Session
 
 from core.process_tif import TiffProcessor, ScanOut
@@ -402,32 +402,43 @@ class TiffService:
             for d in detalles:
                 detalles_by_archivo.setdefault(d.archivo_id, []).append(d)
 
-            # 2.5) versionado (igual que vos, bulk)
-            nro_recetas_new: Set[str] = set()
+            # 2.5) versionado ESTRICTO: (nro_referencia, nro_receta) deben coincidir ambos
+
+            pairs: set[tuple[str, str]] = set()
+
             for aid in archivo_ids:
                 ar = archivo_by_id.get(aid)
                 if not ar:
                     continue
-                nr = (getattr(ar, "nro_receta", None) or "").strip()
-                if nr:
-                    nro_recetas_new.add(nr)
 
-            receta_ids_prev: List[int] = []
-            if nro_recetas_new:
-                receta_ids_prev = (
-                    s.execute(
-                        select(Recetas.receta_id)
-                        .where(
-                            Recetas.recepcion_id == int(recepcion_id),
-                            Recetas.vigente.is_(True),
-                            Recetas.nro_receta.in_(list(nro_recetas_new)),
-                        )
+                ref = (getattr(ar, "nro_referencia", None) or "").strip()
+                recn = (getattr(ar, "nro_receta", None) or "").strip()
+
+                # Si falta alguno, NO se puede asegurar identidad => NO versionamos por ese archivo
+                if ref and recn:
+                    pairs.add((ref, recn))
+
+            receta_ids_prev: list[int] = []
+
+            if pairs:
+                # Busco recetas vigentes anteriores que estén asociadas a un Archivo
+                # cuyo (nro_referencia, nro_receta) coincide con alguno de los pares nuevos.
+                q = (
+                    select(Recetas.receta_id)
+                    .join(Asociacion, Asociacion.receta_id == Recetas.receta_id)
+                    .join(Archivo, Archivo.archivo_id == Asociacion.archivo_id)
+                    .where(
+                        Recetas.recepcion_id == int(recepcion_id),
+                        Recetas.vigente.is_(True),
+                        Asociacion.vigente.is_(True),
+                        tuple_(Archivo.nro_referencia, Archivo.nro_receta).in_(list(pairs)),
                     )
-                    .scalars()
-                    .all()
+                    .distinct()
                 )
+                receta_ids_prev = s.execute(q).scalars().all()
 
             if receta_ids_prev:
+                # Apago asociaciones vigentes de esas recetas
                 s.execute(
                     update(Asociacion)
                     .where(
@@ -436,12 +447,13 @@ class TiffService:
                     )
                     .values(vigente=False)
                 )
+
+                # Apago recetas vigentes
                 s.execute(
                     update(Recetas)
                     .where(Recetas.receta_id.in_(receta_ids_prev))
                     .values(vigente=False)
                 )
-                resumen.ya_asociado += len(receta_ids_prev)
 
             # 2.6) precomputar estados + troqueles + vencido (SIN render ni S3 todavía)
             estado_render_by_archivo_id: Dict[int, Dict[str, Literal["V","A","R"]]] = {}

@@ -38,7 +38,10 @@ class AuditoriaVisualDialog(QDialog):
     ):
         super().__init__(parent)
         self._pool = QThreadPool.globalInstance()
-        self._preview_req_id = 0
+
+        # Preview state por lado
+        self._preview_req_id: dict[str, int] = {"F": 0, "D": 0}
+        self._last_preview_path: dict[str, str | None] = {"F": None, "D": None}
 
         self.creado_por_usuario_id = creado_por_usuario_id
         self.data: AuditoriaVisualData | None = None
@@ -51,19 +54,18 @@ class AuditoriaVisualDialog(QDialog):
 
         self.asociacion_id: int | None = None
 
-        self._last_preview_path: str | None = None
-        self._current_lado = "F"
         self._vendedor_id: int | None = None
 
         # ✅ DebitoRow YA TIENE motivo_debito_id
         self._selected_debitos: dict[int, str | None] = {}
 
-        self._preview_cache: dict[tuple[str, int, int], bytes] = {}
+        # cache de previews (incluye lado por seguridad)
+        self._preview_cache: dict[tuple[str, str, int, int], bytes] = {}
         self._motivos_cache: dict[str, list] = {}
 
         self._resize_timer = QTimer(self)
         self._resize_timer.setSingleShot(True)
-        self._resize_timer.timeout.connect(self._refit_preview)
+        self._resize_timer.timeout.connect(self._refit_previews)
 
         self.setWindowTitle("Auditoría Visual")
         self.setModal(True)
@@ -118,7 +120,10 @@ class AuditoriaVisualDialog(QDialog):
 
         right_l.addWidget(self._build_right_header(), 0)
         right_l.addWidget(self._build_vendedor_field(), 0)
+
+        # ⬇️ ahora el bloque de débitos son 2 segmentos (F y D)
         right_l.addWidget(self._build_debitos_block(), 1)
+
         right_l.addWidget(self._build_resumen_block(), 0)
         right_l.addWidget(self._build_actions_block(), 0)
 
@@ -130,43 +135,69 @@ class AuditoriaVisualDialog(QDialog):
         return w
 
     # -------------------------
-    # Image block
+    # Image block (Frente + Dorso juntos)
     # -------------------------
     def _build_image_block(self) -> QFrame:
         box = QFrame()
         box.setObjectName("card")
         lay = QVBoxLayout(box)
         lay.setContentsMargins(12, 12, 12, 12)
-        lay.setSpacing(8)
+        lay.setSpacing(10)
 
-        toggle = QHBoxLayout()
-        toggle.setContentsMargins(0, 0, 0, 0)
-        toggle.setSpacing(6)
+        # ✅ ahora horizontal (Frente | Dorso)
+        split = QSplitter(Qt.Orientation.Horizontal)
+        lay.addWidget(split, 1)
 
-        self.btn_frente = QPushButton("Frente")
-        self.btn_frente.setCheckable(True)
-        self.btn_frente.clicked.connect(lambda: self._show_side("F"))
+        # -------- Frente --------
+        fr = QFrame()
+        fr.setObjectName("card")
+        fr_l = QVBoxLayout(fr)
+        fr_l.setContentsMargins(10, 10, 10, 10)
+        fr_l.setSpacing(6)
 
-        self.btn_dorso = QPushButton("Dorso")
-        self.btn_dorso.setCheckable(True)
-        self.btn_dorso.clicked.connect(lambda: self._show_side("D"))
+        lb_fr = QLabel("Frente")
+        lb_fr.setProperty("role", "subtitle")
+        fr_l.addWidget(lb_fr, 0)
 
-        toggle.addWidget(self.btn_frente, 0)
-        toggle.addWidget(self.btn_dorso, 0)
-        toggle.addStretch(1)
+        self.scroll_frente = QScrollArea()
+        self.scroll_frente.setWidgetResizable(True)
+        self.scroll_frente.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.scroll_frente.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
 
-        lay.addLayout(toggle)
+        self.img_frente = ImageViewer()
+        self.img_frente.setText("Sin imagen (frente)")
+        self.scroll_frente.setWidget(self.img_frente)
 
-        self.scroll = QScrollArea()
-        self.scroll.setWidgetResizable(True)
-        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        fr_l.addWidget(self.scroll_frente, 1)
+        split.addWidget(fr)
 
-        self.img_preview = ImageViewer()
-        self.img_preview.setText("Sin imagen")
-        self.scroll.setWidget(self.img_preview)
+        # -------- Dorso --------
+        dr = QFrame()
+        dr.setObjectName("card")
+        dr_l = QVBoxLayout(dr)
+        dr_l.setContentsMargins(10, 10, 10, 10)
+        dr_l.setSpacing(6)
 
-        lay.addWidget(self.scroll, 1)
+        lb_dr = QLabel("Dorso")
+        lb_dr.setProperty("role", "subtitle")
+        dr_l.addWidget(lb_dr, 0)
+
+        self.scroll_dorso = QScrollArea()
+        self.scroll_dorso.setWidgetResizable(True)
+        self.scroll_dorso.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.scroll_dorso.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+
+        self.img_dorso = ImageViewer()
+        self.img_dorso.setText("Sin imagen (dorso)")
+        self.scroll_dorso.setWidget(self.img_dorso)
+
+        dr_l.addWidget(self.scroll_dorso, 1)
+        split.addWidget(dr)
+
+        # 50/50 (podés ajustar)
+        split.setStretchFactor(0, 1)
+        split.setStretchFactor(1, 1)
+
         return box
 
     # -------------------------
@@ -250,30 +281,64 @@ class AuditoriaVisualDialog(QDialog):
         hh.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         hh.setHighlightSections(False)
 
-    def _build_debitos_block(self) -> QFrame:
-        box = QFrame()
-        box.setObjectName("card")
-        lay = QVBoxLayout(box)
-        lay.setContentsMargins(12, 12, 12, 12)
-        lay.setSpacing(8)
+    # -------------------------
+    # Debitos block (dos segmentos: Frente + Dorso)
+    # -------------------------
+    def _build_debitos_block(self) -> QWidget:
+        w = QWidget()
+        root = QVBoxLayout(w)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(10)
 
-        title = QLabel("Motivos débito")
-        title.setProperty("role", "subtitle")
-        lay.addWidget(title, 0)
+        # ---------- Frente ----------
+        box_f = QFrame()
+        box_f.setObjectName("card")
+        lay_f = QVBoxLayout(box_f)
+        lay_f.setContentsMargins(12, 12, 12, 12)
+        lay_f.setSpacing(8)
 
-        self.motivos_scroll = QScrollArea()
-        self.motivos_scroll.setWidgetResizable(True)
+        title_f = QLabel("Motivos débito – Frente")
+        title_f.setProperty("role", "subtitle")
+        lay_f.addWidget(title_f, 0)
 
-        self.motivos_container = QWidget()
-        self.motivos_layout = QVBoxLayout(self.motivos_container)
-        self.motivos_layout.setContentsMargins(0, 0, 0, 0)
-        self.motivos_layout.setSpacing(6)
-        self.motivos_layout.addStretch(1)
+        self.motivos_scroll_f = QScrollArea()
+        self.motivos_scroll_f.setWidgetResizable(True)
 
-        self.motivos_scroll.setWidget(self.motivos_container)
-        lay.addWidget(self.motivos_scroll, 1)
+        self.motivos_container_f = QWidget()
+        self.motivos_layout_f = QVBoxLayout(self.motivos_container_f)
+        self.motivos_layout_f.setContentsMargins(0, 0, 0, 0)
+        self.motivos_layout_f.setSpacing(6)
+        self.motivos_layout_f.addStretch(1)
 
-        return box
+        self.motivos_scroll_f.setWidget(self.motivos_container_f)
+        lay_f.addWidget(self.motivos_scroll_f, 1)
+
+        # ---------- Dorso ----------
+        box_d = QFrame()
+        box_d.setObjectName("card")
+        lay_d = QVBoxLayout(box_d)
+        lay_d.setContentsMargins(12, 12, 12, 12)
+        lay_d.setSpacing(8)
+
+        title_d = QLabel("Motivos débito – Dorso")
+        title_d.setProperty("role", "subtitle")
+        lay_d.addWidget(title_d, 0)
+
+        self.motivos_scroll_d = QScrollArea()
+        self.motivos_scroll_d.setWidgetResizable(True)
+
+        self.motivos_container_d = QWidget()
+        self.motivos_layout_d = QVBoxLayout(self.motivos_container_d)
+        self.motivos_layout_d.setContentsMargins(0, 0, 0, 0)
+        self.motivos_layout_d.setSpacing(6)
+        self.motivos_layout_d.addStretch(1)
+
+        self.motivos_scroll_d.setWidget(self.motivos_container_d)
+        lay_d.addWidget(self.motivos_scroll_d, 1)
+
+        root.addWidget(box_f, 1)
+        root.addWidget(box_d, 1)
+        return w
 
     def _build_right_header(self) -> QFrame:
         box = QFrame()
@@ -433,23 +498,30 @@ class AuditoriaVisualDialog(QDialog):
         self._vendedor_id = None
         self.lb_vendedor.setText("— Seleccioná —")
         self.lb_vendedor.setToolTip("")
-        self._last_preview_path = None
-        self._current_lado = "F"
+
+        self._last_preview_path = {"F": None, "D": None}
+        self._preview_req_id = {"F": self._preview_req_id.get("F", 0), "D": self._preview_req_id.get("D", 0)}
 
         self.in_prescripcion.setText("")
         self.in_emision.setText("")
         self.in_venta.setText("")
         self.lb_autorizacion.setText("—")
         self.lb_big.setText("—")
-        self._clear_preview("Sin imagen")
+
+        self._clear_preview("F", "Sin imagen (frente)")
+        self._clear_preview("D", "Sin imagen (dorso)")
+
         self.tbl_troqueles.setRowCount(0)
         self.tbl_arch_det.setRowCount(0)
+
+        # limpiar motivos
+        self._clear_motivos_layout(self.motivos_layout_f)
+        self._clear_motivos_layout(self.motivos_layout_d)
 
         try:
             with session_scope() as s:
                 self.data = AuditoriaVisualService.load_by_asociacion_id(s, int(self.asociacion_id))
 
-                # ✅ DebitoRow YA TIENE motivo_debito_id
                 self._selected_debitos = {
                     int(d.motivo_debito_id): d.detalle
                     for d in (self.data.debitos or [])
@@ -492,24 +564,20 @@ class AuditoriaVisualDialog(QDialog):
         fr = (getattr(self.data.receta, "ubicacion_frente", None) or "").strip()
         dr = (getattr(self.data.receta, "ubicacion_dorso", None) or "").strip()
 
-        self.btn_frente.setEnabled(bool(fr))
-        self.btn_dorso.setEnabled(bool(dr))
-
+        # ✅ Mostrar ambos siempre
         if fr:
-            self._current_lado = "F"
-            self.btn_frente.setChecked(True)
-            self.btn_dorso.setChecked(False)
-            self._set_preview_and_fit(fr)
-        elif dr:
-            self._current_lado = "D"
-            self.btn_dorso.setChecked(True)
-            self.btn_frente.setChecked(False)
-            self._set_preview_and_fit(dr)
+            self._set_preview_and_fit("F", fr)
         else:
-            self._current_lado = "F"
-            self._clear_preview("Sin imagen")
+            self._clear_preview("F", "Sin imagen (frente)")
 
-        self._refresh_motivos_catalogo()
+        if dr:
+            self._set_preview_and_fit("D", dr)
+        else:
+            self._clear_preview("D", "Sin imagen (dorso)")
+
+        # ✅ Motivos por lado siempre (dos segmentos)
+        self._render_motivos_lado("F", self.motivos_layout_f)
+        self._render_motivos_lado("D", self.motivos_layout_d)
 
         self._render_troqueles()
         self._render_archivo_detalle()
@@ -586,142 +654,120 @@ class AuditoriaVisualDialog(QDialog):
             self._set_cell(self.tbl_arch_det, i, 8, str(getattr(d, "descuento", "") or ""))
 
     # -------------------------
-    # Preview controls
+    # Preview controls (doble)
     # -------------------------
-    def _show_side(self, lado: str) -> None:
-        if not self.data:
-            return
-
-        fr = (getattr(self.data.receta, "ubicacion_frente", None) or "").strip()
-        dr = (getattr(self.data.receta, "ubicacion_dorso", None) or "").strip()
-
-        if lado == "F":
-            self.btn_frente.setChecked(True)
-            self.btn_dorso.setChecked(False)
-            self._current_lado = "F"
-            self._set_preview_and_fit(fr) if fr else self._clear_preview("Sin imagen (frente)")
-        else:
-            self.btn_dorso.setChecked(True)
-            self.btn_frente.setChecked(False)
-            self._current_lado = "D"
-            self._set_preview_and_fit(dr) if dr else self._clear_preview("Sin imagen (dorso)")
-
-        self._refresh_motivos_catalogo()
-
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
-        # PERF: debounce
         self._resize_timer.start(120)
 
-    def _refit_preview(self) -> None:
-        if self._last_preview_path and self.img_preview.pixmap() is not None:
-            self.img_preview.fit_to(self.scroll.viewport().size())
+    def _refit_previews(self) -> None:
+        # Frente
+        if self._last_preview_path.get("F") and self.img_frente.pixmap() is not None:
+            self.img_frente.fit_to(self.scroll_frente.viewport().size())
 
-    def _clear_preview(self, text: str) -> None:
-        self.img_preview.set_pixmap(None)
-        self.img_preview.setText(text)
-        self._last_preview_path = None
+        # Dorso
+        if self._last_preview_path.get("D") and self.img_dorso.pixmap() is not None:
+            self.img_dorso.fit_to(self.scroll_dorso.viewport().size())
 
-    def _set_preview_and_fit(self, key_or_path: str) -> None:
+    def _clear_preview(self, lado: str, text: str) -> None:
+        if lado == "F":
+            self.img_frente.set_pixmap(None)
+            self.img_frente.setText(text)
+        else:
+            self.img_dorso.set_pixmap(None)
+            self.img_dorso.setText(text)
+        self._last_preview_path[lado] = None
+
+    def _set_preview_and_fit(self, lado: str, key_or_path: str) -> None:
         raw = (key_or_path or "").strip()
         if not raw:
-            self._clear_preview("Sin imagen")
+            self._clear_preview(lado, f"Sin imagen ({'frente' if lado == 'F' else 'dorso'})")
             return
 
-        # guardo "raw" como referencia (no URL final)
-        self._last_preview_path = raw
+        self._last_preview_path[lado] = raw
 
-        vw = max(200, self.scroll.viewport().width() - 12)
-        vh = max(200, self.scroll.viewport().height() - 12)
+        scroll = self.scroll_frente if lado == "F" else self.scroll_dorso
+        viewer = self.img_frente if lado == "F" else self.img_dorso
 
-        # PERF: cache instantáneo
-        cache_key = (raw, vw, vh)
+        vw = max(200, scroll.viewport().width() - 12)
+        vh = max(200, scroll.viewport().height() - 12)
+
+        cache_key = (lado, raw, vw, vh)
         if cache_key in self._preview_cache:
             png_bytes = self._preview_cache[cache_key]
             pix = QPixmap()
             ok = pix.loadFromData(png_bytes)
             if ok and not pix.isNull():
-                self.img_preview.setText("")
-                self.img_preview.set_pixmap(pix)
-                QTimer.singleShot(0, lambda: self.img_preview.fit_to(self.scroll.viewport().size()))
+                viewer.setText("")
+                viewer.set_pixmap(pix)
+                QTimer.singleShot(0, lambda: viewer.fit_to(scroll.viewport().size()))
                 return
 
-        self._preview_req_id += 1
-        req_id = self._preview_req_id
+        self._preview_req_id[lado] += 1
+        req_id = self._preview_req_id[lado]
 
-        self.img_preview.setText("Cargando…")
-        self.img_preview.set_pixmap(None)
+        viewer.setText("Cargando…")
+        viewer.set_pixmap(None)
 
-        w = Worker(self._load_preview_via_usecase, raw=raw, vw=vw, vh=vh, req_id=req_id)
+        w = Worker(self._load_preview_via_usecase, lado=lado, raw=raw, vw=vw, vh=vh, req_id=req_id)
         w.signals.finished.connect(self._apply_preview_bytes)
-        w.signals.error.connect(self._ui_error_preview)
+        w.signals.error.connect(lambda e, _lado=lado: self._ui_error_preview(_lado, e))
         self._pool.start(w)
 
-    def _load_preview_via_usecase(self, *, raw: str, vw: int, vh: int, req_id: int) -> dict:
-        # PERF: cache en worker también (por si llega repetido)
-        key = (raw, vw, vh)
+    def _load_preview_via_usecase(self, *, lado: str, raw: str, vw: int, vh: int, req_id: int) -> dict:
+        key = (lado, raw, vw, vh)
         if key in self._preview_cache:
-            return {
-                "path": raw,
-                "png_bytes": self._preview_cache[key],
-                "w": vw,
-                "h": vh,
-                "req_id": req_id,
-                "raw": raw,
-            }
+            return {"lado": lado, "png_bytes": self._preview_cache[key], "req_id": req_id, "raw": raw}
 
         out = AuditoriaUseCase.load_preview_bytes(path=raw, vw=vw, vh=vh)
 
         if out.img_bytes:
             self._preview_cache[key] = out.img_bytes
 
-        return {
-            "path": out.path,  # url o path final resuelto
-            "png_bytes": out.img_bytes,
-            "w": out.w,
-            "h": out.h,
-            "req_id": req_id,
-            "raw": raw,
-        }
+        return {"lado": lado, "png_bytes": out.img_bytes, "req_id": req_id, "raw": raw}
 
     def _apply_preview_bytes(self, out: dict) -> None:
+        lado = (out.get("lado") or "F").strip()
         req_id = int(out.get("req_id") or 0)
         raw = (out.get("raw") or "").strip()
 
-        if req_id != self._preview_req_id:
+        if req_id != self._preview_req_id.get(lado, 0):
             return
-        if self._last_preview_path and self._last_preview_path != raw:
+        if self._last_preview_path.get(lado) and self._last_preview_path[lado] != raw:
             return
 
         png_bytes = out.get("png_bytes") or b""
         if not png_bytes:
-            self._clear_preview("No se pudo cargar la imagen.")
+            self._clear_preview(lado, "No se pudo cargar la imagen.")
             return
 
-        # PERF: asegurar cache del tamaño actual
-        vw = max(200, self.scroll.viewport().width() - 12)
-        vh = max(200, self.scroll.viewport().height() - 12)
-        self._preview_cache[(raw, vw, vh)] = png_bytes
+        scroll = self.scroll_frente if lado == "F" else self.scroll_dorso
+        viewer = self.img_frente if lado == "F" else self.img_dorso
+
+        vw = max(200, scroll.viewport().width() - 12)
+        vh = max(200, scroll.viewport().height() - 12)
+        self._preview_cache[(lado, raw, vw, vh)] = png_bytes
 
         pix = QPixmap()
         ok = pix.loadFromData(png_bytes)
         if not ok or pix.isNull():
-            self._clear_preview("No se pudo leer la imagen.")
+            self._clear_preview(lado, "No se pudo leer la imagen.")
             return
 
-        self.img_preview.setText("")
-        self.img_preview.set_pixmap(pix)
-        QTimer.singleShot(0, lambda: self.img_preview.fit_to(self.scroll.viewport().size()))
+        viewer.setText("")
+        viewer.set_pixmap(pix)
+        QTimer.singleShot(0, lambda: viewer.fit_to(scroll.viewport().size()))
 
-    def _ui_error_preview(self, err_text: str) -> None:
+    def _ui_error_preview(self, lado: str, err_text: str) -> None:
         lines = [l.strip() for l in (err_text or "").splitlines() if l.strip()]
         nice = lines[-1] if lines else "Error cargando imagen."
 
-        self.img_preview.set_pixmap(None)
-        self.img_preview.setText(f"No se pudo cargar la imagen.\n{nice}")
+        viewer = self.img_frente if lado == "F" else self.img_dorso
+        viewer.set_pixmap(None)
+        viewer.setText(f"No se pudo cargar la imagen.\n{nice}")
 
     # -------------------------
-    # Motivos
+    # Motivos (por lado)
     # -------------------------
     def _get_motivos(self, lado: str):
         if lado in self._motivos_cache:
@@ -731,17 +777,19 @@ class AuditoriaVisualDialog(QDialog):
         self._motivos_cache[lado] = ms
         return ms
 
-    def _refresh_motivos_catalogo(self) -> None:
-        if not self.data:
-            return
-
-        motivos = self._get_motivos(self._current_lado)
-
-        while self.motivos_layout.count() > 1:
-            item = self.motivos_layout.takeAt(0)
+    @staticmethod
+    def _clear_motivos_layout(layout: QVBoxLayout) -> None:
+        # deja el stretch final
+        while layout.count() > 1:
+            item = layout.takeAt(0)
             w = item.widget()
             if w:
                 w.deleteLater()
+
+    def _render_motivos_lado(self, lado: str, layout: QVBoxLayout) -> None:
+        motivos = self._get_motivos(lado)
+
+        self._clear_motivos_layout(layout)
 
         for m in motivos:
             motivo_id = int(getattr(m, "motivo_debito_id", 0) or 0)
@@ -753,7 +801,7 @@ class AuditoriaVisualDialog(QDialog):
 
             cb = QCheckBox()
             cb.setProperty("motivo_id", motivo_id)
-            cb.setProperty("lado", str(getattr(m, "lado", "")))
+            cb.setProperty("lado", lado)
             cb.setChecked(motivo_id in self._selected_debitos)
             cb.stateChanged.connect(self._on_motivo_checkbox_changed)
 
@@ -770,7 +818,7 @@ class AuditoriaVisualDialog(QDialog):
             row_l.addWidget(cb, 0, Qt.AlignmentFlag.AlignTop)
             row_l.addWidget(lb, 1)
 
-            self.motivos_layout.insertWidget(self.motivos_layout.count() - 1, row)
+            layout.insertWidget(layout.count() - 1, row)
 
     def _on_motivo_checkbox_changed(self, state: int) -> None:
         cb = self.sender()
