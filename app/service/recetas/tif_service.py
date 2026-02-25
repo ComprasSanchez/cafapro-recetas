@@ -4,9 +4,11 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Set, Literal
+from typing import Dict, List, Optional, Tuple, Set, Literal, Iterable
 from collections import Counter
 import os
+
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import numpy as np
 from sqlalchemy import select, update, or_, and_
@@ -29,6 +31,14 @@ from app.service.integraciones.medicamento_client import MedicamentoClient
 from app.dto.medicamentos_dto import MedicamentoDTO
 
 
+# -------------------------
+# Helpers
+# -------------------------
+def _chunks(lst: List, size: int) -> Iterable[List]:
+    for i in range(0, len(lst), size):
+        yield lst[i:i + size]
+
+
 @dataclass(frozen=True)
 class ProcesarItemIn:
     file_name: str
@@ -47,12 +57,39 @@ class ProcesarResumen:
         if self.errores is None:
             self.errores = []
 
+    def merge(self, other: "ProcesarResumen") -> None:
+        self.ok += other.ok
+        self.sin_match += other.sin_match
+        self.duplicados += other.duplicados
+        self.ya_asociado += other.ya_asociado
+        self.errores.extend(other.errores)
+
 
 @dataclass(frozen=True)
 class _MatchResult:
     ref_to_archivo: Dict[str, Optional[Archivo]]
     duplicated_refs: Set[str]
     missing_refs: Set[str]
+
+
+@dataclass(frozen=True)
+class _ScannedItem:
+    it: ProcesarItemIn
+    scan: ScanOut
+
+
+@dataclass(frozen=True)
+class _WorkItem:
+    it: ProcesarItemIn
+    scan: ScanOut
+    archivo_id: int
+
+
+@dataclass(frozen=True)
+class _UploadResult:
+    work: _WorkItem
+    front_key: Optional[str]
+    back_key: Optional[str]
 
 
 class TiffService:
@@ -62,13 +99,24 @@ class TiffService:
         storage: S3Storage,
         tif: Optional[TiffProcessor] = None,
         client: Optional[MedicamentoClient] = None,
+        # tuning
+        chunk_size: int = 75,
+        scan_workers: Optional[int] = None,
+        render_workers: Optional[int] = None,
+        upload_workers: int = 16,
     ) -> None:
         self._storage = storage
         self._tif = tif or TiffProcessor()
         self._client = client or MedicamentoClient()
 
+        cpu = os.cpu_count() or 4
+        self._chunk_size = int(chunk_size)
+        self._scan_workers = int(scan_workers or min(cpu, 6))
+        self._render_workers = int(render_workers or min(cpu, 6))
+        self._upload_workers = int(upload_workers)
+
     # -------------------------
-    # Helpers
+    # Helpers (idénticos a los tuyos)
     # -------------------------
     @staticmethod
     def _norm_str(x) -> str:
@@ -76,7 +124,6 @@ class TiffService:
 
     @staticmethod
     def _exists_processed_base_in_recepcion(s: Session, recepcion_id: int, base_name: str) -> bool:
-        # buscamos si ya existe alguna key que contenga ".../<base>_f.jpg" o ".../<base>_d.jpg"
         like_pat = f"%/{base_name}_%"
         rid = (
             s.execute(
@@ -107,16 +154,14 @@ class TiffService:
 
     @staticmethod
     def _base_from_tif_path(full_path: str) -> str:
-        return Path(full_path).stem  # "pami_20260202155525044"
+        return Path(full_path).stem
 
     @staticmethod
     def _match_all_refs(s: Session, recepcion_id: int, refs: List[str]) -> _MatchResult:
-        # 1) normalizar tokens
         refs_set: Set[str] = {str(r).strip() for r in refs if r and str(r).strip()}
         if not refs_set:
             return _MatchResult(ref_to_archivo={}, duplicated_refs=set(), missing_refs=set())
 
-        # 2) query SOLO dentro de la recepción
         rows = (
             s.execute(
                 select(Archivo).where(
@@ -133,7 +178,6 @@ class TiffService:
             .all()
         )
 
-        # 3) indexar por token (ref o receta)
         by_token: Dict[str, List[Archivo]] = {}
         for a in rows:
             nro_ref = (getattr(a, "nro_referencia", "") or "").strip()
@@ -159,16 +203,12 @@ class TiffService:
 
     @staticmethod
     def _year_month_from_basename_or_fallback(base_name: str, archivo: Archivo, tif_path: str) -> tuple[str, str]:
-        # base_name: "pami_20260202155525044" o "apross_123456"
         part = base_name.split("_", 1)[1] if "_" in base_name else base_name
-
         if len(part) >= 6 and part[:6].isdigit():
             yyyy = part[:4]
             mm = part[4:6]
             if len(yyyy) == 4 and 1 <= int(mm) <= 12:
                 return yyyy, mm
-
-        # fallback: fecha del Archivo (IMED)
         try:
             return f"{archivo.fecha.year:04d}", f"{archivo.fecha.month:02d}"
         except Exception:
@@ -178,11 +218,91 @@ class TiffService:
     @staticmethod
     def _build_s3_keys(*, prestador_imed: str, yyyy: str, mm: str, base_name: str) -> tuple[str, str]:
         base = f"{prestador_imed}/{yyyy}/{mm}"
-        return (
-            f"{base}/{base_name}_f.jpg",
-            f"{base}/{base_name}_d.jpg",
-        )
+        return (f"{base}/{base_name}_f.jpg", f"{base}/{base_name}_d.jpg")
 
+    # -------------------------
+    # Paralelos
+    # -------------------------
+    def _parallel_scan(self, items: List[ProcesarItemIn], resumen: ProcesarResumen) -> List[_ScannedItem]:
+        out: List[_ScannedItem] = []
+
+        def job(it: ProcesarItemIn) -> Tuple[ProcesarItemIn, ScanOut]:
+            scan = self._tif.scan(it.full_path)  # carga pages internamente
+            return it, scan
+
+        with ThreadPoolExecutor(max_workers=self._scan_workers) as ex:
+            futs = [ex.submit(job, it) for it in items]
+            for fut in as_completed(futs):
+                try:
+                    it, scan = fut.result()
+                    out.append(_ScannedItem(it=it, scan=scan))
+                except Exception as e:
+                    # no tenemos it acá si explotó antes; lo dejamos genérico
+                    resumen.errores.append(f"scan error: {e}")
+
+        return out
+
+    def _parallel_render_upload(
+        self,
+        work_items: List[_WorkItem],
+        *,
+        archivo_by_id: Dict[int, Archivo],
+        prestador_imed: str,
+        estado_render_by_work: Dict[int, Dict[str, Literal["V", "A", "R"]]],
+        resumen: ProcesarResumen,
+    ) -> List[_UploadResult]:
+
+        # 1) render en paralelo -> devuelve bytes + keys
+        def render_job(w: _WorkItem) -> Tuple[_WorkItem, Optional[bytes], Optional[bytes], str, str]:
+            archivo = archivo_by_id[w.archivo_id]
+            base_name = self._base_from_tif_path(w.it.full_path)
+            yyyy, mm = self._year_month_from_basename_or_fallback(base_name, archivo, w.it.full_path)
+            front_key, back_key = self._build_s3_keys(prestador_imed=prestador_imed, yyyy=yyyy, mm=mm, base_name=base_name)
+
+            estado = estado_render_by_work.get(w.archivo_id, {})
+            files = self._tif.render_bytes(
+                tiff_path=w.it.full_path,
+                scan=w.scan,
+                pages=None,  # que recargue pages dentro (no RAM)
+                estado_por_codebar=estado,
+            )
+            return w, files.get("front_bytes"), files.get("back_bytes"), front_key, back_key
+
+        rendered: List[Tuple[_WorkItem, Optional[bytes], Optional[bytes], str, str]] = []
+        with ThreadPoolExecutor(max_workers=self._render_workers) as ex:
+            futs = [ex.submit(render_job, w) for w in work_items]
+            for fut in as_completed(futs):
+                try:
+                    rendered.append(fut.result())
+                except Exception as e:
+                    resumen.errores.append(f"render error: {e}")
+
+        # 2) upload en paralelo (S3)
+        results: List[_UploadResult] = []
+
+        def upload_job(pack: Tuple[_WorkItem, Optional[bytes], Optional[bytes], str, str]) -> _UploadResult:
+            w, fb, bb, fk, bk = pack
+            if fb:
+                self._storage.put_jpg(fk, fb)
+            if bb:
+                self._storage.put_jpg(bk, bb)
+            return _UploadResult(work=w, front_key=fk if fb else None, back_key=bk if bb else None)
+
+        with ThreadPoolExecutor(max_workers=self._upload_workers) as ex:
+            futs = [ex.submit(upload_job, pack) for pack in rendered]
+            for fut in as_completed(futs):
+                try:
+                    results.append(fut.result())
+                except Exception as e:
+                    # como dijiste: “se tendría que crear sí o sí”, pero si falla S3 no tenemos keys reales.
+                    # Yo acá lo marco como error y NO lo persisto (igual que tu código actual).
+                    resumen.errores.append(f"S3 upload error: {e}")
+
+        return results
+
+    # -------------------------
+    # MAIN (por tandas)
+    # -------------------------
     def procesar(
         self,
         s: Session,
@@ -190,12 +310,10 @@ class TiffService:
         usuario_id: int,
         items: List[ProcesarItemIn],
     ) -> ProcesarResumen:
-        resumen = ProcesarResumen()
+        total = ProcesarResumen()
         med_cache: Dict[str, Optional[MedicamentoDTO]] = {}
 
-        # -----------------------------------------
-        # 0) Cargar recepción + prestador.imed
-        # -----------------------------------------
+        # 0) recepcion + prestador.imed
         rec: Recepcion | None = (
             s.execute(select(Recepcion).where(Recepcion.recepcion_id == recepcion_id)).scalar_one_or_none()
         )
@@ -215,334 +333,326 @@ class TiffService:
         fecha_presentacion = rec.fecha_presentacion
         MOTIVO_DEBITO_VENCIDO_60_ID = 11
 
-        # -----------------------------------------
-        # 1) Idempotencia SOLO dentro de la misma recepción
-        #    (skip si ya existe alguna key con base_name)
-        # -----------------------------------------
+        # 1) Idempotencia (se mantiene)
         items_filtrados: List[ProcesarItemIn] = []
         for it in items:
-            base_name = self._base_from_tif_path(it.full_path)  # ej: "pami_20260202155525044"
+            base_name = self._base_from_tif_path(it.full_path)
             if base_name and self._exists_processed_base_in_recepcion(s, recepcion_id, base_name):
-                resumen.ya_asociado += 1
+                total.ya_asociado += 1
                 continue
             items_filtrados.append(it)
 
         if not items_filtrados:
-            return resumen
+            return total
 
-        # -----------------------------------------
-        # 2) Scan TIFF (headers + troqueles + detections)
-        # -----------------------------------------
-        scanned: List[Tuple[ProcesarItemIn, ScanOut, List[np.ndarray]]] = []
-        all_refs: List[str] = []
+        # 2) Procesar por tandas
+        for chunk in _chunks(items_filtrados, self._chunk_size):
+            resumen = ProcesarResumen()
 
-        for it in items_filtrados:
-            try:
-                scan, pages = self._tif.scan_with_pages(it.full_path)
-                scanned.append((it, scan, pages))
-                all_refs.extend(scan.headers or [])
-            except Exception as e:
-                resumen.errores.append(f"{it.file_name}: scan error: {e}")
-
-        if not scanned:
-            return resumen
-
-        # -----------------------------------------
-        # 3) Match masivo por referencias (headers)
-        # -----------------------------------------
-        match = self._match_all_refs(s, recepcion_id, all_refs)
-
-        # -----------------------------------------
-        # 4) Elegir 1 Archivo por TIFF (por ref)
-        # -----------------------------------------
-        work: List[Tuple[int, ScanOut, List[np.ndarray], str, str]] = []
-
-        for it, scan, pages in scanned:
-            refs = [self._norm_str(x) for x in (scan.headers or []) if self._norm_str(x)]
-
-            if not refs:
-                resumen.sin_match += 1
+            # 2.1) scan paralelo (solo ScanOut)
+            scanned = self._parallel_scan(chunk, resumen)
+            if not scanned:
+                total.merge(resumen)
                 continue
 
-            if any(ref in match.duplicated_refs for ref in refs):
-                resumen.duplicados += 1
-                continue
+            # 2.2) juntar refs y match masivo (DB)
+            all_refs: List[str] = []
+            for x in scanned:
+                all_refs.extend(x.scan.headers or [])
+            match = self._match_all_refs(s, recepcion_id, all_refs)
 
-            archivo: Optional[Archivo] = None
-            for ref in refs:
-                a = match.ref_to_archivo.get(ref)
-                if a is not None:
-                    archivo = a
-                    break
+            # 2.3) elegir work (archivo_id por tiff)
+            work: List[_WorkItem] = []
+            archivo_ids: List[int] = []
 
-            if archivo is None:
-                resumen.sin_match += 1
-                continue
-
-            work.append((archivo.archivo_id, scan, pages, it.full_path, it.file_name))
-
-        if not work:
-            return resumen
-
-        archivo_ids = [w[0] for w in work]
-
-        # -----------------------------------------
-        # 6) Bulk load Archivos + Detalles
-        # -----------------------------------------
-        archivos = (
-            s.execute(select(Archivo).where(Archivo.archivo_id.in_(archivo_ids)))
-            .scalars()
-            .all()
-        )
-        archivo_by_id: Dict[int, Archivo] = {a.archivo_id: a for a in archivos}
-
-        detalles = (
-            s.execute(select(ArchivoDetalle).where(ArchivoDetalle.archivo_id.in_(archivo_ids)))
-            .scalars()
-            .all()
-        )
-        detalles_by_archivo: Dict[int, List[ArchivoDetalle]] = {}
-        for d in detalles:
-            detalles_by_archivo.setdefault(d.archivo_id, []).append(d)
-
-        # -----------------------------------------
-        # 7) VERSIONADO CORRECTO: por nro_receta dentro de la MISMA recepción
-        #    Pisamos el escaneo anterior: desactivar receta(s) vigente(s) + asociaciones vigentes
-        #    ANTES de crear recetas nuevas (evita choque con unique por vigencia).
-        # -----------------------------------------
-        nro_recetas_new: Set[str] = set()
-        for aid in archivo_ids:
-            ar = archivo_by_id.get(aid)
-            if not ar:
-                continue
-            nr = (getattr(ar, "nro_receta", None) or "").strip()
-            if nr:
-                nro_recetas_new.add(nr)
-
-        receta_ids_prev: List[int] = []
-        if nro_recetas_new:
-            receta_ids_prev = (
-                s.execute(
-                    select(Recetas.receta_id)
-                    .where(
-                        Recetas.recepcion_id == int(recepcion_id),
-                        Recetas.vigente.is_(True),
-                        Recetas.nro_receta.in_(list(nro_recetas_new)),
-                    )
-                )
-                .scalars()
-                .all()
-            )
-
-        if receta_ids_prev:
-            # asociaciones primero
-            s.execute(
-                update(Asociacion)
-                .where(
-                    Asociacion.receta_id.in_(receta_ids_prev),
-                    Asociacion.vigente.is_(True),
-                )
-                .values(vigente=False)
-            )
-            # recetas después
-            s.execute(
-                update(Recetas)
-                .where(Recetas.receta_id.in_(receta_ids_prev))
-                .values(vigente=False)
-            )
-
-            # contador informativo
-            resumen.ya_asociado += len(receta_ids_prev)
-
-        # -----------------------------------------
-        # 8) Persistencia
-        # -----------------------------------------
-        troqueles_to_add: List[Troqueles] = []
-        asoc_to_add: List[Asociacion] = []
-        recetas_vencidas: List[int] = []
-
-        for archivo_id, scan, pages, tiff_path, file_name in work:
-            archivo = archivo_by_id.get(archivo_id)
-            if not archivo:
-                resumen.errores.append(f"{file_name}: archivo_id {archivo_id} no existe en DB")
-                continue
-
-            # vencido
-            archivo_ts = self._archivo_ts(archivo)
-            esta_vencido = self._esta_vencido(archivo_ts, fecha_presentacion)
-            if getattr(archivo, "vencido", False) != esta_vencido:
-                archivo.vencido = esta_vencido
-
-            dets = detalles_by_archivo.get(archivo_id, [])
-
-            # cods_detalle + importe_por_cod + cant_por_cod
-            importe_por_cod: Dict[str, float] = {}
-            cods_detalle: Set[str] = set()
-            cant_por_cod: Dict[str, int] = {}
-
-            for d in dets:
-                ca = self._norm_str(getattr(d, "cod_medic", None))
-                if not ca:
+            for x in scanned:
+                refs = [self._norm_str(r) for r in (x.scan.headers or []) if self._norm_str(r)]
+                if not refs:
+                    resumen.sin_match += 1
                     continue
-                cods_detalle.add(ca)
-                importe_por_cod[ca] = importe_por_cod.get(ca, 0.0) + float(getattr(d, "importe_obs", 0) or 0)
-                cant_por_cod[ca] = cant_por_cod.get(ca, 0) + int(getattr(d, "cantidad", 0) or 0)
 
-            # counts por codebar
-            counts: Dict[str, int] = dict(
-                Counter(self._norm_str(c) for c in (scan.troqueles or []) if self._norm_str(c))
-            )
+                if any(ref in match.duplicated_refs for ref in refs):
+                    resumen.duplicados += 1
+                    continue
 
-            estado_db_por_codebar: Dict[str, EstadoTroquelEnum] = {}
-            estado_render_por_codebar: Dict[str, Literal["V", "A", "R"]] = {}
-            dto_por_codebar: Dict[str, MedicamentoDTO] = {}
+                archivo: Optional[Archivo] = None
+                for ref in refs:
+                    a = match.ref_to_archivo.get(ref)
+                    if a is not None:
+                        archivo = a
+                        break
 
-            if counts:
-                for codebar, qty_scan in counts.items():
-                    if codebar in med_cache:
-                        dto = med_cache[codebar]
-                    else:
-                        dto = self._client.get_by_codebar(codebar)  # 404 => None
-                        med_cache[codebar] = dto
+                if archivo is None:
+                    resumen.sin_match += 1
+                    continue
 
-                    if dto is None:
-                        estado_db_por_codebar[codebar] = EstadoTroquelEnum.A
-                        estado_render_por_codebar[codebar] = "A"
-                        continue
+                work.append(_WorkItem(it=x.it, scan=x.scan, archivo_id=int(archivo.archivo_id)))
+                archivo_ids.append(int(archivo.archivo_id))
 
-                    dto_por_codebar[codebar] = dto
-                    ca = str(dto.code_alfabeta or "").strip()
-                    match_detalle = bool(ca) and (ca in cods_detalle)
-
-                    if not match_detalle:
-                        estado_db_por_codebar[codebar] = EstadoTroquelEnum.R
-                        estado_render_por_codebar[codebar] = "R"
-                        continue
-
-                    estado_render_por_codebar[codebar] = "V"
-                    qty_det = int(cant_por_cod.get(ca, 0))
-                    estado_db_por_codebar[codebar] = EstadoTroquelEnum.V if qty_det == int(qty_scan) else EstadoTroquelEnum.R
-
-            # Render bytes
-            try:
-                files = self._tif.render_bytes(
-                    tiff_path=tiff_path,
-                    scan=scan,
-                    pages=pages,
-                    estado_por_codebar=estado_render_por_codebar,
-                )
-            except Exception as e:
-                resumen.errores.append(f"{file_name}: render error: {e}")
-                files = {"front_bytes": None, "back_bytes": None}
-
-            front_bytes = files.get("front_bytes")
-            back_bytes = files.get("back_bytes")
-
-            # Keys S3
-            base_name = self._base_from_tif_path(tiff_path)
-            yyyy, mm = self._year_month_from_basename_or_fallback(base_name, archivo, tiff_path)
-            front_key, back_key = self._build_s3_keys(
-                prestador_imed=prestador_imed,
-                yyyy=yyyy,
-                mm=mm,
-                base_name=base_name,
-            )
-
-            # Subir S3
-            try:
-                if front_bytes:
-                    self._storage.put_jpg(front_key, front_bytes)
-                if back_bytes:
-                    self._storage.put_jpg(back_key, back_bytes)
-            except Exception as e:
-                resumen.errores.append(f"{file_name}: S3 upload error: {e}")
+            if not work:
+                total.merge(resumen)
                 continue
 
-            # Crear receta
-            nro_receta = self._norm_str(getattr(archivo, "nro_receta", None)) or "-"
+            # 2.4) bulk load Archivos + Detalles
+            archivos = s.execute(select(Archivo).where(Archivo.archivo_id.in_(archivo_ids))).scalars().all()
+            archivo_by_id: Dict[int, Archivo] = {a.archivo_id: a for a in archivos}
 
-            receta = Recetas(
-                recepcion_id=int(recepcion_id),
-                nro_receta=nro_receta,
-                ubicacion_frente=front_key if front_bytes else None,
-                ubicacion_dorso=back_key if back_bytes else None,
-                fecha_prescripcion=None,
-                observacion=None,
-                usuario_id=usuario_id,
-                estado_receta_id=2,
-                creado_en=datetime.now(),
-                vigente=True,
+            detalles = s.execute(select(ArchivoDetalle).where(ArchivoDetalle.archivo_id.in_(archivo_ids))).scalars().all()
+            detalles_by_archivo: Dict[int, List[ArchivoDetalle]] = {}
+            for d in detalles:
+                detalles_by_archivo.setdefault(d.archivo_id, []).append(d)
+
+            # 2.5) versionado (igual que vos, bulk)
+            nro_recetas_new: Set[str] = set()
+            for aid in archivo_ids:
+                ar = archivo_by_id.get(aid)
+                if not ar:
+                    continue
+                nr = (getattr(ar, "nro_receta", None) or "").strip()
+                if nr:
+                    nro_recetas_new.add(nr)
+
+            receta_ids_prev: List[int] = []
+            if nro_recetas_new:
+                receta_ids_prev = (
+                    s.execute(
+                        select(Recetas.receta_id)
+                        .where(
+                            Recetas.recepcion_id == int(recepcion_id),
+                            Recetas.vigente.is_(True),
+                            Recetas.nro_receta.in_(list(nro_recetas_new)),
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+
+            if receta_ids_prev:
+                s.execute(
+                    update(Asociacion)
+                    .where(
+                        Asociacion.receta_id.in_(receta_ids_prev),
+                        Asociacion.vigente.is_(True),
+                    )
+                    .values(vigente=False)
+                )
+                s.execute(
+                    update(Recetas)
+                    .where(Recetas.receta_id.in_(receta_ids_prev))
+                    .values(vigente=False)
+                )
+                resumen.ya_asociado += len(receta_ids_prev)
+
+            # 2.6) precomputar estados + troqueles + vencido (SIN render ni S3 todavía)
+            estado_render_by_archivo_id: Dict[int, Dict[str, Literal["V","A","R"]]] = {}
+            dto_cache_local = med_cache  # mismo cache por corrida
+
+            # además juntamos data para persistencia después del upload
+            recetas_to_add: List[Recetas] = []
+            asoc_to_add: List[Asociacion] = []
+            troqueles_to_add: List[Troqueles] = []
+            recetas_vencidas: List[int] = []
+
+            # OJO: acá todavía no creamos recetas; primero subimos S3.
+            # Pero para render necesitamos el estado_render_por_codebar, lo armamos por archivo_id.
+            for w in work:
+                archivo = archivo_by_id.get(w.archivo_id)
+                if not archivo:
+                    resumen.errores.append(f"{w.it.file_name}: archivo_id {w.archivo_id} no existe en DB")
+                    continue
+
+                archivo_ts = self._archivo_ts(archivo)
+                esta_vencido = self._esta_vencido(archivo_ts, fecha_presentacion)
+                if getattr(archivo, "vencido", False) != esta_vencido:
+                    archivo.vencido = esta_vencido
+
+                dets = detalles_by_archivo.get(w.archivo_id, [])
+                importe_por_cod: Dict[str, float] = {}
+                cods_detalle: Set[str] = set()
+                cant_por_cod: Dict[str, int] = {}
+
+                for d in dets:
+                    ca = self._norm_str(getattr(d, "cod_medic", None))
+                    if not ca:
+                        continue
+                    cods_detalle.add(ca)
+                    importe_por_cod[ca] = importe_por_cod.get(ca, 0.0) + float(getattr(d, "importe_obs", 0) or 0)
+                    cant_por_cod[ca] = cant_por_cod.get(ca, 0) + int(getattr(d, "cantidad", 0) or 0)
+
+                counts: Dict[str, int] = dict(Counter(self._norm_str(c) for c in (w.scan.troqueles or []) if self._norm_str(c)))
+
+                estado_render_por_codebar: Dict[str, Literal["V","A","R"]] = {}
+                # los estados DB / dto / monto los vamos a recalcular al persistir (cuando ya tengamos receta_id).
+                # pero DTO lo cacheamos acá, así no hacemos HTTP 2 veces.
+                if counts:
+                    for codebar, qty_scan in counts.items():
+                        if codebar in dto_cache_local:
+                            dto = dto_cache_local[codebar]
+                        else:
+                            dto = self._client.get_by_codebar(codebar)
+                            dto_cache_local[codebar] = dto
+
+                        if dto is None:
+                            estado_render_por_codebar[codebar] = "A"
+                            continue
+
+                        ca = str(dto.code_alfabeta or "").strip()
+                        match_detalle = bool(ca) and (ca in cods_detalle)
+                        if not match_detalle:
+                            estado_render_por_codebar[codebar] = "R"
+                            continue
+
+                        # render siempre V si está en detalle (tu regla)
+                        estado_render_por_codebar[codebar] = "V"
+
+                estado_render_by_archivo_id[w.archivo_id] = estado_render_por_codebar
+
+            # 2.7) render+upload en paralelo (usa scan + estado_render)
+            uploaded = self._parallel_render_upload(
+                work_items=work,
+                archivo_by_id=archivo_by_id,
+                prestador_imed=prestador_imed,
+                estado_render_by_work=estado_render_by_archivo_id,
+                resumen=resumen,
             )
-            s.add(receta)
-            s.flush()  # seguimos con flush por receta (sin tocar relaciones)
 
-            # asociar (vigente)
-            asoc_to_add.append(
-                Asociacion(
-                    receta_id=receta.receta_id,
-                    archivo_id=archivo_id,
+            # 2.8) persistencia DB (bulk, 1 flush)
+            # armamos recetas SOLO para los que realmente subieron algo
+            valid_uploaded: List[_UploadResult] = []
+            for u in uploaded:
+                if not u.front_key and not u.back_key:
+                    resumen.errores.append(f"{u.work.it.file_name}: no se subió frente ni dorso")
+                    continue
+                valid_uploaded.append(u)
+
+            if not valid_uploaded:
+                total.merge(resumen)
+                continue
+
+            # crear recetas en memoria
+            receta_by_archivo_id: Dict[int, Recetas] = {}
+            for u in valid_uploaded:
+                archivo = archivo_by_id[u.work.archivo_id]
+                nro_receta = self._norm_str(getattr(archivo, "nro_receta", None)) or "-"
+
+                receta = Recetas(
+                    recepcion_id=int(recepcion_id),
+                    nro_receta=nro_receta,
+                    ubicacion_frente=u.front_key,
+                    ubicacion_dorso=u.back_key,
+                    fecha_prescripcion=None,
+                    observacion=None,
+                    usuario_id=usuario_id,
+                    estado_receta_id=2,
+                    creado_en=datetime.now(),
                     vigente=True,
                 )
-            )
+                recetas_to_add.append(receta)
+                receta_by_archivo_id[u.work.archivo_id] = receta
 
-            # debito vencido (deferido)
-            if esta_vencido:
-                recetas_vencidas.append(int(receta.receta_id))
+            s.add_all(recetas_to_add)
+            s.flush()  # 1 flush por tanda
 
-            # troqueles
-            if counts:
-                for codebar, qty in counts.items():
-                    estado = estado_db_por_codebar.get(codebar, EstadoTroquelEnum.A)
-                    dto = dto_por_codebar.get(codebar)
+            # asociaciones + troqueles + debitos vencido
+            recetas_vencidas_ids: List[int] = []
 
-                    droga_concat = dto.drogas_concat if dto else None
-                    presentacion = dto.presentacion if dto else None
-                    code_alfabeta = int(dto.code_alfabeta or 0) if dto else 0
+            for u in valid_uploaded:
+                w = u.work
+                archivo = archivo_by_id[w.archivo_id]
+                receta = receta_by_archivo_id[w.archivo_id]
 
-                    monto = 0.0
-                    if code_alfabeta and str(code_alfabeta) in cods_detalle:
-                        monto = float(importe_por_cod.get(str(code_alfabeta), 0.0))
+                # asociacion
+                asoc_to_add.append(Asociacion(receta_id=receta.receta_id, archivo_id=w.archivo_id, vigente=True))
 
-                    troqueles_to_add.append(
-                        Troqueles(
-                            receta_id=receta.receta_id,
-                            codigo_barra=codebar,
-                            droga=droga_concat,
-                            presentacion=presentacion,
-                            code_alfabeta=code_alfabeta,
-                            monto=Decimal(monto),
-                            cantidad=int(qty),
-                            estado=estado,
+                # vencido
+                esta_vencido = bool(getattr(archivo, "vencido", False))
+                if esta_vencido:
+                    recetas_vencidas_ids.append(int(receta.receta_id))
+
+                # troqueles (recalcular estado DB + monto con detalle)
+                dets = detalles_by_archivo.get(w.archivo_id, [])
+                importe_por_cod: Dict[str, float] = {}
+                cods_detalle: Set[str] = set()
+                cant_por_cod: Dict[str, int] = {}
+
+                for d in dets:
+                    ca = self._norm_str(getattr(d, "cod_medic", None))
+                    if not ca:
+                        continue
+                    cods_detalle.add(ca)
+                    importe_por_cod[ca] = importe_por_cod.get(ca, 0.0) + float(getattr(d, "importe_obs", 0) or 0)
+                    cant_por_cod[ca] = cant_por_cod.get(ca, 0) + int(getattr(d, "cantidad", 0) or 0)
+
+                counts: Dict[str, int] = dict(Counter(self._norm_str(c) for c in (w.scan.troqueles or []) if self._norm_str(c)))
+
+                if counts:
+                    for codebar, qty_scan in counts.items():
+                        dto = med_cache.get(codebar)
+
+                        if dto is None:
+                            estado_db = EstadoTroquelEnum.A
+                            code_alfabeta = 0
+                            droga_concat = None
+                            presentacion = None
+                        else:
+                            code_alfabeta = int(dto.code_alfabeta or 0)
+                            droga_concat = dto.drogas_concat
+                            presentacion = dto.presentacion
+
+                            ca = str(dto.code_alfabeta or "").strip()
+                            match_detalle = bool(ca) and (ca in cods_detalle)
+
+                            if not match_detalle:
+                                estado_db = EstadoTroquelEnum.R
+                            else:
+                                qty_det = int(cant_por_cod.get(ca, 0))
+                                estado_db = EstadoTroquelEnum.V if qty_det == int(qty_scan) else EstadoTroquelEnum.R
+
+                        monto = 0.0
+                        if code_alfabeta and str(code_alfabeta) in cods_detalle:
+                            monto = float(importe_por_cod.get(str(code_alfabeta), 0.0))
+
+                        troqueles_to_add.append(
+                            Troqueles(
+                                receta_id=receta.receta_id,
+                                codigo_barra=codebar,
+                                droga=droga_concat,
+                                presentacion=presentacion,
+                                code_alfabeta=code_alfabeta,
+                                monto=Decimal(monto),
+                                cantidad=int(qty_scan),
+                                estado=estado_db,
+                            )
+                        )
+
+            if asoc_to_add:
+                s.add_all(asoc_to_add)
+            if troqueles_to_add:
+                s.add_all(troqueles_to_add)
+
+            # Debitos vencido bulk
+            if recetas_vencidas_ids:
+                ya_tienen = set(
+                    s.execute(
+                        select(Debitos.receta_id).where(
+                            Debitos.motivo_debito_id == MOTIVO_DEBITO_VENCIDO_60_ID,
+                            Debitos.receta_id.in_(recetas_vencidas_ids),
+                        )
+                    ).scalars().all()
+                )
+                for rid in recetas_vencidas_ids:
+                    if rid in ya_tienen:
+                        continue
+                    s.add(
+                        Debitos(
+                            receta_id=rid,
+                            motivo_debito_id=MOTIVO_DEBITO_VENCIDO_60_ID,
+                            detalle="Vencido por 60 días (auto)",
                         )
                     )
 
-            resumen.ok += 1
+            resumen.ok += len(valid_uploaded)
 
-        # Debitos vencido (bulk)
-        if recetas_vencidas:
-            ya_tienen = set(
-                s.execute(
-                    select(Debitos.receta_id).where(
-                        Debitos.motivo_debito_id == MOTIVO_DEBITO_VENCIDO_60_ID,
-                        Debitos.receta_id.in_(recetas_vencidas),
-                    )
-                ).scalars().all()
-            )
+            total.merge(resumen)
 
-            for rid in recetas_vencidas:
-                if rid in ya_tienen:
-                    continue
-                s.add(
-                    Debitos(
-                        receta_id=rid,
-                        motivo_debito_id=MOTIVO_DEBITO_VENCIDO_60_ID,
-                        detalle="Vencido por 60 días (auto)",
-                    )
-                )
-
-        if asoc_to_add:
-            s.add_all(asoc_to_add)
-        if troqueles_to_add:
-            s.add_all(troqueles_to_add)
-
-        return resumen
+        return total

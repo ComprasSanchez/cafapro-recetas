@@ -10,9 +10,6 @@ from PIL import Image
 from pyzbar.pyzbar import decode as zbar_decode, ZBarSymbol
 
 
-# -----------------------------
-# Types
-# -----------------------------
 BBox = Tuple[int, int, int, int]
 TroquelEstado = Literal["V", "A", "R"]
 
