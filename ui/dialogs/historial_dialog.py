@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, QThreadPool
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QDialog, QWidget, QVBoxLayout, QSplitter,
@@ -16,6 +16,7 @@ from app.db.session import session_scope
 from ui.label.image_view_label import ImageViewer
 from ui.usecase.auditoria_usecase import AuditoriaUseCase
 from app.service.recetas.historial_receta_service import HistorialRecetaService
+from ui.utils.worker import Worker
 
 
 @dataclass(frozen=True)
@@ -32,6 +33,12 @@ class HistorialDialog(QDialog):
 
     def __init__(self, *, archivo_id_actual: int, parent=None):
         super().__init__(parent)
+
+        self._pool = QThreadPool.globalInstance()
+
+        self._preview_cache: dict[tuple[str, int, int], bytes] = {}
+        self._preview_req_id: dict[str, int] = {"F": 0, "D": 0}
+        self._last_preview_path: dict[str, str | None] = {"F": None, "D": None}
 
         self._archivo_id_actual = int(archivo_id_actual)
         self._hist_rows: list[HistRow] = []
@@ -126,11 +133,11 @@ class HistorialDialog(QDialog):
         self.tbl_hist.setHorizontalHeaderLabels(
             ["Fecha", "Auditor", "Estado", "Débitos"]
         )
-        self.tbl_hist.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.tbl_hist.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.tbl_hist.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.tbl_hist.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.tbl_hist.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.tbl_hist.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.tbl_hist.verticalHeader().setVisible(False)
-        self.tbl_hist.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.tbl_hist.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self.tbl_hist.horizontalHeader().setStretchLastSection(True)
 
         self.tbl_hist.itemSelectionChanged.connect(self._on_selected)
@@ -155,7 +162,7 @@ class HistorialDialog(QDialog):
         self.tbl_debitos = QTableWidget()
         self.tbl_debitos.setColumnCount(2)
         self.tbl_debitos.setHorizontalHeaderLabels(["Motivo", "Detalle"])
-        self.tbl_debitos.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.tbl_debitos.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tbl_debitos.verticalHeader().setVisible(False)
         self.tbl_debitos.horizontalHeader().setStretchLastSection(True)
 
@@ -195,7 +202,9 @@ class HistorialDialog(QDialog):
         self._render_historial()
 
         if self._hist_rows:
+            self.tbl_hist.blockSignals(True)
             self.tbl_hist.selectRow(0)
+            self.tbl_hist.blockSignals(False)
             self._apply_selected(self._hist_rows[0])
 
     # =========================================================
@@ -207,10 +216,26 @@ class HistorialDialog(QDialog):
             return
 
         if self._current.frente_path:
-            self._set_preview(self.img_frente, self.scroll_frente, self._current.frente_path)
+            self._set_preview(
+                "F",
+                self.img_frente,
+                self.scroll_frente,
+                self._current.frente_path
+            )
+        else:
+            self.img_frente.setText("Sin imagen (frente)")
+            self.img_frente.set_pixmap(None)
 
         if self._current.dorso_path:
-            self._set_preview(self.img_dorso, self.scroll_dorso, self._current.dorso_path)
+            self._set_preview(
+                "D",
+                self.img_dorso,
+                self.scroll_dorso,
+                self._current.dorso_path
+            )
+        else:
+            self.img_dorso.setText("Sin imagen (dorso)")
+            self.img_dorso.set_pixmap(None)
 
     def _render_historial(self):
         self.tbl_hist.setRowCount(len(self._hist_rows))
@@ -228,7 +253,6 @@ class HistorialDialog(QDialog):
 
     def _apply_selected(self, r: HistRow):
 
-        # Info textual
         self.lb_info.setText(
             f"Auditor: {r.auditor_username or '-'}\n"
             f"Fecha: {r.auditado_en or '-'}\n"
@@ -237,31 +261,29 @@ class HistorialDialog(QDialog):
 
         with session_scope() as s:
 
-            # 🔹 1. Cargar débitos
             debs = HistorialRecetaService.list_debitos_for_receta(
                 s, receta_id=r.receta_id
             )
 
-            # 🔹 2. Cargar imágenes de ESA receta
             imgs = HistorialRecetaService.get_imagenes_por_receta(
                 s, receta_id=r.receta_id
             )
 
-        # Render débitos
+        # 🔹 Render débitos
         self.tbl_debitos.setRowCount(len(debs))
         for i, d in enumerate(debs):
             self.tbl_debitos.setItem(i, 0, QTableWidgetItem(d["motivo"]))
             self.tbl_debitos.setItem(i, 1, QTableWidgetItem(d["detalle"]))
 
-        # 🔥 Render imágenes seleccionadas
-        if imgs["frente"]:
-            self._set_preview(self.img_frente, self.scroll_frente, imgs["frente"])
+        # 🔹 Render imágenes async
+        if imgs.get("frente"):
+            self._set_preview("F", self.img_frente, self.scroll_frente, imgs["frente"])
         else:
             self.img_frente.setText("Sin imagen (frente)")
             self.img_frente.set_pixmap(None)
 
-        if imgs["dorso"]:
-            self._set_preview(self.img_dorso, self.scroll_dorso, imgs["dorso"])
+        if imgs.get("dorso"):
+            self._set_preview("D", self.img_dorso, self.scroll_dorso, imgs["dorso"])
         else:
             self.img_dorso.setText("Sin imagen (dorso)")
             self.img_dorso.set_pixmap(None)
@@ -270,12 +292,91 @@ class HistorialDialog(QDialog):
     # PREVIEW
     # =========================================================
 
-    def _set_preview(self, viewer, scroll, path):
-        out = AuditoriaUseCase.load_preview_bytes(path=path, vw=800, vh=800)
-        if not out.img_bytes:
+    def _set_preview(self, lado: str, viewer, scroll, path: str):
+
+        raw = (path or "").strip()
+        if not raw:
+            viewer.set_pixmap(None)
+            viewer.setText("Sin imagen")
             return
 
+        if self._last_preview_path.get(lado) == raw:
+            return
+
+        self._last_preview_path[lado] = raw
+
+        vw = max(200, scroll.viewport().width() - 12)
+        vh = max(200, scroll.viewport().height() - 12)
+
+        cache_key = (raw, vw, vh)
+        if cache_key in self._preview_cache:
+            png_bytes = self._preview_cache[cache_key]
+            pix = QPixmap()
+            if pix.loadFromData(png_bytes):
+                viewer.setText("")
+                viewer.set_pixmap(pix)
+                QTimer.singleShot(0, lambda: viewer.fit_to(scroll.viewport().size()))
+                return
+
+        # 🔥 async
+        self._preview_req_id[lado] += 1
+        req_id = self._preview_req_id[lado]
+
+        viewer.setText("Cargando…")
+        viewer.set_pixmap(None)
+
+        w = Worker(
+            self._load_preview_worker,
+            lado=lado,
+            raw=raw,
+            vw=vw,
+            vh=vh,
+            req_id=req_id
+        )
+        w.signals.finished.connect(self._apply_preview_worker)
+        self._pool.start(w)
+
+    def _load_preview_worker(self, *, lado: str, raw: str, vw: int, vh: int, req_id: int):
+
+        out = AuditoriaUseCase.load_preview_bytes(path=raw, vw=vw, vh=vh)
+
+        return {
+            "lado": lado,
+            "png_bytes": out.img_bytes,
+            "req_id": req_id,
+            "raw": raw,
+            "vw": vw,
+            "vh": vh
+        }
+
+    def _apply_preview_worker(self, out: dict):
+
+        lado = out["lado"]
+        req_id = out["req_id"]
+        raw = out["raw"]
+        vw = out["vw"]
+        vh = out["vh"]
+
+        if req_id != self._preview_req_id.get(lado):
+            return
+
+        if self._last_preview_path.get(lado) != raw:
+            return
+
+        png_bytes = out["png_bytes"]
+        if not png_bytes:
+            return
+
+        self._preview_cache[(raw, vw, vh)] = png_bytes
+
+        viewer = self.img_frente if lado == "F" else self.img_dorso
+        scroll = self.scroll_frente if lado == "F" else self.scroll_dorso
+
         pix = QPixmap()
-        pix.loadFromData(out.img_bytes)
+        if not pix.loadFromData(png_bytes):
+            return
+
+        viewer.setText("")
         viewer.set_pixmap(pix)
         QTimer.singleShot(0, lambda: viewer.fit_to(scroll.viewport().size()))
+

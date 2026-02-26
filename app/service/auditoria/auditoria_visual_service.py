@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import List, Optional
-from decimal import Decimal
 
 from sqlalchemy.orm import Session
 
