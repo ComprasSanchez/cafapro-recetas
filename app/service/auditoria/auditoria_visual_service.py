@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.db.models import (
     Asociacion, Recetas, Archivo, Troqueles, ArchivoDetalle, Debitos, MotivoDebito
 )
+from app.service.recetas.historial_receta_service import HistorialRecetaService
 
 
 @dataclass(frozen=True)
@@ -30,7 +31,9 @@ class AuditoriaVisualData:
     troqueles: List[type[Troqueles]]
     archivo_detalles: List[type[ArchivoDetalle]]
     debitos: List[DebitoRow]
-    total_troqueles: Decimal
+    motivos_frente: List[type[MotivoDebito]]
+    motivos_dorso: List[type[MotivoDebito]]
+    has_historial_debitada: bool
 
 
 class AuditoriaVisualService:
@@ -41,7 +44,6 @@ class AuditoriaVisualService:
             raise ValueError(f"No existe Asociacion con id={asociacion_id}")
 
         if not getattr(asociacion, "vigente", True):
-            # Redirigir a la asociación vigente del mismo archivo (lo operativo)
             asoc_vig = (
                 session.query(Asociacion)
                 .filter(
@@ -52,25 +54,13 @@ class AuditoriaVisualService:
                 .first()
             )
             if not asoc_vig:
-                raise ValueError(
-                    f"La asociación {asociacion_id} no es vigente y no existe una vigente para archivo_id={asociacion.archivo_id}"
-                )
+                raise ValueError("No existe asociación vigente")
             asociacion = asoc_vig
 
-        # 2) Receta + Archivo
         receta = session.get(Recetas, asociacion.receta_id)
-        if not receta:
-            raise ValueError(
-                f"Asociacion {asociacion.asociacion_id} apunta a receta_id inexistente={asociacion.receta_id}"
-            )
-
         archivo = session.get(Archivo, asociacion.archivo_id)
-        if not archivo:
-            raise ValueError(
-                f"Asociacion {asociacion.asociacion_id} apunta a archivo_id inexistente={asociacion.archivo_id}"
-            )
 
-        # 3) Troqueles (de la receta vigente)
+        # 🔹 Troqueles
         troqueles = (
             session.query(Troqueles)
             .filter(Troqueles.receta_id == receta.receta_id)
@@ -78,7 +68,7 @@ class AuditoriaVisualService:
             .all()
         )
 
-        # 4) ArchivoDetalle (del archivo)
+        # 🔹 ArchivoDetalle
         archivo_detalles = (
             session.query(ArchivoDetalle)
             .filter(ArchivoDetalle.archivo_id == archivo.archivo_id)
@@ -86,7 +76,7 @@ class AuditoriaVisualService:
             .all()
         )
 
-        # 5) Debitos + MotivoDebito (de la receta)
+        # 🔹 Débitos
         rows = (
             session.query(
                 Debitos.debito_id,
@@ -116,12 +106,29 @@ class AuditoriaVisualService:
             for r in rows
         ]
 
-        # 6) Total troqueles = SUM(monto * cantidad)
-        total = Decimal("0")
-        for t in troqueles:
-            monto = Decimal(str(getattr(t, "monto", 0) or 0))
-            cant = int(getattr(t, "cantidad", 0) or 0)
-            total += (monto * Decimal(cant))
+        # 🔹 Motivos por lado (🔥 ahora vienen precargados)
+        motivos_frente = (
+            session.query(MotivoDebito)
+            .filter(MotivoDebito.lado == "F")
+            .order_by(MotivoDebito.motivo_debito_id.asc())
+            .all()
+        )
+
+        motivos_dorso = (
+            session.query(MotivoDebito)
+            .filter(MotivoDebito.lado == "D")
+            .order_by(MotivoDebito.motivo_debito_id.asc())
+            .all()
+        )
+
+        # 🔹 Historial (🔥 MISMA sesión, no abrimos otra)
+        has_historial = False
+        if archivo and archivo.archivo_id:
+            has_historial = HistorialRecetaService.has_historial_debitada(
+                session,
+                archivo_id=archivo.archivo_id
+            )
+
 
         return AuditoriaVisualData(
             asociacion=asociacion,
@@ -130,5 +137,7 @@ class AuditoriaVisualService:
             troqueles=troqueles,
             archivo_detalles=archivo_detalles,
             debitos=debitos,
-            total_troqueles=total,
+            motivos_frente=motivos_frente,
+            motivos_dorso=motivos_dorso,
+            has_historial_debitada=has_historial,
         )

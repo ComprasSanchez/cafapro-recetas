@@ -9,15 +9,13 @@ from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QSplitter,
     QLabel, QPushButton, QFrame, QScrollArea, QTableWidget,
     QTableWidgetItem, QHeaderView, QAbstractItemView, QMessageBox,
-    QWidget, QCheckBox, QInputDialog, QLineEdit, QMenu
+    QWidget, QInputDialog, QLineEdit, QMenu, QListWidget, QListWidgetItem
 )
 
 from app.db.models import EstadoTroquelEnum
 from app.db.session import session_scope
 from app.service.auditoria.auditoria_visual_service import AuditoriaVisualService, AuditoriaVisualData
 from app.service.debitos.debitos_service import DebitoInput, DebitosService
-from app.service.debitos.motivos_debito_service import MotivosDebitosService
-from app.service.recetas.historial_receta_service import HistorialRecetaService
 from app.service.recetas.recetas_service import RecetaService
 from ui.dialogs.estado_seguimeinto_pick_dialog import EstadoSeguimientoPickDialog
 from ui.dialogs.historial_dialog import HistorialDialog
@@ -63,7 +61,6 @@ class AuditoriaVisualDialog(QDialog):
 
         # cache de previews (incluye lado por seguridad)
         self._preview_cache: dict[tuple[str, str, int, int], bytes] = {}
-        self._motivos_cache: dict[str, list] = {}
 
         self._resize_timer = QTimer(self)
         self._resize_timer.setSingleShot(True)
@@ -280,7 +277,7 @@ class AuditoriaVisualDialog(QDialog):
 
         hh = tbl.horizontalHeader()
         hh.setStretchLastSection(True)
-        hh.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         hh.setHighlightSections(False)
 
     # -------------------------
@@ -300,20 +297,10 @@ class AuditoriaVisualDialog(QDialog):
         lay_f.setSpacing(8)
 
         title_f = QLabel("Motivos débito – Frente")
-        title_f.setProperty("role", "subtitle")
-        lay_f.addWidget(title_f, 0)
+        lay_f.addWidget(title_f)
 
-        self.motivos_scroll_f = QScrollArea()
-        self.motivos_scroll_f.setWidgetResizable(True)
-
-        self.motivos_container_f = QWidget()
-        self.motivos_layout_f = QVBoxLayout(self.motivos_container_f)
-        self.motivos_layout_f.setContentsMargins(0, 0, 0, 0)
-        self.motivos_layout_f.setSpacing(6)
-        self.motivos_layout_f.addStretch(1)
-
-        self.motivos_scroll_f.setWidget(self.motivos_container_f)
-        lay_f.addWidget(self.motivos_scroll_f, 1)
+        self.list_motivos_f = QListWidget()
+        lay_f.addWidget(self.list_motivos_f, 1)
 
         # ---------- Dorso ----------
         box_d = QFrame()
@@ -323,20 +310,13 @@ class AuditoriaVisualDialog(QDialog):
         lay_d.setSpacing(8)
 
         title_d = QLabel("Motivos débito – Dorso")
-        title_d.setProperty("role", "subtitle")
-        lay_d.addWidget(title_d, 0)
+        lay_d.addWidget(title_d)
 
-        self.motivos_scroll_d = QScrollArea()
-        self.motivos_scroll_d.setWidgetResizable(True)
+        self.list_motivos_d = QListWidget()
+        lay_d.addWidget(self.list_motivos_d, 1)
 
-        self.motivos_container_d = QWidget()
-        self.motivos_layout_d = QVBoxLayout(self.motivos_container_d)
-        self.motivos_layout_d.setContentsMargins(0, 0, 0, 0)
-        self.motivos_layout_d.setSpacing(6)
-        self.motivos_layout_d.addStretch(1)
-
-        self.motivos_scroll_d.setWidget(self.motivos_container_d)
-        lay_d.addWidget(self.motivos_scroll_d, 1)
+        self.list_motivos_f.itemChanged.connect(self._on_motivo_item_changed)
+        self.list_motivos_d.itemChanged.connect(self._on_motivo_item_changed)
 
         root.addWidget(box_f, 1)
         root.addWidget(box_d, 1)
@@ -514,7 +494,6 @@ class AuditoriaVisualDialog(QDialog):
     # Data load + render
     # -------------------------
     def _load(self) -> None:
-        # reset por registro (evita arrastre)
         self.data = None
         self._selected_debitos = {}
         self._vendedor_id = None
@@ -522,7 +501,7 @@ class AuditoriaVisualDialog(QDialog):
         self.lb_vendedor.setToolTip("")
 
         self._last_preview_path = {"F": None, "D": None}
-        self._preview_req_id = {"F": self._preview_req_id.get("F", 0), "D": self._preview_req_id.get("D", 0)}
+        self._preview_req_id = {"F": 0, "D": 0}
 
         self.in_prescripcion.setText("")
         self.in_emision.setText("")
@@ -536,13 +515,15 @@ class AuditoriaVisualDialog(QDialog):
         self.tbl_troqueles.setRowCount(0)
         self.tbl_arch_det.setRowCount(0)
 
-        # limpiar motivos
-        self._clear_motivos_layout(self.motivos_layout_f)
-        self._clear_motivos_layout(self.motivos_layout_d)
+        self.list_motivos_f.clear()
+        self.list_motivos_d.clear()
 
         try:
             with session_scope() as s:
-                self.data = AuditoriaVisualService.load_by_asociacion_id(s, int(self.asociacion_id))
+                self.data = AuditoriaVisualService.load_by_asociacion_id(
+                    s,
+                    int(self.asociacion_id)
+                )
 
                 self._selected_debitos = {
                     int(d.motivo_debito_id): d.detalle
@@ -557,7 +538,6 @@ class AuditoriaVisualDialog(QDialog):
             self.data = None
             return
 
-        self.btn_debitada.setVisible(False)
 
         self._render_all()
 
@@ -588,7 +568,6 @@ class AuditoriaVisualDialog(QDialog):
         fr = (getattr(self.data.receta, "ubicacion_frente", None) or "").strip()
         dr = (getattr(self.data.receta, "ubicacion_dorso", None) or "").strip()
 
-        # ✅ Mostrar ambos siempre
         if fr:
             self._set_preview_and_fit("F", fr)
         else:
@@ -599,47 +578,49 @@ class AuditoriaVisualDialog(QDialog):
         else:
             self._clear_preview("D", "Sin imagen (dorso)")
 
-        # ✅ Motivos por lado siempre (dos segmentos)
-        self._render_motivos_lado("F", self.motivos_layout_f)
-        self._render_motivos_lado("D", self.motivos_layout_d)
+
+        self._render_motivos_lado("F")
+        self._render_motivos_lado("D")
 
         self._render_troqueles()
         self._render_archivo_detalle()
 
-        imp_neto = Decimal(str(getattr(self.data.archivo, "importe_neto", 0) or 0))
-        imp_obs = Decimal(str(getattr(self.data.archivo, "importe_obs", 0) or 0))
-        a_cargo = Decimal(str(getattr(self.data.archivo, "a_cargo_entidad", 0) or 0))
+        # Fechas
+        self.in_prescripcion.setText(
+            self._fmt_date(getattr(self.data.receta, "fecha_prescripcion", None))
+        )
 
-        fp = getattr(self.data.receta, "fecha_prescripcion", None)
-        fe = getattr(self.data.receta, "fecha_emision", None)
-        fv = getattr(self.data.receta, "fecha_venta", None)
+        self.in_emision.setText(
+            self._fmt_date(getattr(self.data.receta, "fecha_emision", None))
+        )
 
-        self.in_prescripcion.setText(fp.strftime("%d/%m/%Y") if fp else "")
-        self.in_emision.setText(fe.strftime("%d/%m/%Y") if fe else "")
-        self.in_venta.setText(fv.strftime("%d/%m/%Y") if fv else "")
+        self.in_venta.setText(
+            self._fmt_date(getattr(self.data.receta, "fecha_venta", None))
+        )
+
+        self.btn_debitada.setVisible(self.data.has_historial_debitada)
+
+        self.lb_a_cargo.setText(self._fmt_money(
+            Decimal(str(getattr(self.data.archivo, "a_cargo_entidad", 0) or 0))
+        ))
+
+        self.lb_imp_obs.setText(self._fmt_money(
+            Decimal(str(getattr(self.data.archivo, "importe_obs", 0) or 0))
+        ))
+
+        self.lb_imp_neto.setText(self._fmt_money(
+            Decimal(str(getattr(self.data.archivo, "importe_neto", 0) or 0))
+        ))
 
         self.lb_big.setText(str(getattr(self.data.archivo, "orden_lote", "") or "—"))
         self.lb_autorizacion.setText(str(getattr(self.data.archivo, "fecha", "") or "—"))
 
-        self.lb_a_cargo.setText(self._fmt_money(a_cargo))
-        self.lb_imp_obs.setText(self._fmt_money(imp_obs))
-        self.lb_imp_neto.setText(self._fmt_money(imp_neto))
-
-        try:
-            archivo_id = int(getattr(self.data.archivo, "archivo_id", 0) or 0)
-            show = False
-            if archivo_id:
-                with session_scope() as s:
-                    show = HistorialRecetaService.has_historial_debitada(s, archivo_id=archivo_id)
-            self.btn_debitada.setVisible(bool(show))
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"{e}")
-            self.btn_debitada.setVisible(False)
 
     def _render_troqueles(self) -> None:
         assert self.data is not None
         rows = self.data.troqueles
 
+        self.tbl_troqueles.setUpdatesEnabled(False)
         self.tbl_troqueles.setRowCount(len(rows))
         for i, t in enumerate(rows):
             estado = getattr(t, "estado", "")
@@ -672,10 +653,13 @@ class AuditoriaVisualDialog(QDialog):
                     if it:
                         it.setData(Qt.BackgroundRole, brush)
 
+        self.tbl_troqueles.setUpdatesEnabled(True)
+
     def _render_archivo_detalle(self) -> None:
         assert self.data is not None
         rows = self.data.archivo_detalles
 
+        self.tbl_arch_det.setUpdatesEnabled(False)
         self.tbl_arch_det.setRowCount(len(rows))
         for i, d in enumerate(rows):
             self._set_cell(self.tbl_arch_det, i, 0, str(getattr(d, "cod_medic", "") or ""))
@@ -687,6 +671,7 @@ class AuditoriaVisualDialog(QDialog):
             self._set_cell(self.tbl_arch_det, i, 6, self._fmt_money(Decimal(str(getattr(d, "importe_neto", 0) or 0))))
             self._set_cell(self.tbl_arch_det, i, 7, self._fmt_money(Decimal(str(getattr(d, "importe_obs", 0) or 0))))
             self._set_cell(self.tbl_arch_det, i, 8, str(getattr(d, "descuento", "") or ""))
+        self.tbl_arch_det.setUpdatesEnabled(True)
 
     # -------------------------
     # Preview controls (doble)
@@ -752,14 +737,24 @@ class AuditoriaVisualDialog(QDialog):
     def _load_preview_via_usecase(self, *, lado: str, raw: str, vw: int, vh: int, req_id: int) -> dict:
         key = (lado, raw, vw, vh)
         if key in self._preview_cache:
-            return {"lado": lado, "png_bytes": self._preview_cache[key], "req_id": req_id, "raw": raw}
+            return {
+                "lado": lado,
+                "png_bytes": self._preview_cache[key],
+                "req_id": req_id,
+                "raw": raw
+            }
 
         out = AuditoriaUseCase.load_preview_bytes(path=raw, vw=vw, vh=vh)
 
         if out.img_bytes:
             self._preview_cache[key] = out.img_bytes
 
-        return {"lado": lado, "png_bytes": out.img_bytes, "req_id": req_id, "raw": raw}
+        return {
+            "lado": lado,
+            "png_bytes": out.img_bytes,
+            "req_id": req_id,
+            "raw": raw
+        }
 
     def _apply_preview_bytes(self, out: dict) -> None:
         lado = (out.get("lado") or "F").strip()
@@ -801,71 +796,47 @@ class AuditoriaVisualDialog(QDialog):
         viewer.set_pixmap(None)
         viewer.setText(f"No se pudo cargar la imagen.\n{nice}")
 
-    # -------------------------
-    # Motivos (por lado)
-    # -------------------------
-    def _get_motivos(self, lado: str):
-        if lado in self._motivos_cache:
-            return self._motivos_cache[lado]
-        with session_scope() as s:
-            ms = MotivosDebitosService.list_motivos(s, lado)
-        self._motivos_cache[lado] = ms
-        return ms
+    def _render_motivos_lado(self, lado: str) -> None:
+        if lado == "F":
+            motivos = self.data.motivos_frente
+            list_widget = self.list_motivos_f
+        else:
+            motivos = self.data.motivos_dorso
+            list_widget = self.list_motivos_d
 
-    @staticmethod
-    def _clear_motivos_layout(layout: QVBoxLayout) -> None:
-        # deja el stretch final
-        while layout.count() > 1:
-            item = layout.takeAt(0)
-            w = item.widget()
-            if w:
-                w.deleteLater()
-
-    def _render_motivos_lado(self, lado: str, layout: QVBoxLayout) -> None:
-        motivos = self._get_motivos(lado)
-
-        self._clear_motivos_layout(layout)
+        list_widget.blockSignals(True)
+        list_widget.clear()
 
         for m in motivos:
-            motivo_id = int(getattr(m, "motivo_debito_id", 0) or 0)
+            text = m.descripcion
 
-            row = QWidget()
-            row_l = QHBoxLayout(row)
-            row_l.setContentsMargins(0, 0, 0, 0)
-            row_l.setSpacing(8)
+            if m.motivo_debito_id in self._selected_debitos:
+                det = self._selected_debitos.get(m.motivo_debito_id)
+                if det:
+                    text = f"{m.descripcion}  ({det})"
 
-            cb = QCheckBox()
-            cb.setProperty("motivo_id", motivo_id)
-            cb.setProperty("lado", lado)
-            cb.setChecked(motivo_id in self._selected_debitos)
-            cb.stateChanged.connect(self._on_motivo_checkbox_changed)
+            item = QListWidgetItem(text)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setData(Qt.ItemDataRole.UserRole, m.motivo_debito_id)
 
-            lb = QLabel(str(getattr(m, "descripcion", "") or ""))
-            lb.setWordWrap(True)
-            lb.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
-            lb.setCursor(Qt.CursorShape.PointingHandCursor)
+            if m.motivo_debito_id in self._selected_debitos:
+                item.setCheckState(Qt.CheckState.Checked)
+            else:
+                item.setCheckState(Qt.CheckState.Unchecked)
 
-            def _toggle(_evt, _cb=cb):
-                _cb.setChecked(not _cb.isChecked())
+            list_widget.addItem(item)
 
-            lb.mousePressEvent = _toggle
+        list_widget.blockSignals(False)
 
-            row_l.addWidget(cb, 0, Qt.AlignmentFlag.AlignTop)
-            row_l.addWidget(lb, 1)
 
-            layout.insertWidget(layout.count() - 1, row)
-
-    def _on_motivo_checkbox_changed(self, state: int) -> None:
-        cb = self.sender()
-        if not isinstance(cb, QCheckBox):
-            return
-
-        motivo_id = cb.property("motivo_id")
+    def _on_motivo_item_changed(self, item: QListWidgetItem):
+        motivo_id = item.data(Qt.ItemDataRole.UserRole)
         if not motivo_id:
             return
+
         motivo_id = int(motivo_id)
 
-        if state != Qt.CheckState.Checked.value:
+        if item.checkState() != Qt.CheckState.Checked:
             self._selected_debitos.pop(motivo_id, None)
             return
 
@@ -878,9 +849,7 @@ class AuditoriaVisualDialog(QDialog):
         )
 
         if not ok:
-            cb.blockSignals(True)
-            cb.setChecked(False)
-            cb.blockSignals(False)
+            item.setCheckState(Qt.CheckState.Unchecked)
             self._selected_debitos.pop(motivo_id, None)
             return
 
@@ -1086,3 +1055,12 @@ class AuditoriaVisualDialog(QDialog):
 
         dlg = HistorialDialog(archivo_id_actual=archivo_id, parent=self)
         dlg.exec()
+
+    @staticmethod
+    def _fmt_date(d):
+        if not d:
+            return ""
+        try:
+            return d.strftime("%d/%m/%Y")
+        except Exception:
+            return ""
