@@ -17,8 +17,10 @@ from app.db.session import session_scope
 from app.service.auditoria.auditoria_visual_service import AuditoriaVisualService, AuditoriaVisualData
 from app.service.debitos.debitos_service import DebitoInput, DebitosService
 from app.service.debitos.motivos_debito_service import MotivosDebitosService
+from app.service.recetas.historial_receta_service import HistorialRecetaService
 from app.service.recetas.recetas_service import RecetaService
 from ui.dialogs.estado_seguimeinto_pick_dialog import EstadoSeguimientoPickDialog
+from ui.dialogs.historial_dialog import HistorialDialog
 from ui.label.image_view_label import ImageViewer
 from ui.label.clickable_label import ClickableLabel
 from ui.dialogs.vendedor_pick_dialog import VendedorPickDialog
@@ -463,6 +465,26 @@ class AuditoriaVisualDialog(QDialog):
         self.btn_finalizar.setMinimumHeight(34)
         self.btn_finalizar.clicked.connect(self._on_finalizar)
 
+        self.btn_debitada = QPushButton("DEBITADA")
+        self.btn_debitada.setMinimumHeight(34)
+        self.btn_debitada.setVisible(False)  # por defecto oculto
+        self.btn_debitada.clicked.connect(self._open_historial_debitada)
+
+        # azul flúor + blanco (ajustalo vos)
+        self.btn_debitada.setStyleSheet("""
+                   QPushButton {
+                       background: #00B8FF;
+                       color: white;
+                       font-weight: 800;
+                       border-radius: 8px;
+                       padding: 6px 14px;
+                   }
+                   QPushButton:hover { background: #2AC6FF; }
+                   QPushButton:pressed { background: #0099D6; }
+               """)
+
+        lay.addWidget(self.btn_debitada, 0)
+
         lay.addWidget(self.btn_finalizar, 0)
         return box
 
@@ -535,6 +557,8 @@ class AuditoriaVisualDialog(QDialog):
             self.data = None
             return
 
+        self.btn_debitada.setVisible(False)
+
         self._render_all()
 
     def _preload_vendedor(self, s) -> None:
@@ -600,6 +624,17 @@ class AuditoriaVisualDialog(QDialog):
         self.lb_a_cargo.setText(self._fmt_money(a_cargo))
         self.lb_imp_obs.setText(self._fmt_money(imp_obs))
         self.lb_imp_neto.setText(self._fmt_money(imp_neto))
+
+        try:
+            archivo_id = int(getattr(self.data.archivo, "archivo_id", 0) or 0)
+            show = False
+            if archivo_id:
+                with session_scope() as s:
+                    show = HistorialRecetaService.has_historial_debitada(s, archivo_id=archivo_id)
+            self.btn_debitada.setVisible(bool(show))
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"{e}")
+            self.btn_debitada.setVisible(False)
 
     def _render_troqueles(self) -> None:
         assert self.data is not None
@@ -1039,3 +1074,15 @@ class AuditoriaVisualDialog(QDialog):
             return
 
         self._load()
+
+    def _open_historial_debitada(self) -> None:
+        if not self.data:
+            return
+
+        archivo_id = int(getattr(self.data.archivo, "archivo_id", 0) or 0)
+        if not archivo_id:
+            QMessageBox.warning(self, "Error", "No se pudo determinar archivo_id.")
+            return
+
+        dlg = HistorialDialog(archivo_id_actual=archivo_id, parent=self)
+        dlg.exec()
