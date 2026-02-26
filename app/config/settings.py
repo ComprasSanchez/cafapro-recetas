@@ -8,11 +8,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 def _app_dir() -> Path:
-    """
-    Dev: carpeta del proyecto (archivo que ejecutás).
-    EXE: carpeta donde está el .exe (Inno instala en {app}).
-    """
-    return Path(sys.argv[0]).resolve().parent
+    # 1) Donde estás parado al ejecutar (dev / scripts)
+    # 2) Si es exe, igual sirve porque el cwd suele ser {app} o lo podés setear
+    return Path.cwd()
 
 
 def _env_file_path() -> str:
@@ -82,6 +80,7 @@ class Settings(BaseSettings):
 
         if missing:
             env_path = _env_file_path()
+
             raise RuntimeError(
                 "Faltan variables en el .env.\n"
                 f"Ruta .env: {env_path}\n"
