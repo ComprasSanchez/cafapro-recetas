@@ -352,6 +352,7 @@ class AuditoriaTab(BaseTabWidget):
         self.cb_estado.clear()
 
         self.cb_estado.addItem("Todos", None)
+        self.cb_estado.addItem("Sin asociación", "SIN_ASOC")
 
         for eid, desc in out.estados:
             self.cb_estado.addItem(str(desc), int(eid))
@@ -381,8 +382,21 @@ class AuditoriaTab(BaseTabWidget):
         idxs = list(range(total))
 
         if estado_sel is not None:
-            sid = int(estado_sel)
-            idxs = [i for i in idxs if self._estado_id(base_rows[i]) == sid]
+
+            if estado_sel == "SIN_ASOC":
+                # 🔥 filtrar filas sin asociación
+                idxs = [
+                    i for i in idxs
+                    if getattr(base_rows[i], "asociacion_id", None) is None
+                ]
+
+            else:
+                sid = int(estado_sel)
+                idxs = [
+                    i for i in idxs
+                    if getattr(base_rows[i], "asociacion_id", None) is not None
+                       and self._estado_id(base_rows[i]) == sid
+                ]
 
         if debitos_flag is not None:
             want = bool(debitos_flag)
