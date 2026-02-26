@@ -148,3 +148,17 @@ class HistorialRecetaService:
             }
             for r in s.execute(q).mappings().all()
         ]
+
+    # -------------------------------------------------
+    # Cargar imágenes por receta
+    # -------------------------------------------------
+    @staticmethod
+    def get_imagenes_por_receta(s: Session, *, receta_id: int) -> dict:
+        rec = s.get(Recetas, int(receta_id))
+        if not rec:
+            return {"frente": None, "dorso": None}
+
+        return {
+            "frente": (rec.ubicacion_frente or "").strip() or None,
+            "dorso": (rec.ubicacion_dorso or "").strip() or None,
+        }

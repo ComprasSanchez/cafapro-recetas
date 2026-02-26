@@ -47,6 +47,8 @@ class HistorialDialog(QDialog):
         root.addWidget(self._build_body(), 1)
         root.addWidget(self._build_footer(), 0)
 
+        self.showMaximized()
+
         self._load()
 
     # =========================================================
@@ -225,6 +227,8 @@ class HistorialDialog(QDialog):
         self._apply_selected(self._hist_rows[row])
 
     def _apply_selected(self, r: HistRow):
+
+        # Info textual
         self.lb_info.setText(
             f"Auditor: {r.auditor_username or '-'}\n"
             f"Fecha: {r.auditado_en or '-'}\n"
@@ -232,14 +236,35 @@ class HistorialDialog(QDialog):
         )
 
         with session_scope() as s:
+
+            # 🔹 1. Cargar débitos
             debs = HistorialRecetaService.list_debitos_for_receta(
                 s, receta_id=r.receta_id
             )
 
+            # 🔹 2. Cargar imágenes de ESA receta
+            imgs = HistorialRecetaService.get_imagenes_por_receta(
+                s, receta_id=r.receta_id
+            )
+
+        # Render débitos
         self.tbl_debitos.setRowCount(len(debs))
         for i, d in enumerate(debs):
             self.tbl_debitos.setItem(i, 0, QTableWidgetItem(d["motivo"]))
             self.tbl_debitos.setItem(i, 1, QTableWidgetItem(d["detalle"]))
+
+        # 🔥 Render imágenes seleccionadas
+        if imgs["frente"]:
+            self._set_preview(self.img_frente, self.scroll_frente, imgs["frente"])
+        else:
+            self.img_frente.setText("Sin imagen (frente)")
+            self.img_frente.set_pixmap(None)
+
+        if imgs["dorso"]:
+            self._set_preview(self.img_dorso, self.scroll_dorso, imgs["dorso"])
+        else:
+            self.img_dorso.setText("Sin imagen (dorso)")
+            self.img_dorso.set_pixmap(None)
 
     # =========================================================
     # PREVIEW
