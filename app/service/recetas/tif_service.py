@@ -10,7 +10,6 @@ import os
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-import numpy as np
 from sqlalchemy import select, update, or_, and_, tuple_
 from sqlalchemy.orm import Session
 
@@ -99,11 +98,9 @@ class TiffService:
         storage: S3Storage,
         tif: Optional[TiffProcessor] = None,
         client: Optional[MedicamentoClient] = None,
-        # tuning
         chunk_size: int = 75,
         scan_workers: Optional[int] = None,
-        render_workers: Optional[int] = None,
-        upload_workers: int = 16,
+        upload_workers: int = 32,
     ) -> None:
         self._storage = storage
         self._tif = tif or TiffProcessor()
@@ -112,7 +109,6 @@ class TiffService:
         cpu = os.cpu_count() or 4
         self._chunk_size = int(chunk_size)
         self._scan_workers = int(scan_workers or min(cpu, 6))
-        self._render_workers = int(render_workers or min(cpu, 6))
         self._upload_workers = int(upload_workers)
 
     # -------------------------
@@ -243,60 +239,66 @@ class TiffService:
         return out
 
     def _parallel_render_upload(
-        self,
-        work_items: List[_WorkItem],
-        *,
-        archivo_by_id: Dict[int, Archivo],
-        prestador_imed: str,
-        estado_render_by_work: Dict[int, Dict[str, Literal["V", "A", "R"]]],
-        resumen: ProcesarResumen,
+            self,
+            work_items: List[_WorkItem],
+            *,
+            archivo_by_id: Dict[int, Archivo],
+            prestador_imed: str,
+            estado_render_by_work: Dict[int, Dict[str, Literal["V", "A", "R"]]],
+            resumen: ProcesarResumen,
     ) -> List[_UploadResult]:
 
-        # 1) render en paralelo -> devuelve bytes + keys
-        def render_job(w: _WorkItem) -> Tuple[_WorkItem, Optional[bytes], Optional[bytes], str, str]:
+        results: List[_UploadResult] = []
+
+        def job(w: _WorkItem) -> _UploadResult:
             archivo = archivo_by_id[w.archivo_id]
+
             base_name = self._base_from_tif_path(w.it.full_path)
-            yyyy, mm = self._year_month_from_basename_or_fallback(base_name, archivo, w.it.full_path)
-            front_key, back_key = self._build_s3_keys(prestador_imed=prestador_imed, yyyy=yyyy, mm=mm, base_name=base_name)
+            yyyy, mm = self._year_month_from_basename_or_fallback(
+                base_name, archivo, w.it.full_path
+            )
+
+            front_key, back_key = self._build_s3_keys(
+                prestador_imed=prestador_imed,
+                yyyy=yyyy,
+                mm=mm,
+                base_name=base_name,
+            )
 
             estado = estado_render_by_work.get(w.archivo_id, {})
+
+            # 🔥 render
             files = self._tif.render_bytes(
                 tiff_path=w.it.full_path,
                 scan=w.scan,
-                pages=None,  # que recargue pages dentro (no RAM)
+                pages=None,
                 estado_por_codebar=estado,
             )
-            return w, files.get("front_bytes"), files.get("back_bytes"), front_key, back_key
 
-        rendered: List[Tuple[_WorkItem, Optional[bytes], Optional[bytes], str, str]] = []
-        with ThreadPoolExecutor(max_workers=self._render_workers) as ex:
-            futs = [ex.submit(render_job, w) for w in work_items]
-            for fut in as_completed(futs):
-                try:
-                    rendered.append(fut.result())
-                except Exception as e:
-                    resumen.errores.append(f"render error: {e}")
+            fb = files.get("front_bytes")
+            bb = files.get("back_bytes")
 
-        # 2) upload en paralelo (S3)
-        results: List[_UploadResult] = []
-
-        def upload_job(pack: Tuple[_WorkItem, Optional[bytes], Optional[bytes], str, str]) -> _UploadResult:
-            w, fb, bb, fk, bk = pack
+            # 🔥 upload inmediato
             if fb:
-                self._storage.put_jpg(fk, fb)
+                self._storage.put_jpg(front_key, fb)
             if bb:
-                self._storage.put_jpg(bk, bb)
-            return _UploadResult(work=w, front_key=fk if fb else None, back_key=bk if bb else None)
+                self._storage.put_jpg(back_key, bb)
 
+            return _UploadResult(
+                work=w,
+                front_key=front_key if fb else None,
+                back_key=back_key if bb else None,
+            )
+
+        # 🔥 Un solo executor para render+upload
         with ThreadPoolExecutor(max_workers=self._upload_workers) as ex:
-            futs = [ex.submit(upload_job, pack) for pack in rendered]
+            futs = [ex.submit(job, w) for w in work_items]
+
             for fut in as_completed(futs):
                 try:
                     results.append(fut.result())
                 except Exception as e:
-                    # como dijiste: “se tendría que crear sí o sí”, pero si falla S3 no tenemos keys reales.
-                    # Yo acá lo marco como error y NO lo persisto (igual que tu código actual).
-                    resumen.errores.append(f"S3 upload error: {e}")
+                    resumen.errores.append(f"render/upload error: {e}")
 
         return results
 
@@ -310,6 +312,7 @@ class TiffService:
         usuario_id: int,
         items: List[ProcesarItemIn],
     ) -> ProcesarResumen:
+
         total = ProcesarResumen()
         med_cache: Dict[str, Optional[MedicamentoDTO]] = {}
 
@@ -347,6 +350,7 @@ class TiffService:
 
         # 2) Procesar por tandas
         for chunk in _chunks(items_filtrados, self._chunk_size):
+
             resumen = ProcesarResumen()
 
             # 2.1) scan paralelo (solo ScanOut)
@@ -459,11 +463,28 @@ class TiffService:
             estado_render_by_archivo_id: Dict[int, Dict[str, Literal["V","A","R"]]] = {}
             dto_cache_local = med_cache  # mismo cache por corrida
 
+            all_codebars: set[str] = set()
+
+            for w in work:
+                for cb in (w.scan.troqueles or []):
+                    cb = self._norm_str(cb)
+                    if cb:
+                        all_codebars.add(cb)
+
+            missing_codebars = [
+                cb for cb in all_codebars
+                if cb not in med_cache
+            ]
+
+            if missing_codebars:
+                batch_result = self._client.get_many_by_codebars(missing_codebars)
+                for cb, dto in batch_result.items():
+                    med_cache[cb] = dto
+
             # además juntamos data para persistencia después del upload
             recetas_to_add: List[Recetas] = []
             asoc_to_add: List[Asociacion] = []
             troqueles_to_add: List[Troqueles] = []
-            recetas_vencidas: List[int] = []
 
             # OJO: acá todavía no creamos recetas; primero subimos S3.
             # Pero para render necesitamos el estado_render_por_codebar, lo armamos por archivo_id.
@@ -498,11 +519,7 @@ class TiffService:
                 # pero DTO lo cacheamos acá, así no hacemos HTTP 2 veces.
                 if counts:
                     for codebar, qty_scan in counts.items():
-                        if codebar in dto_cache_local:
-                            dto = dto_cache_local[codebar]
-                        else:
-                            dto = self._client.get_by_codebar(codebar)
-                            dto_cache_local[codebar] = dto
+                        dto = med_cache.get(codebar)
 
                         if dto is None:
                             estado_render_por_codebar[codebar] = "A"
@@ -641,6 +658,7 @@ class TiffService:
                 s.add_all(asoc_to_add)
             if troqueles_to_add:
                 s.add_all(troqueles_to_add)
+
 
             # Debitos vencido bulk
             if recetas_vencidas_ids:

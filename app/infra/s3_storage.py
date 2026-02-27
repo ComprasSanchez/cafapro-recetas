@@ -28,7 +28,11 @@ class S3Storage:
             region_name=cfg.region,
             aws_access_key_id=cfg.access_key_id,
             aws_secret_access_key=cfg.secret_access_key,
-            config=Config(retries={"max_attempts": 5, "mode": "standard"}),
+            config=Config(
+                max_pool_connections=64,  # 🔥 clave
+                retries={"max_attempts": 5, "mode": "standard"},
+                tcp_keepalive=True,  # 🔥 mejora estabilidad
+            ),
         )
 
     def put_jpg(self, key: str, data: bytes, *, content_disposition: Optional[str] = None) -> None:

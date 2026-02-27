@@ -77,3 +77,43 @@ class MedicamentoClient:
             "Error desconocido consultando endpoint de medicamentos"
         )
 
+    def get_many_by_codebars(self, codebars: list[str]) -> dict[str, Optional[MedicamentoDTO]]:
+        """
+        Consulta múltiples codebars en un solo request batch.
+        Devuelve un dict: { codebar: MedicamentoDTO | None }
+        """
+
+        # limpiar + validar
+        clean = [
+            cb.strip()
+            for cb in codebars
+            if self._is_valid_codebar(cb)
+        ]
+
+        if not clean:
+            return {}
+
+        # eliminar duplicados
+        unique = list(set(clean))
+
+        r = self._client.post(
+            "/medicamentos/codebar/batch",
+            json={"codebars": unique},
+        )
+
+        r.raise_for_status()
+
+        data = r.json()
+
+        result: dict[str, Optional[MedicamentoDTO]] = {}
+
+        for cb in unique:
+            raw = data.get(cb)
+
+            if raw is None:
+                result[cb] = None
+            else:
+                result[cb] = MedicamentoDTO.from_json(raw)
+
+        return result
+

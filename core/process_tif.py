@@ -401,7 +401,7 @@ class TiffScanRenderer:
         color_v_bgr: Tuple[int, int, int] = (0, 181, 26),
         color_a_bgr: Tuple[int, int, int] = (0, 255, 255),
         color_r_bgr: Tuple[int, int, int] = (0, 0, 255),
-        jpg_quality: int = 85,
+        jpg_quality: int = 75,
     ) -> None:
         self.max_pages = int(max_pages)
         self.rect_thickness = int(rect_thickness)
