@@ -1,6 +1,6 @@
 [Setup]
 AppName=CafaproRecetas
-AppVersion=1.0.32-beta
+AppVersion=1.0.40-beta
 DefaultDirName={pf}\CafaproRecetas
 DefaultGroupName=CafaproRecetas
 OutputDir=output
@@ -10,6 +10,9 @@ SolidCompression=yes
 ArchitecturesAllowed=x64
 ArchitecturesInstallIn64BitMode=x64
 SetupIconFile=resources\logo.ico
+WizardStyle=modern
+WizardSizePercent=130
+WizardResizable=yes
 
 [Files]
 Source: "dist\CafaproRecetas\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
@@ -27,17 +30,17 @@ Filename: "{app}\CafaproRecetas.exe"; Description: "Ejecutar CafaproRecetas"; Fl
 [Code]
 
 var
-  DbPage: TWizardPage;
+  ConfigPage: TWizardPage;
+
   DbEdit: TNewEdit;
-
-  AwsPage: TWizardPage;
-
   AwsRegionEdit: TNewEdit;
   AwsBucketEdit: TNewEdit;
   AwsCfBaseUrlEdit: TNewEdit;
   AwsAccessKeyEdit: TNewEdit;
   AwsSecretKeyEdit: TNewEdit;
   AwsCacheControlEdit: TNewEdit;
+
+  EnvLoaded: Boolean;
 
 
 procedure AddLabeledEdit(Page: TWizardPage; Caption: string; var Edit: TNewEdit; TopPos: Integer; IsPassword: Boolean);
@@ -58,12 +61,6 @@ begin
 
   if IsPassword then
     Edit.PasswordChar := '*';
-end;
-
-
-function IsBlank(const S: string): Boolean;
-begin
-  Result := Trim(S) = '';
 end;
 
 
@@ -94,47 +91,44 @@ end;
 
 procedure InitializeWizard();
 begin
-  // Página DB
-  DbPage := CreateCustomPage(wpSelectDir, 'Base de Datos', 'Configuración de conexión');
+  EnvLoaded := False;
 
-  DbEdit := TNewEdit.Create(DbPage);
-  DbEdit.Parent := DbPage.Surface;
-  DbEdit.Left := 0;
-  DbEdit.Top := 16;
-  DbEdit.Width := DbPage.SurfaceWidth;
+  ConfigPage :=
+    CreateCustomPage(
+      wpSelectDir,
+      'Configuración del Sistema',
+      'Complete los datos de conexión y almacenamiento'
+    );
 
-  // Página AWS
-  AwsPage := CreateCustomPage(DbPage.ID, 'AWS / S3', 'Configuración de almacenamiento en la nube');
-
-  AddLabeledEdit(AwsPage, 'AWS_REGION', AwsRegionEdit, 0, False);
-  AddLabeledEdit(AwsPage, 'S3_BUCKET', AwsBucketEdit, 52, False);
-  AddLabeledEdit(AwsPage, 'CLOUDFRONT_BASE_URL (sin https://)', AwsCfBaseUrlEdit, 104, False);
-  AddLabeledEdit(AwsPage, 'AWS_ACCESS_KEY_ID', AwsAccessKeyEdit, 156, False);
-  AddLabeledEdit(AwsPage, 'AWS_SECRET_ACCESS_KEY', AwsSecretKeyEdit, 208, True);
-  AddLabeledEdit(AwsPage, 'S3_CACHE_CONTROL', AwsCacheControlEdit, 260, False);
+  AddLabeledEdit(ConfigPage, 'DATABASE_URL', DbEdit, 0, False);
+  AddLabeledEdit(ConfigPage, 'AWS_REGION', AwsRegionEdit, 60, False);
+  AddLabeledEdit(ConfigPage, 'S3_BUCKET', AwsBucketEdit, 120, False);
+  AddLabeledEdit(ConfigPage, 'CLOUDFRONT_BASE_URL (sin https://)', AwsCfBaseUrlEdit, 180, False);
+  AddLabeledEdit(ConfigPage, 'AWS_ACCESS_KEY_ID', AwsAccessKeyEdit, 240, False);
+  AddLabeledEdit(ConfigPage, 'AWS_SECRET_ACCESS_KEY', AwsSecretKeyEdit, 300, True);
+  AddLabeledEdit(ConfigPage, 'S3_CACHE_CONTROL', AwsCacheControlEdit, 360, False);
 end;
 
 
 procedure CurPageChanged(CurPageID: Integer);
 var
-  ExistingEnv: string;
+  EnvPath: string;
 begin
-  // Cuando el usuario ya seleccionó el directorio,
-  // recién ahí {app} es válido
-  if CurPageID = AwsPage.ID then
+  if (CurPageID = ConfigPage.ID) and (not EnvLoaded) then
   begin
-    ExistingEnv := ExpandConstant('{app}\.env');
+    EnvPath := ExpandConstant('{app}\.env');
 
-    if FileExists(ExistingEnv) then
+    if FileExists(EnvPath) then
     begin
-      DbEdit.Text := LoadEnvValue(ExistingEnv, 'DATABASE_URL');
+      DbEdit.Text := LoadEnvValue(EnvPath, 'DATABASE_URL');
+      AwsRegionEdit.Text := LoadEnvValue(EnvPath, 'AWS_REGION');
+      AwsBucketEdit.Text := LoadEnvValue(EnvPath, 'S3_BUCKET');
+      AwsCfBaseUrlEdit.Text := LoadEnvValue(EnvPath, 'CLOUDFRONT_BASE_URL');
+      AwsAccessKeyEdit.Text := LoadEnvValue(EnvPath, 'AWS_ACCESS_KEY_ID');
+      AwsSecretKeyEdit.Text := LoadEnvValue(EnvPath, 'AWS_SECRET_ACCESS_KEY');
+      AwsCacheControlEdit.Text := LoadEnvValue(EnvPath, 'S3_CACHE_CONTROL');
 
-      AwsRegionEdit.Text := LoadEnvValue(ExistingEnv, 'AWS_REGION');
-      AwsBucketEdit.Text := LoadEnvValue(ExistingEnv, 'S3_BUCKET');
-      AwsCfBaseUrlEdit.Text := LoadEnvValue(ExistingEnv, 'CLOUDFRONT_BASE_URL');
-      AwsAccessKeyEdit.Text := LoadEnvValue(ExistingEnv, 'AWS_ACCESS_KEY_ID');
-      AwsSecretKeyEdit.Text := LoadEnvValue(ExistingEnv, 'AWS_SECRET_ACCESS_KEY');
-      AwsCacheControlEdit.Text := LoadEnvValue(ExistingEnv, 'S3_CACHE_CONTROL');
+      EnvLoaded := True;
     end;
   end;
 end;
@@ -144,26 +138,18 @@ function NextButtonClick(CurPageID: Integer): Boolean;
 begin
   Result := True;
 
-  if CurPageID = DbPage.ID then
+  if CurPageID = ConfigPage.ID then
   begin
-    if IsBlank(DbEdit.Text) then
+    if Trim(DbEdit.Text) = '' then
     begin
-      MsgBox('La DATABASE_URL no puede estar vacía.', mbError, MB_OK);
+      MsgBox('DATABASE_URL no puede estar vacía.', mbError, MB_OK);
       Result := False;
       Exit;
     end;
-  end;
 
-  if CurPageID = AwsPage.ID then
-  begin
-    if IsBlank(AwsRegionEdit.Text) or
-       IsBlank(AwsBucketEdit.Text) or
-       IsBlank(AwsCfBaseUrlEdit.Text) or
-       IsBlank(AwsAccessKeyEdit.Text) or
-       IsBlank(AwsSecretKeyEdit.Text) or
-       IsBlank(AwsCacheControlEdit.Text) then
+    if Trim(AwsRegionEdit.Text) = '' then
     begin
-      MsgBox('Debe completar todas las variables de AWS.', mbError, MB_OK);
+      MsgBox('Debe completar AWS_REGION.', mbError, MB_OK);
       Result := False;
       Exit;
     end;
