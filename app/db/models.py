@@ -4,8 +4,7 @@ from decimal import Decimal
 from enum import Enum as PyEnum
 import sqlalchemy as sa
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-from datetime import date
-
+from datetime import date, datetime
 
 # Nombres consistentes (Alembic)
 NAMING_CONVENTION = dict(
@@ -367,3 +366,42 @@ class Vendedores(Base):
     codigo: Mapped[str] = mapped_column(sa.String, nullable=False)
     descripcion: Mapped[str] = mapped_column(sa.String, nullable=False)
     activo: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, server_default=sa.true())
+
+
+class AppVersion(Base):
+    __tablename__ = "app_versions"
+
+    __table_args__ = (
+        sa.Index("ix_app_versions_version", "version"),
+        sa.Index("ix_app_versions_is_active", "is_active"),
+    )
+
+    id: Mapped[int] = mapped_column(sa.Integer, sa.Identity(), primary_key=True)
+
+    version: Mapped[str] = mapped_column(sa.String(50), nullable=False)
+
+    min_required_version: Mapped[str | None] = mapped_column(sa.String(50), nullable=True)
+
+    mandatory: Mapped[bool] = mapped_column(
+        sa.Boolean,
+        nullable=False,
+        server_default=sa.false(),
+    )
+
+    download_url: Mapped[str] = mapped_column(sa.Text, nullable=False)
+
+    file_hash: Mapped[str | None] = mapped_column(sa.String(128), nullable=True)
+
+    release_notes: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+
+    is_active: Mapped[bool] = mapped_column(
+        sa.Boolean,
+        nullable=False,
+        server_default=sa.true(),
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True),
+        server_default=sa.func.now(),
+        nullable=False,
+    )

@@ -1,6 +1,6 @@
 [Setup]
 AppName=CafaproRecetas
-AppVersion=1.0.31-beta
+AppVersion=1.0.32-beta
 DefaultDirName={pf}\CafaproRecetas
 DefaultGroupName=CafaproRecetas
 OutputDir=output
@@ -25,6 +25,7 @@ Name: "{commondesktop}\CafaproRecetas"; Filename: "{app}\CafaproRecetas.exe"; Ta
 Filename: "{app}\CafaproRecetas.exe"; Description: "Ejecutar CafaproRecetas"; Flags: nowait postinstall skipifsilent
 
 [Code]
+
 var
   DbPage: TWizardPage;
   DbEdit: TNewEdit;
@@ -37,6 +38,7 @@ var
   AwsAccessKeyEdit: TNewEdit;
   AwsSecretKeyEdit: TNewEdit;
   AwsCacheControlEdit: TNewEdit;
+
 
 procedure AddLabeledEdit(Page: TWizardPage; Caption: string; var Edit: TNewEdit; TopPos: Integer; IsPassword: Boolean);
 var
@@ -53,51 +55,95 @@ begin
   Edit.Left := 0;
   Edit.Top := TopPos + 16;
   Edit.Width := Page.SurfaceWidth;
+
   if IsPassword then
     Edit.PasswordChar := '*';
 end;
+
 
 function IsBlank(const S: string): Boolean;
 begin
   Result := Trim(S) = '';
 end;
 
+
+function LoadEnvValue(const FilePath, Key: string): string;
+var
+  Lines: TArrayOfString;
+  I: Integer;
+  Line: string;
+begin
+  Result := '';
+
+  if not FileExists(FilePath) then
+    Exit;
+
+  LoadStringsFromFile(FilePath, Lines);
+
+  for I := 0 to GetArrayLength(Lines) - 1 do
+  begin
+    Line := Trim(Lines[I]);
+    if Pos(Key + '=', Line) = 1 then
+    begin
+      Result := Copy(Line, Length(Key) + 2, MaxInt);
+      Exit;
+    end;
+  end;
+end;
+
+
 procedure InitializeWizard();
 begin
   // Página DB
-  DbPage := CreateCustomPage(wpSelectDir, 'Base de Datos', 'Ingresá la URL de la base de datos');
+  DbPage := CreateCustomPage(wpSelectDir, 'Base de Datos', 'Configuración de conexión');
 
   DbEdit := TNewEdit.Create(DbPage);
   DbEdit.Parent := DbPage.Surface;
   DbEdit.Left := 0;
   DbEdit.Top := 16;
   DbEdit.Width := DbPage.SurfaceWidth;
-  DbEdit.Text := '';
 
-  // Página AWS (distinta a DB, SIN defaults)
-  AwsPage := CreateCustomPage(DbPage.ID, 'AWS / S3', 'Ingresá las variables de AWS necesarias para S3 + CloudFront');
+  // Página AWS
+  AwsPage := CreateCustomPage(DbPage.ID, 'AWS / S3', 'Configuración de almacenamiento en la nube');
 
-  // Layout vertical (label + edit) por campo
   AddLabeledEdit(AwsPage, 'AWS_REGION', AwsRegionEdit, 0, False);
   AddLabeledEdit(AwsPage, 'S3_BUCKET', AwsBucketEdit, 52, False);
   AddLabeledEdit(AwsPage, 'CLOUDFRONT_BASE_URL (sin https://)', AwsCfBaseUrlEdit, 104, False);
   AddLabeledEdit(AwsPage, 'AWS_ACCESS_KEY_ID', AwsAccessKeyEdit, 156, False);
   AddLabeledEdit(AwsPage, 'AWS_SECRET_ACCESS_KEY', AwsSecretKeyEdit, 208, True);
   AddLabeledEdit(AwsPage, 'S3_CACHE_CONTROL', AwsCacheControlEdit, 260, False);
-
-  AwsRegionEdit.Text := '';
-  AwsBucketEdit.Text := '';
-  AwsCfBaseUrlEdit.Text := '';
-  AwsAccessKeyEdit.Text := '';
-  AwsSecretKeyEdit.Text := '';
-  AwsCacheControlEdit.Text := '';
 end;
+
+
+procedure CurPageChanged(CurPageID: Integer);
+var
+  ExistingEnv: string;
+begin
+  // Cuando el usuario ya seleccionó el directorio,
+  // recién ahí {app} es válido
+  if CurPageID = AwsPage.ID then
+  begin
+    ExistingEnv := ExpandConstant('{app}\.env');
+
+    if FileExists(ExistingEnv) then
+    begin
+      DbEdit.Text := LoadEnvValue(ExistingEnv, 'DATABASE_URL');
+
+      AwsRegionEdit.Text := LoadEnvValue(ExistingEnv, 'AWS_REGION');
+      AwsBucketEdit.Text := LoadEnvValue(ExistingEnv, 'S3_BUCKET');
+      AwsCfBaseUrlEdit.Text := LoadEnvValue(ExistingEnv, 'CLOUDFRONT_BASE_URL');
+      AwsAccessKeyEdit.Text := LoadEnvValue(ExistingEnv, 'AWS_ACCESS_KEY_ID');
+      AwsSecretKeyEdit.Text := LoadEnvValue(ExistingEnv, 'AWS_SECRET_ACCESS_KEY');
+      AwsCacheControlEdit.Text := LoadEnvValue(ExistingEnv, 'S3_CACHE_CONTROL');
+    end;
+  end;
+end;
+
 
 function NextButtonClick(CurPageID: Integer): Boolean;
 begin
   Result := True;
 
-  // Validación DB
   if CurPageID = DbPage.ID then
   begin
     if IsBlank(DbEdit.Text) then
@@ -108,7 +154,6 @@ begin
     end;
   end;
 
-  // Validación AWS
   if CurPageID = AwsPage.ID then
   begin
     if IsBlank(AwsRegionEdit.Text) or
@@ -118,22 +163,19 @@ begin
        IsBlank(AwsSecretKeyEdit.Text) or
        IsBlank(AwsCacheControlEdit.Text) then
     begin
-      MsgBox(
-        'Tenés que completar todas las variables de AWS (no se permiten valores por defecto).',
-        mbError, MB_OK
-      );
+      MsgBox('Debe completar todas las variables de AWS.', mbError, MB_OK);
       Result := False;
       Exit;
     end;
   end;
 end;
 
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   EnvPath: string;
   EnvContent: string;
 begin
-  // ssDone: ya copió archivos y está finalizando
   if CurStep = ssDone then
   begin
     EnvPath := ExpandConstant('{app}\.env');
@@ -147,11 +189,6 @@ begin
       'AWS_SECRET_ACCESS_KEY=' + Trim(AwsSecretKeyEdit.Text) + #13#10 +
       'S3_CACHE_CONTROL=' + Trim(AwsCacheControlEdit.Text) + #13#10;
 
-    // False = sobreescribe si existe
-    if not SaveStringToFile(EnvPath, EnvContent, False) then
-    begin
-      MsgBox('No se pudo crear el archivo .env en:' + #13#10 + EnvPath, mbError, MB_OK);
-    end;
+    SaveStringToFile(EnvPath, EnvContent, False);
   end;
 end;
-

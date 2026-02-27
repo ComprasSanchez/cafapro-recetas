@@ -4,6 +4,7 @@ import sys
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
+from core.updater import check_for_updates
 from ui.main_window import MainWindow
 from ui.dialogs.login_dialog import LoginDialog
 
@@ -16,6 +17,7 @@ def app_dir() -> Path:
 
 def main() -> int:
     app = QApplication(sys.argv)
+    check_for_updates(app)   # 🔥 ACÁ CORRECTO
 
     base = app_dir()
     icon_path = base / "resources" / "logo.ico"
@@ -27,13 +29,12 @@ def main() -> int:
     if qss_path.exists():
         app.setStyleSheet(qss_path.read_text(encoding="utf-8"))
 
-    # ---- LOGIN ANTES DE CREAR MAINWINDOW ----
     login = LoginDialog()
     if login.exec() != LoginDialog.DialogCode.Accepted:
-        return 0  # no arranca la app
+        return 0
 
-    w = MainWindow(current_user=login.user)  # pasamos el usuario
-    w.showMaximized()  # o w.show()
+    w = MainWindow(current_user=login.user)
+    w.showMaximized()
     return app.exec()
 
 
