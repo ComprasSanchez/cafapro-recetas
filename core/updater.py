@@ -7,7 +7,7 @@ from PySide6.QtWidgets import QMessageBox
 
 from core.version import APP_VERSION
 
-UPDATE_API_URL = "http://localhost:3000/app/version"
+UPDATE_API_URL = "http://cafapro-updates-api-production.up.railway.app/app/version"
 
 
 def is_frozen() -> bool:
