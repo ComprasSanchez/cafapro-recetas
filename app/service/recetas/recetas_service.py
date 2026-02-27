@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -130,6 +130,7 @@ class RecetaService:
         r.fecha_venta = fecha_venta
 
         r.usuario_id = usuario_id
+        r.creado_en = datetime.now()
 
     @staticmethod
     def update_estado_seguimiento(receta_id: int, estado_seguimiento_id: int | None) -> None:
