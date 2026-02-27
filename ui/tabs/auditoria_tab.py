@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QPixmap, QColor
 from PySide6.QtWidgets import (
     QWidget, QFrame, QVBoxLayout, QGridLayout, QHBoxLayout,
     QLabel, QLineEdit, QPushButton, QSizePolicy,
     QMessageBox, QTableWidget, QTableWidgetItem,
     QHeaderView, QAbstractItemView, QSplitter, QScrollArea,
-    QComboBox, QCheckBox
+    QComboBox, QCheckBox, QMenu, QApplication
 )
 
 from ui.tabs.base_tab import BaseTabWidget
@@ -54,6 +54,10 @@ class AuditoriaTab(BaseTabWidget):
 
         root.addWidget(self._build_header(), 0)
         root.addWidget(self._build_body(), 1)
+
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.timeout.connect(self._apply_filters)
 
         # cargar estados async (no bloquea)
         self.run_job(
@@ -239,6 +243,7 @@ class AuditoriaTab(BaseTabWidget):
             "Reconocido", "Oficial", "Estado",
             "Débitos", "Archivo"
         ])
+
         self.tbl.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tbl.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.tbl.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -249,27 +254,33 @@ class AuditoriaTab(BaseTabWidget):
         self.tbl.verticalHeader().setMinimumSectionSize(self.ROW_H)
         self.tbl.setWordWrap(False)
 
+        self.tbl.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.tbl.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.tbl.customContextMenuRequested.connect(self._show_row_menu)
+
         hh = self.tbl.horizontalHeader()
         hh.setHighlightSections(False)
-        hh.setStretchLastSection(False)
         hh.setMinimumSectionSize(60)
         hh.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
 
-        hh.setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
+        # 🔥 MODO HÍBRIDO CORRECTO
+        hh.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)  # Usuario puede redimensionar
+        hh.setStretchLastSection(True)  # Última columna absorbe espacio
+        hh.setSectionsMovable(True)  # Permite mover columnas
 
+        # Tamaños iniciales (opcional, solo como punto de partida)
         hh.resizeSection(self.COL_RECETA, 120)
         hh.resizeSection(self.COL_REF, 170)
         hh.resizeSection(self.COL_LOTE, 70)
-
         hh.resizeSection(self.COL_RECETA_OK, 90)
         hh.resizeSection(self.COL_ARCHIVO_OK, 90)
-
         hh.resizeSection(self.COL_RECON, 90)
         hh.resizeSection(self.COL_OFI, 90)
-
         hh.resizeSection(self.COL_ESTADO, 80)
         hh.resizeSection(self.COL_DEBITOS, 80)
-        hh.setSectionResizeMode(self.COL_ARCHIVOS, QHeaderView.ResizeMode.ResizeToContents)
+
+        hh.setContextMenuPolicy(Qt.CustomContextMenu)
+        hh.customContextMenuRequested.connect(self._show_column_menu)
 
         self.tbl.itemClicked.connect(self._on_item_clicked)
         self.tbl.itemSelectionChanged.connect(self._on_selection_changed)
@@ -290,11 +301,11 @@ class AuditoriaTab(BaseTabWidget):
 
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
-        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
 
         self.img_preview = QLabel("Sin imagen")
-        self.img_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.img_preview.setAlignment(Qt.AlignCenter)
         self.img_preview.setScaledContents(False)
 
         self.scroll.setWidget(self.img_preview)
@@ -314,6 +325,15 @@ class AuditoriaTab(BaseTabWidget):
         l = QHBoxLayout(bar)
         l.setContentsMargins(0, 0, 0, 0)
         l.setSpacing(10)
+
+        l.addWidget(QLabel("Buscar:"))
+
+        self.in_search = QLineEdit()
+        self.in_search.setPlaceholderText("N° receta o referencia…")
+        self.in_search.setMinimumHeight(28)
+        self.in_search.setMinimumWidth(220)
+        self.in_search.textChanged.connect(self._on_search_changed)
+        l.addWidget(self.in_search, 0)
 
         l.addWidget(QLabel("Estado:"))
         self.cb_estado = QComboBox()
@@ -343,6 +363,45 @@ class AuditoriaTab(BaseTabWidget):
 
         l.addStretch(1)
         return bar
+
+    def _show_column_menu(self, pos):
+        menu = QMenu(self)
+
+        for col in range(self.tbl.columnCount()):
+            col_name = self.tbl.horizontalHeaderItem(col).text()
+            action = menu.addAction(col_name)
+            action.setCheckable(True)
+            action.setChecked(not self.tbl.isColumnHidden(col))
+
+            # capturar col correctamente
+            action.triggered.connect(lambda checked, c=col: self.tbl.setColumnHidden(c, not checked))
+
+        menu.exec(self.tbl.horizontalHeader().mapToGlobal(pos))
+
+    def _show_row_menu(self, pos):
+        item = self.tbl.itemAt(pos)
+        if not item:
+            return
+
+        row = item.row()
+
+        receta_item = self.tbl.item(row, self.COL_RECETA)
+        ref_item = self.tbl.item(row, self.COL_REF)
+
+        receta = receta_item.text() if receta_item else ""
+        referencia = ref_item.text() if ref_item else ""
+
+        menu = QMenu(self)
+
+        if receta:
+            act_copy_receta = menu.addAction(f"Copiar N° Receta ({receta})")
+            act_copy_receta.triggered.connect(lambda: QApplication.clipboard().setText(receta))
+
+        if referencia:
+            act_copy_ref = menu.addAction(f"Copiar N° Referencia ({referencia})")
+            act_copy_ref.triggered.connect(lambda: QApplication.clipboard().setText(referencia))
+
+        menu.exec(self.tbl.mapToGlobal(pos))
 
     # -------------------------
     # Estados / Auditoría
@@ -374,6 +433,7 @@ class AuditoriaTab(BaseTabWidget):
     def _apply_filters(self) -> None:
         base_rows = self._rows_view or []
         total = len(base_rows)
+        search_txt = (self.in_search.text().strip().lower() if hasattr(self, "in_search") else "")
 
         estado_sel = self.cb_estado.currentData() if hasattr(self, "cb_estado") else None
         debitos_flag = self.cb_debitos.currentData() if hasattr(self, "cb_debitos") else None
@@ -410,6 +470,13 @@ class AuditoriaTab(BaseTabWidget):
                 return abs(rec - ofi) > 0.009
 
             idxs = [i for i in idxs if is_diff(i)]
+
+        if search_txt:
+            idxs = [
+                i for i in idxs
+                if search_txt in str(getattr(base_rows[i], "numero_receta", "")).lower()
+                   or search_txt in str(getattr(base_rows[i], "numero_referencia", "")).lower()
+            ]
 
         rows = [base_rows[i] for i in idxs]
         self._render_table(rows)
@@ -480,7 +547,6 @@ class AuditoriaTab(BaseTabWidget):
                 self._set_item(i, self.COL_ARCHIVOS, nombre_archivo)
 
             self.tbl.setSortingEnabled(True)
-
             self.tbl.clearSelection()
             self.tbl.setCurrentCell(-1, -1)
             self._clear_preview()
@@ -665,3 +731,6 @@ class AuditoriaTab(BaseTabWidget):
     @staticmethod
     def _is_diff_money(a: float, b: float, tol: float = 0.009) -> bool:
         return abs(a - b) > tol
+
+    def _on_search_changed(self):
+        self._search_timer.start(180)
