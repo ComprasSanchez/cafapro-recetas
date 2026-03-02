@@ -360,6 +360,7 @@ class Vendedores(Base):
     __tablename__ = "vendedores"
     __table_args__ = (
         sa.Index("ix_vendedores_codigo", "codigo"),
+        sa.UniqueConstraint("codigo", "descripcion", name="uq_vendedores_codigo_descripcion"),
     )
 
     vendedor_id: Mapped[int] = mapped_column(sa.Integer, sa.Identity(), primary_key=True)
