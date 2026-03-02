@@ -3,7 +3,7 @@ from __future__ import annotations
 from decimal import Decimal
 from enum import Enum as PyEnum
 import sqlalchemy as sa
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from datetime import date, datetime
 
 # Nombres consistentes (Alembic)
@@ -220,6 +220,17 @@ class Archivo(Base):
     )
     vencido: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, server_default=sa.false())
 
+    asociaciones: Mapped[list["Asociacion"]] = relationship(
+        "Asociacion",
+        back_populates="archivo",
+    )
+
+    archivo_detalles: Mapped[list["ArchivoDetalle"]] = relationship(
+        "ArchivoDetalle",
+        back_populates="archivo",
+        lazy="selectin",
+    )
+
 
 class ArchivoDetalle(Base):
     __tablename__ = "archivo_detalle"
@@ -254,6 +265,11 @@ class ArchivoDetalle(Base):
     descuento: Mapped[str | None] = mapped_column(sa.String, nullable=False)
 
     creado_en: Mapped[sa.DateTime] = mapped_column(sa.DateTime, nullable=False, server_default=sa.func.now())
+
+    archivo: Mapped["Archivo"] = relationship(
+        "Archivo",
+        back_populates="archivo_detalles",
+    )
 
 class Recetas(Base):
     __tablename__ = "recetas"
@@ -294,6 +310,23 @@ class Recetas(Base):
 
     creado_en: Mapped[sa.DateTime] = mapped_column(sa.DateTime, nullable=True)
 
+    asociaciones: Mapped[list["Asociacion"]] = relationship(
+        "Asociacion",
+        back_populates="receta",
+    )
+
+    troqueles: Mapped[list["Troqueles"]] = relationship(
+        "Troqueles",
+        back_populates="receta",
+        lazy="selectin",
+    )
+
+    debitos: Mapped[list["Debitos"]] = relationship(
+        "Debitos",
+        back_populates="receta",
+        lazy="selectin",
+    )
+
 
 
 class Troqueles(Base):
@@ -316,6 +349,11 @@ class Troqueles(Base):
 
     creado_en: Mapped[sa.DateTime] = mapped_column(sa.DateTime, nullable=False, server_default=sa.func.now())
 
+    receta: Mapped["Recetas"] = relationship(
+        "Recetas",
+        back_populates="troqueles",
+    )
+
 
 class MotivoDebito(Base):
     __tablename__ = "motivo_debito"
@@ -334,6 +372,13 @@ class Debitos(Base):
     receta_id: Mapped[int] = mapped_column(sa.ForeignKey("recetas.receta_id"), nullable=False)
     motivo_debito_id: Mapped[int] = mapped_column(sa.ForeignKey("motivo_debito.motivo_debito_id"), nullable=False)
     detalle: Mapped[str | None] = mapped_column(sa.String, nullable=True)
+
+    receta: Mapped["Recetas"] = relationship(
+        "Recetas",
+        back_populates="debitos",
+    )
+
+    motivo_debito: Mapped["MotivoDebito"] = relationship("MotivoDebito")
 
 class Asociacion(Base):
     __tablename__ = "asociacion"
@@ -354,6 +399,9 @@ class Asociacion(Base):
     vigente: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, server_default=sa.true())
 
     creado_en: Mapped[sa.DateTime] = mapped_column(sa.DateTime, nullable=False, server_default=sa.func.now())
+
+    receta: Mapped["Recetas"] = relationship("Recetas", back_populates="asociaciones")
+    archivo: Mapped["Archivo"] = relationship("Archivo", back_populates="asociaciones")
 
 
 class Vendedores(Base):

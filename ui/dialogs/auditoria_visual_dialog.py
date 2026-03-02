@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QSplitter,
     QLabel, QPushButton, QFrame, QScrollArea, QTableWidget,
     QTableWidgetItem, QHeaderView, QAbstractItemView, QMessageBox,
-    QWidget, QInputDialog, QLineEdit, QMenu, QListWidget, QListWidgetItem
+    QWidget, QInputDialog, QLineEdit, QMenu, QListWidget, QListWidgetItem, QToolButton, QStyle
 )
 
 from app.db.models import EstadoTroquelEnum
@@ -62,10 +62,6 @@ class AuditoriaVisualDialog(QDialog):
         # cache de previews (incluye lado por seguridad)
         self._preview_cache: dict[tuple[str, str, int, int], bytes] = {}
 
-        self._resize_timer = QTimer(self)
-        self._resize_timer.setSingleShot(True)
-        self._resize_timer.timeout.connect(self._refit_previews)
-
         self.setWindowTitle("Auditoría Visual")
         self.setModal(True)
         self.setWindowFlags(
@@ -74,6 +70,20 @@ class AuditoriaVisualDialog(QDialog):
             | Qt.WindowMaximizeButtonHint
             | Qt.WindowCloseButtonHint
         )
+
+        self._data_cache: dict[int, AuditoriaVisualData] = {}
+
+        self._loading_overlay = QLabel("Cargando…", self)
+        self._loading_overlay.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._loading_overlay.setStyleSheet("""
+            QLabel {
+                background: rgba(0, 0, 0, 120);
+                color: white;
+                font-size: 18px;
+                font-weight: bold;
+            }
+        """)
+        self._loading_overlay.hide()
 
         root = QVBoxLayout(self)
         root.setContentsMargins(10, 10, 10, 10)
@@ -438,6 +448,23 @@ class AuditoriaVisualDialog(QDialog):
         self.btn_salir.clicked.connect(self.reject)
         lay.addWidget(self.btn_salir, 0)
 
+        # Botón anterior (icono flecha izquierda)
+        self.btn_prev = QToolButton()
+        self.btn_prev.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowBack))
+        self.btn_prev.setToolTip("Anterior")
+        self.btn_prev.setAutoRaise(True)  # estilo plano
+        self.btn_prev.setIconSize(self.btn_prev.iconSize())
+        self.btn_prev.clicked.connect(self._on_prev)
+        lay.addWidget(self.btn_prev)
+
+        # Botón siguiente (icono flecha derecha)
+        self.btn_next = QToolButton()
+        self.btn_next.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowForward))
+        self.btn_next.setToolTip("Siguiente")
+        self.btn_next.setAutoRaise(True)
+        self.btn_next.clicked.connect(self._on_next_only)
+        lay.addWidget(self.btn_next)
+
         lay.addStretch(1)
 
         self.btn_finalizar = QPushButton("Finalizar y siguiente")
@@ -477,90 +504,28 @@ class AuditoriaVisualDialog(QDialog):
 
         idx = max(0, min(idx, len(self._asociacion_ids) - 1))
         self._idx = idx
-        self.asociacion_id = int(self._asociacion_ids[self._idx])
 
-        self.setWindowTitle(f"Auditoría Visual ({self._idx + 1}/{len(self._asociacion_ids)})")
-        self.lb_pos.setText(f"{self._idx + 1} / {len(self._asociacion_ids)}")
+        asociacion_id = int(self._asociacion_ids[self._idx])
+        self.asociacion_id = asociacion_id
 
-        self._load()
+        # 🔥 reset visual
+        self._reset_ui_state()
 
-    def _next(self) -> None:
-        if self._idx + 1 < len(self._asociacion_ids):
-            self._goto(self._idx + 1)
-        else:
-            self.accept()
+        # 🔥 cache hit
+        if asociacion_id in self._data_cache:
+            data = self._data_cache[asociacion_id]
 
-    # -------------------------
-    # Data load + render
-    # -------------------------
-    def _load(self) -> None:
-        self.data = None
-        self._selected_debitos = {}
-        self._vendedor_id = None
-        self.lb_vendedor.setText("— Seleccioná —")
-        self.lb_vendedor.setToolTip("")
-
-        self._last_preview_path = {"F": None, "D": None}
-        self._preview_req_id = {"F": 0, "D": 0}
-
-        self.in_prescripcion.setText("")
-        self.in_emision.setText("")
-        self.in_venta.setText("")
-        self.lb_autorizacion.setText("—")
-        self.lb_big.setText("—")
-
-        self._clear_preview("F", "Sin imagen (frente)")
-        self._clear_preview("D", "Sin imagen (dorso)")
-
-        self.tbl_troqueles.setRowCount(0)
-        self.tbl_arch_det.setRowCount(0)
-
-        self.list_motivos_f.clear()
-        self.list_motivos_d.clear()
-
-        try:
-            with session_scope() as s:
-                self.data = AuditoriaVisualService.load_by_asociacion_id(
-                    s,
-                    int(self.asociacion_id)
-                )
-
-                self._selected_debitos = {
-                    int(d.motivo_debito_id): d.detalle
-                    for d in (self.data.debitos or [])
-                    if getattr(d, "motivo_debito_id", None)
-                }
-
-                self._preload_vendedor(s)
-
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"No se pudo cargar la Auditoría Visual:\n{e}")
-            self.data = None
+            self._apply_data_to_state(data)
+            self._render_all()
+            self._preload_batch()
             return
 
+        # 🔥 async load
+        self._show_loading()
 
-        self._render_all()
-
-    def _preload_vendedor(self, s) -> None:
-        if not self.data:
-            return
-
-        vid = getattr(self.data.receta, "vendedor_id", None)
-        if not vid:
-            return
-
-        try:
-            from app.db.models import Vendedores
-            v = s.get(Vendedores, int(vid))
-        except Exception:
-            return
-
-        if not v:
-            return
-
-        self._vendedor_id = int(v.vendedor_id)
-        self.lb_vendedor.setText(str(getattr(v, "descripcion", "") or "—"))
-        self.lb_vendedor.setToolTip(f"Código: {getattr(v, 'codigo', '')}")
+        w = Worker(self._load_data_background_sync, asociacion_id=asociacion_id)
+        w.signals.finished.connect(self._on_data_loaded)
+        self._pool.start(w)
 
     def _render_all(self) -> None:
         assert self.data is not None
@@ -614,6 +579,10 @@ class AuditoriaVisualDialog(QDialog):
 
         self.lb_big.setText(str(getattr(self.data.archivo, "orden_lote", "") or "—"))
         self.lb_autorizacion.setText(str(getattr(self.data.archivo, "fecha", "") or "—"))
+
+        self.lb_pos.setText(
+            f"{self._idx + 1} / {len(self._asociacion_ids)}"
+        )
 
 
     def _render_troqueles(self) -> None:
@@ -678,16 +647,8 @@ class AuditoriaVisualDialog(QDialog):
     # -------------------------
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
-        self._resize_timer.start(120)
+        self._loading_overlay.setGeometry(self.rect())
 
-    def _refit_previews(self) -> None:
-        # Frente
-        if self._last_preview_path.get("F") and self.img_frente.pixmap() is not None:
-            self.img_frente.fit_to(self.scroll_frente.viewport().size())
-
-        # Dorso
-        if self._last_preview_path.get("D") and self.img_dorso.pixmap() is not None:
-            self.img_dorso.fit_to(self.scroll_dorso.viewport().size())
 
     def _clear_preview(self, lado: str, text: str) -> None:
         if lado == "F":
@@ -938,8 +899,11 @@ class AuditoriaVisualDialog(QDialog):
                     fecha_venta=fecha_venta,
                     usuario_id=self.creado_por_usuario_id,
                 )
+            if self.asociacion_id:
+                asoc_id = int(self.asociacion_id)
+                self._data_cache.pop(asoc_id, None)
 
-            self._next()
+            self._on_next_only()
 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudo finalizar:\n{e}")
@@ -1004,10 +968,14 @@ class AuditoriaVisualDialog(QDialog):
             asociacion_id=int(self.asociacion_id),
             parent=self,
         )
+
         if dlg.exec() != dlg.DialogCode.Accepted:
             return
 
-        self._load()
+        # 🔥 invalidar cache y recargar async
+        asoc_id = int(self.asociacion_id)
+        self._data_cache.pop(asoc_id, None)
+        self._goto(self._idx)
 
     def _ctx_edit_troquel_qty(self) -> None:
         row = self.tbl_troqueles.currentRow()
@@ -1024,8 +992,17 @@ class AuditoriaVisualDialog(QDialog):
             QMessageBox.warning(self, "Error", "No se pudo determinar troquel_id.")
             return
 
-        codigo = (self.tbl_troqueles.item(row, 0).text() if self.tbl_troqueles.item(row, 0) else "").strip()
-        qty_txt = (self.tbl_troqueles.item(row, 2).text() if self.tbl_troqueles.item(row, 2) else "1").strip()
+        codigo = (
+            self.tbl_troqueles.item(row, 0).text()
+            if self.tbl_troqueles.item(row, 0)
+            else ""
+        ).strip()
+
+        qty_txt = (
+            self.tbl_troqueles.item(row, 2).text()
+            if self.tbl_troqueles.item(row, 2)
+            else "1"
+        ).strip()
 
         try:
             qty = int(qty_txt)
@@ -1039,10 +1016,15 @@ class AuditoriaVisualDialog(QDialog):
             cantidad=qty,
             parent=self,
         )
+
         if dlg.exec() != dlg.DialogCode.Accepted:
             return
 
-        self._load()
+        # 🔥 invalidar cache y recargar async
+        if self.asociacion_id:
+            asoc_id = int(self.asociacion_id)
+            self._data_cache.pop(asoc_id, None)
+            self._goto(self._idx)
 
     def _open_historial_debitada(self) -> None:
         if not self.data:
@@ -1064,3 +1046,96 @@ class AuditoriaVisualDialog(QDialog):
             return d.strftime("%d/%m/%Y")
         except Exception:
             return ""
+
+    def _on_next_only(self):
+        if self._idx + 1 < len(self._asociacion_ids):
+            self._goto(self._idx + 1)
+
+    def _on_prev(self):
+        if self._idx - 1 >= 0:
+            self._goto(self._idx - 1)
+
+    def _show_loading(self):
+        self._loading_overlay.setGeometry(self.rect())
+        self._loading_overlay.show()
+
+    def _hide_loading(self):
+        self._loading_overlay.hide()
+
+    def _load_data_background_sync(self, *, asociacion_id: int):
+        with session_scope() as s:
+            data = AuditoriaVisualService.load_by_asociacion_id(s, asociacion_id)
+        return {"id": asociacion_id, "data": data}
+
+    def _on_data_loaded(self, result: dict):
+        asociacion_id = result["id"]
+        data = result["data"]
+
+        self._data_cache[asociacion_id] = data
+
+        self._apply_data_to_state(data)
+
+        self._render_all()
+        self._hide_loading()
+        self._preload_batch()
+
+    def _preload_batch(self, batch_size: int = 3):
+        for i in range(1, batch_size + 1):
+            idx = self._idx + i
+            if idx >= len(self._asociacion_ids):
+                break
+
+            next_id = int(self._asociacion_ids[idx])
+            if next_id in self._data_cache:
+                continue
+
+            w = Worker(self._load_data_background_sync, asociacion_id=next_id)
+            w.signals.finished.connect(self._on_preload_finished)
+            self._pool.start(w)
+
+    def _on_preload_finished(self, result: dict):
+        asociacion_id = result["id"]
+        data = result["data"]
+
+        # Solo cachear, no tocar UI
+        self._data_cache[asociacion_id] = data
+
+    def _reset_ui_state(self):
+        self.data = None
+        self._selected_debitos = {}
+        self._vendedor_id = None
+
+        self.lb_vendedor.setText("— Seleccioná —")
+        self.lb_vendedor.setToolTip("")
+
+        self.in_prescripcion.clear()
+        self.in_emision.clear()
+        self.in_venta.clear()
+
+        self.lb_autorizacion.setText("—")
+        self.lb_big.setText("—")
+
+        self.tbl_troqueles.setRowCount(0)
+        self.tbl_arch_det.setRowCount(0)
+
+        self.list_motivos_f.clear()
+        self.list_motivos_d.clear()
+
+        self._clear_preview("F", "Sin imagen (frente)")
+        self._clear_preview("D", "Sin imagen (dorso)")
+
+    def _apply_data_to_state(self, data):
+        self.data = data
+
+        # reconstruir débitos
+        self._selected_debitos = {
+            int(d.motivo_debito_id): d.detalle
+            for d in (data.debitos or [])
+            if getattr(d, "motivo_debito_id", None)
+        }
+
+        vendedor = getattr(data, "vendedor", None)
+        if vendedor:
+            self._vendedor_id = vendedor.vendedor_id
+            self.lb_vendedor.setText(vendedor.descripcion or "—")
+            self.lb_vendedor.setToolTip(f"Código: {vendedor.codigo or ''}")

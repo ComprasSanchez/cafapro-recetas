@@ -3,10 +3,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import List, Optional
 
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
+
+
 from sqlalchemy.orm import Session
 
 from app.db.models import (
-    Asociacion, Recetas, Archivo, Troqueles, ArchivoDetalle, Debitos, MotivoDebito
+    Asociacion, Recetas, Archivo, Troqueles, ArchivoDetalle, Debitos, MotivoDebito, Vendedores
 )
 from app.service.recetas.historial_receta_service import HistorialRecetaService
 
@@ -33,101 +37,68 @@ class AuditoriaVisualData:
     motivos_frente: List[type[MotivoDebito]]
     motivos_dorso: List[type[MotivoDebito]]
     has_historial_debitada: bool
+    vendedor: type[Vendedores] | None
 
 
 class AuditoriaVisualService:
+
     @staticmethod
     def load_by_asociacion_id(session: Session, asociacion_id: int) -> AuditoriaVisualData:
-        asociacion = session.get(Asociacion, asociacion_id)
+        stmt = (
+            select(Asociacion)
+            .options(
+                selectinload(Asociacion.receta)
+                .selectinload(Recetas.troqueles),
+
+                selectinload(Asociacion.receta)
+                .selectinload(Recetas.debitos)
+                .selectinload(Debitos.motivo_debito),
+
+                selectinload(Asociacion.archivo)
+                .selectinload(Archivo.archivo_detalles),
+            )
+            .where(Asociacion.asociacion_id == asociacion_id)
+        )
+
+        asociacion = session.execute(stmt).scalar_one_or_none()
+
         if not asociacion:
-            raise ValueError(f"No existe Asociacion con id={asociacion_id}")
+            raise ValueError("No existe asociación")
 
-        if not getattr(asociacion, "vigente", True):
-            asoc_vig = (
-                session.query(Asociacion)
-                .filter(
-                    Asociacion.archivo_id == asociacion.archivo_id,
-                    Asociacion.vigente.is_(True),
-                )
-                .order_by(Asociacion.asociacion_id.desc())
-                .first()
-            )
-            if not asoc_vig:
-                raise ValueError("No existe asociación vigente")
-            asociacion = asoc_vig
+        receta = asociacion.receta
+        archivo = asociacion.archivo
 
-        receta = session.get(Recetas, asociacion.receta_id)
-        archivo = session.get(Archivo, asociacion.archivo_id)
-
-        # 🔹 Troqueles
-        troqueles = (
-            session.query(Troqueles)
-            .filter(Troqueles.receta_id == receta.receta_id)
-            .order_by(Troqueles.troquel_id.asc())
-            .all()
-        )
-
-        # 🔹 ArchivoDetalle
-        archivo_detalles = (
-            session.query(ArchivoDetalle)
-            .filter(ArchivoDetalle.archivo_id == archivo.archivo_id)
-            .order_by(ArchivoDetalle.archivo_detalle_id.asc())
-            .all()
-        )
-
-        # 🔹 Débitos
-        rows = (
-            session.query(
-                Debitos.debito_id,
-                Debitos.motivo_debito_id,
-                MotivoDebito.codigo,
-                MotivoDebito.descripcion,
-                MotivoDebito.lado,
-                MotivoDebito.excluyente,
-                Debitos.detalle,
-            )
-            .join(MotivoDebito, MotivoDebito.motivo_debito_id == Debitos.motivo_debito_id)
-            .filter(Debitos.receta_id == receta.receta_id)
-            .order_by(Debitos.debito_id.asc())
-            .all()
-        )
+        troqueles = receta.troqueles
+        archivo_detalles = archivo.archivo_detalles
 
         debitos = [
             DebitoRow(
-                debito_id=r[0],
-                motivo_debito_id=r[1],
-                motivo_codigo=r[2],
-                motivo_descripcion=r[3],
-                lado=str(r[4]),
-                excluyente=str(r[5]),
-                detalle=r[6],
+                debito_id=d.debito_id,
+                motivo_debito_id=d.motivo_debito_id,
+                motivo_codigo=d.motivo_debito.codigo,
+                motivo_descripcion=d.motivo_debito.descripcion,
+                lado=str(d.motivo_debito.lado),
+                excluyente=str(d.motivo_debito.excluyente),
+                detalle=d.detalle,
             )
-            for r in rows
+            for d in receta.debitos
         ]
 
-        # 🔹 Motivos por lado (🔥 ahora vienen precargados)
-        motivos_frente = (
-            session.query(MotivoDebito)
-            .filter(MotivoDebito.lado == "F")
-            .order_by(MotivoDebito.motivo_debito_id.asc())
-            .all()
+        motivos = session.query(MotivoDebito).order_by(
+            MotivoDebito.motivo_debito_id
+        ).all()
+
+        motivos_frente = [m for m in motivos if m.lado == "F"]
+        motivos_dorso = [m for m in motivos if m.lado == "D"]
+
+        has_historial = HistorialRecetaService.has_historial_debitada(
+            session,
+            archivo_id=archivo.archivo_id
         )
 
-        motivos_dorso = (
-            session.query(MotivoDebito)
-            .filter(MotivoDebito.lado == "D")
-            .order_by(MotivoDebito.motivo_debito_id.asc())
-            .all()
-        )
-
-        # 🔹 Historial (🔥 MISMA sesión, no abrimos otra)
-        has_historial = False
-        if archivo and archivo.archivo_id:
-            has_historial = HistorialRecetaService.has_historial_debitada(
-                session,
-                archivo_id=archivo.archivo_id
-            )
-
+        vendedor = None
+        if receta and receta.vendedor_id:
+            vendedor = session.get(Vendedores, receta.vendedor_id)
 
         return AuditoriaVisualData(
             asociacion=asociacion,
@@ -139,4 +110,5 @@ class AuditoriaVisualService:
             motivos_frente=motivos_frente,
             motivos_dorso=motivos_dorso,
             has_historial_debitada=has_historial,
+            vendedor=vendedor
         )
