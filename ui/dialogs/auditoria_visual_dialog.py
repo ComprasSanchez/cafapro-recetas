@@ -855,33 +855,68 @@ class AuditoriaVisualDialog(QDialog):
             QMessageBox.critical(self, "Error", "No se pudo determinar receta_id.")
             return
 
-        # ✅ Emisión NO obligatoria
+        # -------- PARSE FECHAS --------
+        fecha_prescripcion = self._parse_ddmmyyyy(self.in_prescripcion.text())
         fecha_emision = self._parse_ddmmyyyy(self.in_emision.text())
-
-        # ✅ Venta sigue obligatoria
         fecha_venta = self._parse_ddmmyyyy(self.in_venta.text())
+
+        # Venta obligatoria
         if not fecha_venta:
-            QMessageBox.warning(self, "Falta fecha", "Tenés que cargar la fecha de Venta (dd/MM/yyyy).")
+            QMessageBox.warning(
+                self,
+                "Falta fecha",
+                "Tenés que cargar la fecha de Venta (dd/MM/yyyy)."
+            )
             return
 
-        fecha_prescripcion = self._parse_ddmmyyyy(self.in_prescripcion.text())
+        # -------- VALIDACIÓN 1: AUTORIZACIÓN vs VENTA --------
+        fecha_autorizacion = getattr(self.data.archivo, "fecha", None)
 
+        if fecha_autorizacion and fecha_venta:
+            if fecha_autorizacion != fecha_venta:
+                QMessageBox.warning(
+                    self,
+                    "Fechas no coinciden",
+                    "La fecha de Autorización y la fecha de Venta deben coincidir."
+                )
+                return
+
+        # -------- VALIDACIÓN 2: SI HAY DÉBITOS → VENDEDOR OBLIGATORIO --------
+        if self._selected_debitos and not self._vendedor_id:
+            QMessageBox.warning(
+                self,
+                "Falta vendedor",
+                "Si seleccionás algún débito, tenés que cargar un vendedor."
+            )
+            return
+
+        # -------- CONSTRUCCIÓN DÉBITOS --------
         debitos_inputs = [
             DebitoInput(motivo_debito_id=mid, detalle=det)
             for mid, det in self._selected_debitos.items()
         ]
 
         estado_seg_id: int | None = None
+
         if debitos_inputs:
             dlg = EstadoSeguimientoPickDialog(self)
             if dlg.exec() != dlg.DialogCode.Accepted:
-                QMessageBox.warning(self, "Falta estado", "Tenés que seleccionar un estado de seguimiento para finalizar.")
+                QMessageBox.warning(
+                    self,
+                    "Falta estado",
+                    "Tenés que seleccionar un estado de seguimiento para finalizar."
+                )
                 return
 
             estado_seg_id = dlg.selected_estado_seguimiento_id()
             if not estado_seg_id:
-                QMessageBox.warning(self, "Falta estado", "Tenés que seleccionar un estado de seguimiento para finalizar.")
+                QMessageBox.warning(
+                    self,
+                    "Falta estado",
+                    "Tenés que seleccionar un estado de seguimiento para finalizar."
+                )
                 return
+
             estado_seg_id = int(estado_seg_id)
 
         try:
