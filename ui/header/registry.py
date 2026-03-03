@@ -1,6 +1,7 @@
 from ui.header.actions import HeaderAction
 from ui.windows.excluidos_window import ExcluidosWindow
 from ui.windows.listado_debitos_window import ListadoDebitosWindow
+from ui.windows.motivos_debitos_window import MotivosDebitosWindow
 from ui.windows.obra_social_window import ObrasSocialesWindow
 from ui.windows.periodo_window import PeriodosWindow
 from ui.windows.plan_window import PlanWindow
@@ -101,6 +102,12 @@ def build_header_actions(main_window, current_user) -> dict[str, list[HeaderActi
                 text="Prestadores",
                 kind="window",
                 window_factory=lambda: PrestadoresWindow(main_window),
+            ),
+            HeaderAction(
+                key="Motivos Debitos",
+                text="Motivos Debitos",
+                kind="window",
+                window_factory=lambda: MotivosDebitosWindow(main_window),
             )
         ]
     }

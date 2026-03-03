@@ -769,21 +769,37 @@ class AuditoriaVisualDialog(QDialog):
         list_widget.clear()
 
         for m in motivos:
-            text = m.descripcion
+            motivo_id = int(m.motivo_debito_id)
+            descripcion = m.descripcion
+            activo = bool(getattr(m, "activo", True))
+            seleccionado = motivo_id in self._selected_debitos
 
-            if m.motivo_debito_id in self._selected_debitos:
-                det = self._selected_debitos.get(m.motivo_debito_id)
-                if det:
-                    text = f"{m.descripcion}  ({det})"
+            # 🔴 Si está inactivo y no estaba seleccionado → no se muestra
+            if not activo and not seleccionado:
+                continue
+
+            text = descripcion
+
+            if seleccionado:
+                detalle = self._selected_debitos.get(motivo_id)
+                if detalle:
+                    text = f"{descripcion}  ({detalle})"
 
             item = QListWidgetItem(text)
-            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            item.setData(Qt.ItemDataRole.UserRole, m.motivo_debito_id)
+            item.setData(Qt.ItemDataRole.UserRole, motivo_id)
 
-            if m.motivo_debito_id in self._selected_debitos:
+            # Habilitamos checkbox
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+
+            if seleccionado:
                 item.setCheckState(Qt.CheckState.Checked)
             else:
                 item.setCheckState(Qt.CheckState.Unchecked)
+
+            # 🔥 Si está inactivo → deshabilitar interacción y pintar gris
+            if not activo:
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
+                item.setForeground(QBrush(QColor(150, 150, 150)))
 
             list_widget.addItem(item)
 

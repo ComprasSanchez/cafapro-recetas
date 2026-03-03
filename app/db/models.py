@@ -363,6 +363,11 @@ class MotivoDebito(Base):
     lado: Mapped[LadoEnum] = mapped_column(lado_enum, nullable=False)
     excluyente: Mapped[SiNoEnum] = mapped_column(si_no_enum, nullable=False)
     codigo: Mapped[str] = mapped_column(sa.String, nullable=False)
+    activo: Mapped[bool] = mapped_column(
+        sa.Boolean,
+        nullable=False,
+        server_default=sa.true(),
+    )
 
 
 class Debitos(Base):
