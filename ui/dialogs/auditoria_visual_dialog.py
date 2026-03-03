@@ -38,6 +38,7 @@ class AuditoriaVisualDialog(QDialog):
     ):
         super().__init__(parent)
         self._pool = QThreadPool.globalInstance()
+        self.ROW_H = 36
 
         # Preview state por lado
         self._preview_req_id: dict[str, int] = {"F": 0, "D": 0}
@@ -138,7 +139,7 @@ class AuditoriaVisualDialog(QDialog):
 
         split.addWidget(right)
 
-        split.setStretchFactor(0, 6)
+        split.setStretchFactor(0, 8)
         split.setStretchFactor(1, 3)
 
         return w
@@ -275,6 +276,8 @@ class AuditoriaVisualDialog(QDialog):
         split.setStretchFactor(0, 1)
         split.setStretchFactor(1, 2)
 
+        max_height = (self.ROW_H * 2) + 100
+        w.setMaximumHeight(max_height)
         return w
 
     @staticmethod
