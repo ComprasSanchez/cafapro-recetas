@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from PySide6.QtCore import Qt, QSignalBlocker
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout,
     QLabel, QComboBox, QPushButton, QMessageBox,
     QTableWidget, QTableWidgetItem, QAbstractItemView,
-    QHeaderView, QFrame, QSizePolicy, QWidget
+    QHeaderView, QFrame, QSizePolicy, QWidget, QLineEdit
 )
 
 from app.db.session import session_scope
@@ -27,6 +29,8 @@ class ListadoDebitosWindow(QDialog):
 
         self._estados: list[tuple[int, str]] = []
         self._recepcion_id: int | None = None
+
+        self._all_rows = []
 
         self._build_ui()
         self._load_estados()
@@ -65,6 +69,15 @@ class ListadoDebitosWindow(QDialog):
         self.btn_reload.clicked.connect(self._reload)
         hc.addWidget(self.btn_reload, 0)
 
+        # Campo fecha auditoría
+        self.in_fecha = QLineEdit()
+        self.in_fecha.setPlaceholderText("Fecha auditoría (dd/MM/yyyy)")
+        self.in_fecha.setInputMask("00/00/0000")
+        self.in_fecha.setMinimumHeight(32)
+        hc.addWidget(self.in_fecha, 0)
+
+        self.in_fecha.editingFinished.connect(self._apply_table_filter)
+
         root.addWidget(header_card, 0)
 
         # -------------------------
@@ -81,7 +94,7 @@ class ListadoDebitosWindow(QDialog):
             "N° Recepción",
             "Orden lote",
             "N° receta",
-            "Creado en",
+            "Fecha Auditoria",
             "Importe OBS",
             "A cargo entidad",
             "Débito",
@@ -163,7 +176,7 @@ class ListadoDebitosWindow(QDialog):
         try:
             rows = ViewDebitos.list_debitos(
                 recepcion_id=int(self._recepcion_id),
-                fecha_auditoria=None,  # ✅ sin filtro de fecha por ahora
+                fecha_auditoria=None,
             )
             self._render(rows)
         except Exception as e:
@@ -263,3 +276,57 @@ class ListadoDebitosWindow(QDialog):
             return f"{float(v):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
         except Exception:
             return str(v)
+
+    def _reload(self) -> None:
+        if not self._recepcion_id:
+            self._set_empty_state()
+            return
+
+        try:
+            rows = ViewDebitos.list_debitos(
+                recepcion_id=int(self._recepcion_id),
+                fecha_auditoria=None,
+            )
+
+            self._all_rows = rows  # 🔥 guardamos copia original
+            self._apply_table_filter()  # 🔥 renderiza filtrado
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"No se pudo cargar los débitos.\n\n{e}")
+
+    def _apply_table_filter(self) -> None:
+        if not self._all_rows:
+            self._render([])
+            return
+
+        fecha_txt = (self.in_fecha.text() or "").strip()
+
+        if not fecha_txt or "_" in fecha_txt:
+            # 🔥 sin filtro
+            self._render(self._all_rows)
+            return
+
+        try:
+            fecha = datetime.strptime(fecha_txt, "%d/%m/%Y").date()
+        except ValueError:
+            QMessageBox.warning(
+                self,
+                "Fecha inválida",
+                "La fecha debe tener formato dd/MM/yyyy."
+            )
+            return
+
+        # 🔥 filtro en memoria
+        filtrados = []
+        for r in self._all_rows:
+            creado = getattr(r, "creado_en", None)
+            if not creado:
+                continue
+
+            try:
+                if creado.date() == fecha:
+                    filtrados.append(r)
+            except Exception:
+                continue
+
+        self._render(filtrados)
