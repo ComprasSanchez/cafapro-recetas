@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from PySide6.QtCore import Qt, QSignalBlocker
+from PySide6.QtCore import Qt, QSignalBlocker, QMarginsF
+from PySide6.QtGui import QTextDocument, QPageSize, QPageLayout
+from PySide6.QtPrintSupport import QPrinter, QPrintDialog
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout,
     QLabel, QComboBox, QPushButton, QMessageBox,
@@ -31,6 +33,7 @@ class ListadoDebitosWindow(QDialog):
         self._recepcion_id: int | None = None
 
         self._all_rows = []
+        self.filtrados = []
 
         self._build_ui()
         self._load_estados()
@@ -133,6 +136,17 @@ class ListadoDebitosWindow(QDialog):
         footer = QHBoxLayout()
         footer.addStretch(1)
 
+        self.btn_preview = QPushButton("Vista previa")
+        self.btn_preview.setMinimumHeight(32)
+        self.btn_preview.clicked.connect(self._print_filtered)
+
+        self.btn_print = QPushButton("Imprimir todo")
+        self.btn_print.setMinimumHeight(32)
+        self.btn_print.clicked.connect(self._print_all)
+
+        footer.addWidget(self.btn_preview)
+        footer.addWidget(self.btn_print)
+
         btn_close = QPushButton("Cerrar")
         btn_close.setProperty("variant", "ghost")
         btn_close.setMinimumHeight(32)
@@ -178,7 +192,11 @@ class ListadoDebitosWindow(QDialog):
                 recepcion_id=int(self._recepcion_id),
                 fecha_auditoria=None,
             )
+
+            self._all_rows = rows
+            self.filtrados = rows
             self._render(rows)
+
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudo cargar los débitos.\n\n{e}")
 
@@ -288,45 +306,242 @@ class ListadoDebitosWindow(QDialog):
                 fecha_auditoria=None,
             )
 
-            self._all_rows = rows  # 🔥 guardamos copia original
-            self._apply_table_filter()  # 🔥 renderiza filtrado
+            self._all_rows = rows
+            self._render(self._all_rows)
 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudo cargar los débitos.\n\n{e}")
 
     def _apply_table_filter(self) -> None:
+
         if not self._all_rows:
+            self.filtrados = []
             self._render([])
             return
 
-        fecha_txt = (self.in_fecha.text() or "").strip()
+        fecha_txt = self.in_fecha.text().strip()
+        fecha_limpia = fecha_txt.replace("/", "")
 
-        if not fecha_txt or "_" in fecha_txt:
-            # 🔥 sin filtro
+        if not fecha_limpia or len(fecha_limpia) != 8:
+            self.filtrados = self._all_rows
             self._render(self._all_rows)
             return
 
         try:
-            fecha = datetime.strptime(fecha_txt, "%d/%m/%Y").date()
+            fecha_filtro = datetime.strptime(fecha_txt, "%d/%m/%Y").date()
         except ValueError:
-            QMessageBox.warning(
-                self,
-                "Fecha inválida",
-                "La fecha debe tener formato dd/MM/yyyy."
-            )
+            self.filtrados = self._all_rows
+            self._render(self._all_rows)
             return
 
-        # 🔥 filtro en memoria
-        filtrados = []
-        for r in self._all_rows:
-            creado = getattr(r, "creado_en", None)
-            if not creado:
-                continue
+        self.filtrados = [
+            r for r in self._all_rows
+            if getattr(r, "creado_en", None)
+               and r.creado_en.date() == fecha_filtro
+        ]
 
-            try:
-                if creado.date() == fecha:
-                    filtrados.append(r)
-            except Exception:
-                continue
+        self._render(self.filtrados)
 
-        self._render(filtrados)
+    def _generate_html(self, rows):
+        ahora = datetime.now().strftime("%d/%m/%Y %H:%M")
+
+        auditores = sorted(
+            {r.auditor_nombre for r in rows if getattr(r, "auditor_nombre", None)}
+        )
+
+        auditores_txt = " - ".join(auditores) if auditores else ""
+
+        periodo_texto = self.lb_recepcion.text()
+
+        fecha_filtro = self.in_fecha.text().strip()
+
+        fecha_auditoria_html = ""
+
+        if fecha_filtro and len(fecha_filtro.replace("/", "")) == 8:
+            fecha_auditoria_html = f"""
+                <div class="fecha_auditoria">
+                    Fecha Auditoría: {fecha_filtro}
+                </div>
+            """
+
+        html = f"""
+        <html>
+        <head>
+            <style>
+
+                body {{
+                    font-family: Arial;
+                    font-size: 6pt;
+                    margin: 0;
+                    padding: 0;
+                }}
+
+                .container {{
+                    width: 100%;
+                    margin: 0;
+                    padding: 0;
+                }}
+
+                .titulo {{
+                    text-align: center;
+                    font-size: 10pt;
+                    font-weight: bold;
+                    margin-bottom: 2px;
+                }}
+
+                .subtitulo {{
+                    text-align: center;
+                    font-size: 8pt;
+                    margin-bottom: 4px;
+                }}
+
+                .auditores {{
+                    text-align: center;
+                    font-size: 8pt;
+                    margin-bottom: 6px;
+                }}
+                
+                .fecha_auditoria {{
+                    text-align: center;
+                    font-size: 6pt;
+                    margin-bottom: 6px;
+                }}
+
+                .fecha {{
+                    text-align: right;
+                    font-size: 6pt;
+                    margin-bottom: 6px;
+                }}
+
+                table {{
+                    width: 100%;
+                    border-collapse: collapse;
+                    table-layout: fixed;  /* 🔥 clave para separar columnas */
+                }}
+
+                th {{
+                    text-align: left;
+                    font-weight: bold;
+                    padding: 4px 6px;
+                    border-bottom: 1px solid #000;
+                }}
+
+                td {{
+                    padding: 4px 6px;
+                    vertical-align: top;
+                    word-wrap: break-word;
+                }}
+
+                .right {{
+                    text-align: right;
+                }}
+
+            </style>
+        </head>
+
+        <body>
+
+            <div class="container">
+
+                <div class="titulo">
+                    CAMARA DE FARMACEUTICA Y PROPIETARIOS DE FARMACIAS
+                </div>
+
+                <div class="subtitulo">
+                    {periodo_texto}
+                </div>
+                
+                {fecha_auditoria_html}
+
+                <div class="auditores">
+                    Auditores: {auditores_txt}
+                </div>
+
+                <div class="fecha">
+                    Generado: {ahora}
+                </div>
+
+                <table>
+
+                    <!-- 🔥 Definimos ancho real de columnas -->
+                    <colgroup>
+                        <col style="width:18%">
+                        <col style="width:8%">
+                        <col style="width:10%">
+                        <col style="width:10%">
+                        <col style="width:10%">
+                        <col style="width:18%">
+                        <col style="width:12%">
+                        <col style="width:7%">
+                        <col style="width:7%">
+                    </colgroup>
+
+                    <tr>
+                        <th>Farmacia</th>
+                        <th>Lote</th>
+                        <th>Receta</th>
+                        <th class="right">Importe OBS</th>
+                        <th class="right">A cargo</th>
+                        <th>Débito</th>
+                        <th>Detalle</th>
+                        <th>Estado</th>
+                        <th>Vendedor</th>
+                    </tr>
+        """
+
+        for r in rows:
+            html += f"""
+                    <tr>
+                        <td>{r.prestador_nombre or ''}</td>
+                        <td>{r.orden_lote}</td>
+                        <td>{r.nro_receta}</td>
+                        <td class="right">{r.importe_obs}</td>
+                        <td class="right">{r.a_cargo_entidad}</td>
+                        <td>{r.descripcion_debito}</td>
+                        <td>{r.detalle or ''}</td>
+                        <td>{r.estado_seguimiento or ''}</td>
+                        <td>{r.vendedor_nombre or ''}</td>
+                    </tr>
+            """
+
+        html += """
+                </table>
+
+            </div>
+
+        </body>
+        </html>
+        """
+
+        return html
+
+    def _print_filtered(self):
+        self._print_rows(self.filtrados)
+
+    def _print_all(self):
+        self._print_rows(self._all_rows)
+
+    def _print_rows(self, rows):
+        if not rows:
+            QMessageBox.information(self, "Sin datos", "No hay datos para imprimir.")
+            return
+
+        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+        printer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
+        printer.setPageOrientation(QPageLayout.Orientation.Landscape)
+        printer.setPageMargins(QMarginsF(0, 0, 0, 0), QPageLayout.Unit.Millimeter)
+
+        dialog = QPrintDialog(printer, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        html = self._generate_html(rows)
+
+        doc = QTextDocument()
+        doc.setDocumentMargin(0)
+
+        page_rect = printer.pageLayout().paintRect(QPageLayout.Point)
+        doc.setPageSize(page_rect.size())
+
+        doc.setHtml(html)
+        doc.print_(printer)

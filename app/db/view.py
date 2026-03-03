@@ -70,6 +70,9 @@ class VwArchivoRecetaDebitos(Base):
     descripcion_debito: Mapped[str] = mapped_column(sa.String)
     detalle: Mapped[str | None] = mapped_column(sa.String, nullable=True)
     creado_en: Mapped[sa.DateTime] = mapped_column(sa.DateTime, nullable=False)
+    prestador_nombre: Mapped[str] = mapped_column(sa.String)
+    vendedor_nombre: Mapped[str | None] = mapped_column(sa.String, nullable=True)
+    auditor_nombre: Mapped[str | None] = mapped_column(sa.String, nullable=True)
 
 class VwArchivosExcluidos(Base):
     __tablename__ = "vw_archivos_excluidos"
