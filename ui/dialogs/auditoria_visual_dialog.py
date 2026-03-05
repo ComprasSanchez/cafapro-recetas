@@ -1199,3 +1199,9 @@ class AuditoriaVisualDialog(QDialog):
     def _focus_venta(self):
         self.in_venta.setFocus(Qt.FocusReason.TabFocusReason)
         self.in_venta.selectAll()
+
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            event.ignore()
+            return
+        super().keyPressEvent(event)
