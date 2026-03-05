@@ -533,6 +533,8 @@ class AuditoriaVisualDialog(QDialog):
     def _render_all(self) -> None:
         assert self.data is not None
 
+        QTimer.singleShot(0, self._focus_venta)
+
         fr = (getattr(self.data.receta, "ubicacion_frente", None) or "").strip()
         dr = (getattr(self.data.receta, "ubicacion_dorso", None) or "").strip()
 
@@ -1193,3 +1195,7 @@ class AuditoriaVisualDialog(QDialog):
             self._vendedor_id = vendedor.vendedor_id
             self.lb_vendedor.setText(vendedor.descripcion or "—")
             self.lb_vendedor.setToolTip(f"Código: {vendedor.codigo or ''}")
+
+    def _focus_venta(self):
+        self.in_venta.setFocus(Qt.FocusReason.TabFocusReason)
+        self.in_venta.selectAll()
