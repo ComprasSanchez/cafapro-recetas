@@ -20,6 +20,7 @@ class RecepcionListItem:
     fecha_presentacion: object
     creado_en: Optional[object]
     imed: str
+    validador: str
 
 @dataclass(frozen=True)
 class PrestadorConRecepcionesItem:
@@ -98,7 +99,6 @@ class RecepcionService:
         ]
 
     @staticmethod
-    @staticmethod
     def list(s: Session, *, all: bool = True) -> list[RecepcionListItem]:
         q = (
             select(
@@ -111,6 +111,7 @@ class RecepcionService:
                 Recepcion.fecha_presentacion,
                 Recepcion.creado_en,
                 Prestador.imed,
+                ObraSocial.validador
             )
             .join(ObraSocial, ObraSocial.obra_social_id == Recepcion.obra_social_id)
             .join(Periodo, Periodo.periodo_id == Recepcion.periodo_id)
@@ -125,7 +126,7 @@ class RecepcionService:
         out: list[RecepcionListItem] = []
         for r in rows:
             (rid, numero, os_nombre, anio, mes, quin, pres_cod, pres_nom,
-             estado, fecha_rec, creado_en, imed) = r
+             estado, fecha_rec, creado_en, imed, validador) = r
             periodo_txt = f"{anio}-{mes:02d} Q{quin}"
             prestador_txt = f"{pres_nom or ''}"
             out.append(
@@ -139,6 +140,7 @@ class RecepcionService:
                     fecha_presentacion=fecha_rec,
                     creado_en=creado_en,
                     imed=imed or "",
+                    validador=validador
                 )
             )
         return out

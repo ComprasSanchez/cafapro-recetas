@@ -10,7 +10,8 @@ from app.db.session import session_scope
 from app.service.recetas.archivo_service import ArchivoService
 from app.service.recepcion.recepcion_service import RecepcionService
 from app.service.recepcion.arrastre_exclusivos_service import ArrastreExcluidosService
-from core.imed_cvs_handler import ImedCvsHandler
+from app.service.sources.imed_cvs_souce import ImedCsvSource
+from app.service.sources.preserfar_api_souce import PreserfarApiSource
 
 
 def parse_aut_ts(receta: dict) -> datetime:
@@ -33,6 +34,7 @@ class RecepcionOut:
     obra_social: str
     imed: str
     obs: str
+    validador: str
 
 
 @dataclass(frozen=True)
@@ -50,9 +52,10 @@ class SubirOut:
     moved_prev_excluidos: int
 
 
+
 class ArchivoCvsUseCase:
     def __init__(self) -> None:
-        self._cvs = ImedCvsHandler()
+        self._source = ImedCsvSource()
 
     @staticmethod
     def load_recepcion(*, recepcion_id: int, ctx=None) -> RecepcionOut:
@@ -73,13 +76,20 @@ class ArchivoCvsUseCase:
             obra_social=str(getattr(rec, "obra_social", "") or ""),
             imed=str(getattr(rec, "imed", "") or ""),
             obs=str(getattr(rec, "obra_social", "") or ""),
+            validador=str(getattr(rec, "validador", "IMED") or "IMED").upper()
         )
 
-    def load_csv(self, *, imed: str, fecha_str: str, obs: str,ctx=None) -> CsvOut:
+    def load_recetas(self, *, imed: str, fecha_str: str, obs: str,validador: str,ctx=None) -> CsvOut:
         if ctx:
             ctx.emit_progress(10, "Leyendo CSV IMED…")
 
-        recetas, detalles = self._cvs.read_cvs_by_imed_and_date(imed=imed, date=fecha_str, obs=obs)
+        source = self._resolve_source(validador)
+
+        recetas, detalles = source.fetch_recetas(
+            imed=imed,
+            fecha_str=fecha_str,
+            obs=obs
+        )
         recetas = recetas or {}
         detalles = detalles or {}
 
@@ -203,4 +213,11 @@ class ArchivoCvsUseCase:
             errores=errores,
             moved_prev_excluidos=moved_prev,
         )
+
+    def _resolve_source(self, validador: str):
+
+        if validador == "preserfar":
+            return PreserfarApiSource()
+
+        return ImedCsvSource()
 

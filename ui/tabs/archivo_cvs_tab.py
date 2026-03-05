@@ -15,7 +15,7 @@ from ui.dialogs.dias_descargado_dialog import DiasDescargadosDialog
 from ui.tabs.base_tab import BaseTabWidget
 from ui.dialogs.recepcion_pick_dialog import RecepcionPickDialog
 
-from ui.usecase.archivo_cvs_usecase import (
+from ui.usecase.recetas_carga_usecase import (
     ArchivoCvsUseCase,
     RecepcionOut,
     CsvOut,
@@ -31,6 +31,7 @@ class ArchivoCvsTab(BaseTabWidget):
 
         self.imed: str | None = None
         self.obs: str | None = None
+        self.validador: str | None = None
 
         self._uc = ArchivoCvsUseCase()
 
@@ -201,7 +202,7 @@ class ArchivoCvsTab(BaseTabWidget):
         h1.setHighlightSections(False)
         h1.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
 
-        left_l.addWidget(QLabel("Recetas (IMED)"))
+        left_l.addWidget(QLabel("Recetas descargadas"))
         left_l.addWidget(self.tbl_recetas, 1)
 
         # ===== Der: detalles =====
@@ -268,6 +269,7 @@ class ArchivoCvsTab(BaseTabWidget):
 
         self.imed = out.imed
         self.obs = out.obs
+        self.validador = out.validador
         self.in_imed.setText(self.imed)
 
         # al cambiar recepción: limpiar tablas / cache
@@ -290,10 +292,11 @@ class ArchivoCvsTab(BaseTabWidget):
             return
 
         self.run_job(
-            self._uc.load_csv,
+            self._uc.load_recetas,
             imed=imed,
             fecha_str=fecha,
             obs=obs,
+            validador=self.validador,
             title="Cargando CSV…",
             on_result=self._apply_csv,
         )

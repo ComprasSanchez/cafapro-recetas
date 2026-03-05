@@ -39,9 +39,19 @@ class EstadoTroquelEnum(str, PyEnum):
     A = "A" #Amarillo, escaneado y no encontrado
     R = "R" #Roja, escanead y pero no machea
 
+class ValidadorEnum(str, PyEnum):
+    IMED = "imed"
+    PRESERFAR = "preserfar"
+    FACAF = "facaf"
+
 lado_enum = sa.Enum(LadoEnum, name="lado_enum", native_enum=True)
 si_no_enum = sa.Enum(SiNoEnum, name="si_no_enum", native_enum=True)
 estado_troquel_enum = sa.Enum(EstadoTroquelEnum, name="estado_troquel_enum", native_enum=True)
+validador_enum = sa.Enum(
+    ValidadorEnum,
+    name="validador_enum",
+    values_callable=lambda enum: [e.value for e in enum],
+)
 
 
 # =========================
@@ -54,6 +64,15 @@ class ObraSocial(Base):
     codigo: Mapped[str] = mapped_column(sa.String, nullable=False, unique=True)
     nombre: Mapped[str] = mapped_column(sa.String, nullable=False)
     activo: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, server_default=sa.true())
+    validador: Mapped[ValidadorEnum] = mapped_column(
+        validador_enum,
+        nullable=False,
+        server_default="imed",
+    )
+    dias_vencimiento: Mapped[int | None] = mapped_column(
+        sa.Integer,
+        nullable=True,
+    )
     creado_en: Mapped[sa.DateTime] = mapped_column(sa.DateTime, nullable=False, server_default=sa.func.now())
 
 
