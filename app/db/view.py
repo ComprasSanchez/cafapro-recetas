@@ -12,30 +12,30 @@ class VwArchivoResumenAuditoria(Base):
     __tablename__ = "vw_archivo_resumen_auditoria"
     __table_args__ = {"info": {"is_view": True}}
 
-    # ✅ PK compuesta (segura si hay más de una fila por archivo)
-    archivo_id: Mapped[int] = mapped_column(sa.Integer, primary_key=True)
-    asociacion_id: Mapped[int | None] = mapped_column(sa.Integer, primary_key=True, nullable=True)
+    row_id: Mapped[int] = mapped_column(sa.Integer, primary_key=True)
 
-    recepcion_id: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
+    archivo_id: Mapped[int | None] = mapped_column(sa.Integer)
+    asociacion_id: Mapped[int | None] = mapped_column(sa.Integer)
+    receta_id: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
 
-    numero_receta: Mapped[str | None] = mapped_column(sa.String, nullable=True)
-    numero_referencia: Mapped[str | None] = mapped_column(sa.String, nullable=True)
-    nro_lote: Mapped[int] = mapped_column(sa.Integer, nullable=True)
+    recepcion_id: Mapped[int | None] = mapped_column(sa.Integer)
 
-    existe_archivo: Mapped[bool] = mapped_column(sa.Boolean, nullable=False)
-    existe_receta: Mapped[bool] = mapped_column(sa.Boolean, nullable=False)
+    numero_receta: Mapped[str | None] = mapped_column(sa.String)
+    numero_referencia: Mapped[str | None] = mapped_column(sa.String)
+    nro_lote: Mapped[int | None] = mapped_column(sa.Integer)
 
-    # ✅ Numeric -> Decimal
-    importe_reconocido: Mapped[Decimal] = mapped_column(sa.Numeric(12, 2), nullable=False)
-    importe_oficial: Mapped[Decimal] = mapped_column(sa.Numeric(12, 2), nullable=False)
+    existe_archivo: Mapped[bool] = mapped_column(sa.Boolean)
+    existe_receta: Mapped[bool] = mapped_column(sa.Boolean)
 
-    estado_receta_id: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
+    importe_reconocido: Mapped[Decimal] = mapped_column(sa.Numeric(12, 2))
+    importe_oficial: Mapped[Decimal] = mapped_column(sa.Numeric(12, 2))
 
-    # ✅ nuevo: texto del estado (estado_seguimiento.descripcion)
-    estado_receta: Mapped[str | None] = mapped_column(sa.String, nullable=True)
+    estado_receta_id: Mapped[int | None] = mapped_column(sa.Integer)
+    estado_receta: Mapped[str | None] = mapped_column(sa.String)
 
-    frente_jpg: Mapped[str | None] = mapped_column(sa.String, nullable=False)
-    flag_debitos: Mapped[bool] = mapped_column(sa.Boolean, nullable=False)
+    frente_jpg: Mapped[str | None] = mapped_column(sa.String)
+
+    flag_debitos: Mapped[bool] = mapped_column(sa.Boolean)
 
 class VwArchivoRecetaDebitos(Base):
     __tablename__ = "vw_archivo_receta_debitos"

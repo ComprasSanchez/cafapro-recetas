@@ -12,6 +12,9 @@ from PySide6.QtWidgets import (
     QComboBox, QCheckBox, QMenu, QApplication
 )
 
+from app.db.session import session_scope
+from app.service.recetas.recetas_service import RecetaService
+from ui.dialogs.forzar_asocaicion_dialog import ForzarAsociacionDialog
 from ui.tabs.base_tab import BaseTabWidget
 from ui.dialogs.recepcion_pick_dialog import RecepcionPickDialog
 from ui.dialogs.auditoria_visual_dialog import AuditoriaVisualDialog
@@ -379,6 +382,7 @@ class AuditoriaTab(BaseTabWidget):
         menu.exec(self.tbl.horizontalHeader().mapToGlobal(pos))
 
     def _show_row_menu(self, pos):
+
         item = self.tbl.itemAt(pos)
         if not item:
             return
@@ -391,15 +395,34 @@ class AuditoriaTab(BaseTabWidget):
         receta = receta_item.text() if receta_item else ""
         referencia = ref_item.text() if ref_item else ""
 
+        receta_id = receta_item.data(Qt.ItemDataRole.UserRole + 3) if receta_item else None
+        estado_id = receta_item.data(Qt.ItemDataRole.UserRole + 4) if receta_item else None
+
         menu = QMenu(self)
 
-        if receta:
+        if receta and estado_id != 3:
             act_copy_receta = menu.addAction(f"Copiar N° Receta ({receta})")
-            act_copy_receta.triggered.connect(lambda: QApplication.clipboard().setText(receta))
+            act_copy_receta.triggered.connect(
+                lambda: QApplication.clipboard().setText(receta)
+            )
 
-        if referencia:
+        if referencia and estado_id != 3:
             act_copy_ref = menu.addAction(f"Copiar N° Referencia ({referencia})")
-            act_copy_ref.triggered.connect(lambda: QApplication.clipboard().setText(referencia))
+            act_copy_ref.triggered.connect(
+                lambda: QApplication.clipboard().setText(referencia)
+            )
+
+        if estado_id == 3 and receta_id:
+            act_forzar = menu.addAction("Forzar asociación")
+
+            act_forzar.triggered.connect(
+                lambda: self._open_forzar_asociacion(receta_id)
+            )
+
+            act_anular = menu.addAction("Anular receta")
+            act_anular.triggered.connect(
+                lambda: self._anular_receta(receta_id)
+            )
 
         menu.exec(self.tbl.mapToGlobal(pos))
 
@@ -454,8 +477,11 @@ class AuditoriaTab(BaseTabWidget):
                 sid = int(estado_sel)
                 idxs = [
                     i for i in idxs
-                    if getattr(base_rows[i], "asociacion_id", None) is not None
-                       and self._estado_id(base_rows[i]) == sid
+                    if self._estado_id(base_rows[i]) == sid
+                       and (
+                               sid not in (1, 2)  # estados que NO requieren asociación
+                               or getattr(base_rows[i], "asociacion_id", None) is not None
+                       )
                 ]
 
         if debitos_flag is not None:
@@ -496,8 +522,14 @@ class AuditoriaTab(BaseTabWidget):
                 numero_referencia = getattr(r, "numero_referencia", "") or ""
                 nro_lote = getattr(r, "nro_lote", "") or ""
 
+
                 existe_archivo = bool(getattr(r, "existe_archivo", False))
                 existe_receta = bool(getattr(r, "existe_receta", False))
+                es_revision = (not existe_archivo) and existe_receta
+
+                if es_revision:
+                    numero_referencia = "-"
+                    nro_lote = "-"
 
                 importe_reconocido = float(getattr(r, "importe_reconocido", 0) or 0)
                 importe_oficial = float(getattr(r, "importe_oficial", 0) or 0)
@@ -507,9 +539,11 @@ class AuditoriaTab(BaseTabWidget):
                 frente_jpg = (getattr(r, "frente_jpg", "") or "").strip()
 
                 flag_debitos = bool(getattr(r, "flag_debitos", False))
-                auditada = (estado_receta_id == 1)
+                auditada = (estado_receta_id == 1) or es_revision
 
                 self._set_item(i, self.COL_RECETA, str(numero_receta))
+                if es_revision:
+                    self._set_bg(i, self.COL_RECETA, QColor(210, 230, 255))
                 self._set_item(i, self.COL_REF, str(numero_referencia))
                 self._set_item(i, self.COL_LOTE, str(nro_lote))
                 self._set_item(i, self.COL_RECETA_OK, "SI" if existe_receta else "NO", align=Qt.AlignCenter)
@@ -529,6 +563,9 @@ class AuditoriaTab(BaseTabWidget):
                 if c0:
                     c0.setData(Qt.ItemDataRole.UserRole, asociacion_id)
                     c0.setData(Qt.ItemDataRole.UserRole + 1, frente_jpg)
+                    c0.setData(Qt.ItemDataRole.UserRole + 2, es_revision)
+                    c0.setData(Qt.ItemDataRole.UserRole + 3, getattr(r, "receta_id", None))
+                    c0.setData(Qt.ItemDataRole.UserRole + 4, getattr(r, "estado_receta_id", None))
 
                 if auditada:
                     color = QColor(252, 209, 22) if flag_debitos else Qt.GlobalColor.green
@@ -734,3 +771,50 @@ class AuditoriaTab(BaseTabWidget):
 
     def _on_search_changed(self):
         self._search_timer.start(180)
+
+    def _open_forzar_asociacion(self, receta_id: int):
+        dlg = ForzarAsociacionDialog(
+            recepcion_id=self._recepcion_id,
+            receta_id=receta_id,
+            parent=self,
+        )
+
+        if dlg.exec():
+            # refrescar auditoría
+            self.run_job(
+                self._uc.load_auditoria,
+                recepcion_id=self._recepcion_id,
+                title="Actualizando auditoría...",
+                on_result=self._apply_auditoria_rows,
+                on_error=self._ui_error,
+            )
+
+    def _anular_receta(self, receta_id: int):
+
+        resp = QMessageBox.question(
+            self,
+            "Confirmar",
+            "¿Anular esta receta?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+
+        if resp != QMessageBox.StandardButton.Yes:
+            return
+
+        with session_scope() as s:
+            RecetaService.anular_receta(s, receta_id)
+
+        self._after_anular_receta()
+
+    def _after_anular_receta(self):
+
+        if not self._recepcion_id:
+            return
+
+        self.run_job(
+            self._uc.load_auditoria,
+            recepcion_id=self._recepcion_id,
+            title="Actualizando auditoría...",
+            on_result=self._apply_auditoria_rows,
+            on_error=self._ui_error,
+        )

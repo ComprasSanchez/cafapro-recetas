@@ -146,4 +146,14 @@ class RecetaService:
 
             rec.estado_seguimiento_id = estado_seguimiento_id
 
+    @staticmethod
+    def anular_receta(s: Session, receta_id: int):
+
+        receta = s.get(Recetas, receta_id)
+
+        if not receta:
+            raise RuntimeError("Receta no encontrada")
+
+        receta.estado_receta_id = 4
+
 

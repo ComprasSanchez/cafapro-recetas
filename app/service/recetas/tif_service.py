@@ -251,12 +251,18 @@ class TiffService:
         results: List[_UploadResult] = []
 
         def job(w: _WorkItem) -> _UploadResult:
-            archivo = archivo_by_id[w.archivo_id]
+            archivo = archivo_by_id.get(w.archivo_id)
 
             base_name = self._base_from_tif_path(w.it.full_path)
-            yyyy, mm = self._year_month_from_basename_or_fallback(
-                base_name, archivo, w.it.full_path
-            )
+
+            if archivo:
+                yyyy, mm = self._year_month_from_basename_or_fallback(
+                    base_name, archivo, w.it.full_path
+                )
+            else:
+                ts = datetime.fromtimestamp(os.path.getmtime(w.it.full_path))
+                yyyy = f"{ts.year:04d}"
+                mm = f"{ts.month:02d}"
 
             front_key, back_key = self._build_s3_keys(
                 prestador_imed=prestador_imed,
@@ -316,6 +322,8 @@ class TiffService:
         total = ProcesarResumen()
         med_cache: Dict[str, Optional[MedicamentoDTO]] = {}
 
+        revision_counter = 1
+
         # 0) recepcion + prestador.imed
         rec: Recepcion | None = (
             s.execute(select(Recepcion).where(Recepcion.recepcion_id == recepcion_id)).scalar_one_or_none()
@@ -368,11 +376,14 @@ class TiffService:
             # 2.3) elegir work (archivo_id por tiff)
             work: List[_WorkItem] = []
             archivo_ids: List[int] = []
+            revision_items: List[_ScannedItem] = []
 
             for x in scanned:
                 refs = [self._norm_str(r) for r in (x.scan.headers or []) if self._norm_str(r)]
+
                 if not refs:
                     resumen.sin_match += 1
+                    revision_items.append(x)
                     continue
 
                 if any(ref in match.duplicated_refs for ref in refs):
@@ -388,12 +399,13 @@ class TiffService:
 
                 if archivo is None:
                     resumen.sin_match += 1
+                    revision_items.append(x)
                     continue
 
                 work.append(_WorkItem(it=x.it, scan=x.scan, archivo_id=int(archivo.archivo_id)))
                 archivo_ids.append(int(archivo.archivo_id))
 
-            if not work:
+            if not work and not revision_items:
                 total.merge(resumen)
                 continue
 
@@ -536,9 +548,19 @@ class TiffService:
 
                 estado_render_by_archivo_id[w.archivo_id] = estado_render_por_codebar
 
+            revision_work: List[_WorkItem] = []
+            for x in revision_items:
+                revision_work.append(
+                    _WorkItem(
+                        it=x.it,
+                        scan=x.scan,
+                        archivo_id=0,
+                    )
+                )
+
             # 2.7) render+upload en paralelo (usa scan + estado_render)
             uploaded = self._parallel_render_upload(
-                work_items=work,
+                work_items=work + revision_work,
                 archivo_by_id=archivo_by_id,
                 prestador_imed=prestador_imed,
                 estado_render_by_work=estado_render_by_archivo_id,
@@ -561,6 +583,27 @@ class TiffService:
             # crear recetas en memoria
             receta_by_archivo_id: Dict[int, Recetas] = {}
             for u in valid_uploaded:
+
+                if u.work.archivo_id == 0:
+                    nro_receta = str(revision_counter)
+                    revision_counter += 1
+
+                    receta = Recetas(
+                        recepcion_id=int(recepcion_id),
+                        nro_receta=nro_receta,
+                        ubicacion_frente=u.front_key,
+                        ubicacion_dorso=u.back_key,
+                        fecha_prescripcion=None,
+                        observacion=None,
+                        usuario_id=usuario_id,
+                        estado_receta_id=3,
+                        creado_en=datetime.now(),
+                        vigente=True,
+                    )
+
+                    recetas_to_add.append(receta)
+                    continue
+
                 archivo = archivo_by_id[u.work.archivo_id]
                 nro_receta = self._norm_str(getattr(archivo, "nro_receta", None)) or "-"
 
@@ -587,6 +630,10 @@ class TiffService:
 
             for u in valid_uploaded:
                 w = u.work
+
+                if w.archivo_id == 0:
+                    continue
+
                 archivo = archivo_by_id[w.archivo_id]
                 receta = receta_by_archivo_id[w.archivo_id]
 

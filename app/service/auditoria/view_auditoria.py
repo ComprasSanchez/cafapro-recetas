@@ -18,3 +18,20 @@ class ViewAuditoriaService:
         )
         return s.execute(stmt).scalars().all()
 
+    @staticmethod
+    def list_sin_asociacion(
+            s: Session,
+            recepcion_id: int,
+    ):
+        rows = s.execute(
+            select(VwArchivoResumenAuditoria)
+            .where(
+                VwArchivoResumenAuditoria.recepcion_id == recepcion_id,
+                VwArchivoResumenAuditoria.existe_archivo.is_(True),
+                VwArchivoResumenAuditoria.asociacion_id.is_(None),
+            )
+            .order_by(VwArchivoResumenAuditoria.numero_referencia)
+        ).scalars().all()
+
+        return rows
+

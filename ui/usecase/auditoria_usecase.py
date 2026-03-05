@@ -10,10 +10,14 @@ from PIL import Image
 from app.config.settings import settings
 from app.db.session import session_scope
 from app.service.recepcion.recepcion_service import RecepcionService
+from app.service.recetas.archivo_service import ArchivoService
+from app.service.recetas.asociacion_service import AsociacionService
 from app.service.recetas.estado_receta_service import EstadoRecetaService
 from app.service.auditoria.view_auditoria import ViewAuditoriaService
 import requests
 from urllib.parse import quote
+
+from app.service.recetas.recetas_service import RecetaService
 
 
 @dataclass(frozen=True)
@@ -244,4 +248,29 @@ class AuditoriaUseCase:
 
         # devolvemos "src" para comparar en UI (si cambió la selección)
         return PreviewBytesOut(path=src, img_bytes=img_bytes, w=new_w, h=new_h)
+
+    @staticmethod
+    def load_archivos(recepcion_id: int):
+
+        with session_scope() as s:
+            return ViewAuditoriaService.list_sin_asociacion(
+                s,
+                recepcion_id,
+            )
+
+    @staticmethod
+    def ejecutar(
+            receta_id: int,
+            archivo_id: int,
+    ):
+
+        with session_scope() as s:
+            AsociacionService.ejecutar(
+                s,
+                receta_id=receta_id,
+                archivo_id=archivo_id,
+            )
+
+
+
 
