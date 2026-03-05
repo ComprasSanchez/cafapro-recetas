@@ -1205,3 +1205,8 @@ class AuditoriaVisualDialog(QDialog):
             event.ignore()
             return
         super().keyPressEvent(event)
+
+    def closeEvent(self, event):
+        self._pool.clear()
+        self._pool.waitForDone()
+        super().closeEvent(event)
