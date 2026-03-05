@@ -66,7 +66,7 @@ class AuditoriaVisualDialog(QDialog):
         self.setWindowTitle("Auditoría Visual")
         self.setModal(True)
         self.setWindowFlags(
-            Qt.Window
+            Qt.Dialog
             | Qt.WindowMinimizeButtonHint
             | Qt.WindowMaximizeButtonHint
             | Qt.WindowCloseButtonHint
