@@ -431,6 +431,12 @@ class AuditoriaTab(BaseTabWidget):
                 lambda: self._duplicar_receta(receta_id)
             )
 
+            act_del = menu.addAction("Eliminar / Sobrante")
+
+            act_del.triggered.connect(
+                lambda: self._eliminar_sobrante(receta_id)
+            )
+
         menu.exec(self.tbl.mapToGlobal(pos))
 
     # -------------------------
@@ -872,6 +878,30 @@ class AuditoriaTab(BaseTabWidget):
                 s,
                 receta_id=receta_id,
                 nro_receta=nro_receta,
+            )
+
+        self._after_anular_receta()
+
+    def _eliminar_sobrante(self, receta_id: int):
+
+        resp = QMessageBox.warning(
+            self,
+            "Eliminar receta",
+            (
+                f"¿Seguro que desea eliminar la receta?\n\n"
+                "Esta acción eliminará también las imágenes del sistema "
+                "y no se puede deshacer."
+            ),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+
+        if resp != QMessageBox.StandardButton.Yes:
+            return
+
+        with session_scope() as s:
+            RecetaService.eliminar_sobrante(
+                s,
+                receta_id=receta_id,
             )
 
         self._after_anular_receta()

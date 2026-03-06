@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Recetas, Asociacion, Troqueles, Archivo, Debitos
 from app.db.session import session_scope
+from app.infra.storage import s3_storage
 
 
 class RecetaService:
@@ -207,6 +208,34 @@ class RecetaService:
                 detalle="RECETA DUPLICADA",
             )
             s.add(deb)
+
+    @staticmethod
+    def eliminar_sobrante(
+            s: Session,
+            *,
+            receta_id: int,
+    ) -> None:
+
+        receta = s.get(Recetas, receta_id)
+
+        if not receta:
+            raise RuntimeError("Receta no encontrada")
+
+        # ---------------------------------
+        # eliminar imágenes S3
+        # ---------------------------------
+
+        if receta.ubicacion_frente:
+            s3_storage.delete_object(receta.ubicacion_frente)
+
+        if receta.ubicacion_dorso:
+            s3_storage.delete_object(receta.ubicacion_dorso)
+
+        # ---------------------------------
+        # eliminar receta
+        # ---------------------------------
+
+        s.delete(receta)
 
 
 
