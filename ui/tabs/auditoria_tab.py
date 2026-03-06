@@ -425,6 +425,12 @@ class AuditoriaTab(BaseTabWidget):
                 lambda: self._anular_receta(receta_id)
             )
 
+            act_dup = menu.addAction("Marcar como duplicada")
+
+            act_dup.triggered.connect(
+                lambda: self._duplicar_receta(receta_id)
+            )
+
         menu.exec(self.tbl.mapToGlobal(pos))
 
     # -------------------------
@@ -835,3 +841,37 @@ class AuditoriaTab(BaseTabWidget):
             on_result=self._apply_auditoria_rows,
             on_error=self._ui_error,
         )
+
+    def _duplicar_receta(self, receta_id: int):
+
+        row = self.tbl.currentRow()
+
+        dlg = NumeroRecetaDialog(self)
+
+        if dlg.exec() != dlg.DialogCode.Accepted:
+            return
+
+        nro_receta = dlg.numero_receta()
+
+        if not nro_receta:
+            QMessageBox.warning(self, "Atención", "Debe ingresar un número de receta.")
+            return
+
+        resp = QMessageBox.question(
+            self,
+            "Confirmar",
+            f"¿Marcar receta {nro_receta} como duplicada?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+
+        if resp != QMessageBox.StandardButton.Yes:
+            return
+
+        with session_scope() as s:
+            RecetaService.duplicar_receta(
+                s,
+                receta_id=receta_id,
+                nro_receta=nro_receta,
+            )
+
+        self._after_anular_receta()

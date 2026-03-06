@@ -177,4 +177,36 @@ class RecetaService:
             )
             s.add(deb)
 
+    @staticmethod
+    def duplicar_receta(s: Session, receta_id: int, nro_receta: str):
+
+        receta = s.get(Recetas, receta_id)
+
+        if not receta:
+            raise RuntimeError("Receta no encontrada")
+
+        # actualizar numero receta
+        receta.nro_receta = nro_receta
+
+        # estado DUPLICADA
+        receta.estado_receta_id = 5
+
+        # evitar duplicar debito
+        existe = s.execute(
+            select(Debitos.debito_id)
+            .where(
+                Debitos.receta_id == receta_id,
+                Debitos.motivo_debito_id == 32,
+            )
+        ).first()
+
+        if not existe:
+            deb = Debitos(
+                receta_id=receta_id,
+                motivo_debito_id=32,
+                detalle="RECETA DUPLICADA",
+            )
+            s.add(deb)
+
+
 
