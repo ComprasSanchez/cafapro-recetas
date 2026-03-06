@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
 
 class NumeroRecetaDialog(QDialog):
 
-    def __init__(self, parent=None, nro_actual: str | None = None):
+    def __init__(self, parent=None):
         super().__init__(parent)
 
         self.setWindowTitle("Ingresar Numero Receta")
@@ -26,8 +26,6 @@ class NumeroRecetaDialog(QDialog):
         validator = QRegularExpressionValidator(regex)
         self.in_receta.setValidator(validator)
 
-        if nro_actual:
-            self.in_receta.setText(str(nro_actual))
         layout.addWidget(self.in_receta)
 
         btns = QHBoxLayout()
@@ -43,6 +41,7 @@ class NumeroRecetaDialog(QDialog):
         btns.addWidget(btn_ok)
 
         layout.addLayout(btns)
+        self.in_receta.setFocus()
 
     def numero_receta(self) -> str:
         return (self.in_receta.text() or "").strip()

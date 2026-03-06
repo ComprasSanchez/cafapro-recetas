@@ -792,13 +792,8 @@ class AuditoriaTab(BaseTabWidget):
 
     def _anular_receta(self, receta_id: int):
         row = self.tbl.currentRow()
-        nro_actual = ""
-        if row >= 0:
-            it = self.tbl.item(row, self.COL_RECETA)
-            if it:
-                nro_actual = it.text()
 
-        dlg = NumeroRecetaDialog(self, nro_actual)
+        dlg = NumeroRecetaDialog(self)
 
         if dlg.exec() != dlg.DialogCode.Accepted:
             return
