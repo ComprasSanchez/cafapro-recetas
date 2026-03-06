@@ -5,7 +5,7 @@ from datetime import date, datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import Recetas, Asociacion, Troqueles, Archivo
+from app.db.models import Recetas, Asociacion, Troqueles, Archivo, Debitos
 from app.db.session import session_scope
 
 
@@ -147,13 +147,34 @@ class RecetaService:
             rec.estado_seguimiento_id = estado_seguimiento_id
 
     @staticmethod
-    def anular_receta(s: Session, receta_id: int):
+    def anular_receta(s: Session, receta_id: int, nro_receta: str):
 
         receta = s.get(Recetas, receta_id)
 
         if not receta:
             raise RuntimeError("Receta no encontrada")
 
+        # actualizar numero receta
+        receta.nro_receta = nro_receta
+
+        # estado ANULADA
         receta.estado_receta_id = 4
+
+        # evitar duplicar debito
+        existe = s.execute(
+            select(Debitos.debito_id)
+            .where(
+                Debitos.receta_id == receta_id,
+                Debitos.motivo_debito_id == 24
+            )
+        ).first()
+
+        if not existe:
+            deb = Debitos(
+                receta_id=receta_id,
+                motivo_debito_id=24,
+                detalle="Receta Anulada"
+            )
+            s.add(deb)
 
 

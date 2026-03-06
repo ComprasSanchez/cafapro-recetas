@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 from app.db.session import session_scope
 from app.service.recetas.recetas_service import RecetaService
 from ui.dialogs.forzar_asocaicion_dialog import ForzarAsociacionDialog
+from ui.dialogs.numero_receta_dialog import NumeroRecetaDialog
 from ui.tabs.base_tab import BaseTabWidget
 from ui.dialogs.recepcion_pick_dialog import RecepcionPickDialog
 from ui.dialogs.auditoria_visual_dialog import AuditoriaVisualDialog
@@ -790,11 +791,28 @@ class AuditoriaTab(BaseTabWidget):
             )
 
     def _anular_receta(self, receta_id: int):
+        row = self.tbl.currentRow()
+        nro_actual = ""
+        if row >= 0:
+            it = self.tbl.item(row, self.COL_RECETA)
+            if it:
+                nro_actual = it.text()
+
+        dlg = NumeroRecetaDialog(self, nro_actual)
+
+        if dlg.exec() != dlg.DialogCode.Accepted:
+            return
+
+        nro_receta = dlg.numero_receta()
+
+        if not nro_receta:
+            QMessageBox.warning(self, "Atención", "Debe ingresar un número de receta.")
+            return
 
         resp = QMessageBox.question(
             self,
             "Confirmar",
-            "¿Anular esta receta?",
+            f"¿Anular receta {nro_receta}?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
 
@@ -802,7 +820,11 @@ class AuditoriaTab(BaseTabWidget):
             return
 
         with session_scope() as s:
-            RecetaService.anular_receta(s, receta_id)
+            RecetaService.anular_receta(
+                s,
+                receta_id=receta_id,
+                nro_receta=nro_receta
+            )
 
         self._after_anular_receta()
 

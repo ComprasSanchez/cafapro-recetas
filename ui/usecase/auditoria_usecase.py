@@ -10,14 +10,11 @@ from PIL import Image
 from app.config.settings import settings
 from app.db.session import session_scope
 from app.service.recepcion.recepcion_service import RecepcionService
-from app.service.recetas.archivo_service import ArchivoService
 from app.service.recetas.asociacion_service import AsociacionService
 from app.service.recetas.estado_receta_service import EstadoRecetaService
 from app.service.auditoria.view_auditoria import ViewAuditoriaService
 import requests
 from urllib.parse import quote
-
-from app.service.recetas.recetas_service import RecetaService
 
 
 @dataclass(frozen=True)
