@@ -161,6 +161,8 @@ class RecetaService:
         # estado ANULADA
         receta.estado_receta_id = 4
 
+        receta.estado_seguimiento_id = 3
+
         # evitar duplicar debito
         existe = s.execute(
             select(Debitos.debito_id)
@@ -191,6 +193,8 @@ class RecetaService:
 
         # estado DUPLICADA
         receta.estado_receta_id = 5
+
+        receta.estado_seguimiento_id = 3
 
         # evitar duplicar debito
         existe = s.execute(
