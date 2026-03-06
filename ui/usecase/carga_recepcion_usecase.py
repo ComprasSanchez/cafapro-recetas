@@ -8,6 +8,7 @@ from app.db.session import session_scope
 from app.infra.s3_storage import S3Storage, S3Cfg
 from app.service.recepcion.recepcion_service import RecepcionService
 from app.service.recetas.tif_service import ProcesarItemIn, TiffService
+from app.service.recetas.historial_receta_service import HistorialRecetaService
 from core.image_handler import ImageHandler
 
 
@@ -35,6 +36,7 @@ class ProcesarOut:
 class CloseRecepcionOut:
     recepcion_id: int
     estado_recepcion_id: int
+
 
 
 class CargaRecepcionUseCase:
@@ -97,6 +99,13 @@ class CargaRecepcionUseCase:
                 recepcion_id=recepcion_id,
                 usuario_id=usuario_id,
                 items=items,
+            )
+
+            s.flush()
+
+            HistorialRecetaService.actualizar_historial_recepcion(
+                s=s,
+                recepcion_id=recepcion_id,
             )
 
         if ctx:

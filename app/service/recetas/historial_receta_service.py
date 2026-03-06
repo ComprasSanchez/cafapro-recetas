@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Optional
-from sqlalchemy import select, func
+from sqlalchemy import select, func, update
 from sqlalchemy.orm import Session
 
 from app.db.models import (
@@ -11,7 +11,7 @@ from app.db.models import (
     Debitos,
     MotivoDebito,
     Usuarios,
-    EstadoReceta,
+    EstadoReceta, Archivo,
 )
 
 
@@ -162,3 +162,62 @@ class HistorialRecetaService:
             "frente": (rec.ubicacion_frente or "").strip() or None,
             "dorso": (rec.ubicacion_dorso or "").strip() or None,
         }
+
+    @staticmethod
+    def actualizar_historial_recepcion(
+            s: Session,
+            recepcion_id: int,
+    ) -> None:
+
+        rows = (
+            s.execute(
+                select(
+                    Recetas.receta_id,
+                    Archivo.nro_referencia,
+                    Archivo.nro_receta,
+                )
+                .join(Asociacion, Asociacion.receta_id == Recetas.receta_id)
+                .join(Archivo, Archivo.archivo_id == Asociacion.archivo_id)
+                .where(
+                    Recetas.recepcion_id == recepcion_id,
+                    Recetas.vigente.is_(True),
+                    Asociacion.vigente.is_(True),
+                )
+            )
+        ).all()
+
+        for receta_id, nro_ref, nro_receta in rows:
+
+            prev_ids = (
+                s.execute(
+                    select(Recetas.receta_id)
+                    .join(Asociacion, Asociacion.receta_id == Recetas.receta_id)
+                    .join(Archivo, Archivo.archivo_id == Asociacion.archivo_id)
+                    .where(
+                        Archivo.nro_referencia == nro_ref,
+                        Archivo.nro_receta == nro_receta,
+                        Recetas.recepcion_id != recepcion_id,
+                        Recetas.estado_receta_id == 1,
+                        Recetas.estado_seguimiento_id == 3,
+                        Recetas.vigente.is_(True),
+                    )
+                )
+            ).scalars().all()
+
+            if not prev_ids:
+                continue
+
+            s.execute(
+                update(Recetas)
+                .where(Recetas.receta_id.in_(prev_ids))
+                .values(vigente=False)
+            )
+
+            s.execute(
+                update(Asociacion)
+                .where(
+                    Asociacion.receta_id.in_(prev_ids),
+                    Asociacion.vigente.is_(True),
+                )
+                .values(vigente=False)
+            )
