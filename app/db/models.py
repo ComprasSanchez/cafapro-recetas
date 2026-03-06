@@ -140,7 +140,12 @@ class Recepcion(Base):
     __table_args__ = (
         sa.Index("ix_recepcion_prestador_obra_periodo", "prestador_id", "obra_social_id", "periodo_id"),
         sa.Index("ix_recepcion_estado_recepcion_id", "estado_recepcion_id"),
-        sa.UniqueConstraint("numero", name="uq_recepcion_numero"),
+        sa.UniqueConstraint(
+            "obra_social_id",
+            "periodo_id",
+            "prestador_id",
+            name="uq_recepcion_obra_periodo_prestador",
+        )
     )
 
     recepcion_id: Mapped[int] = mapped_column(sa.Integer, sa.Identity(), primary_key=True)
