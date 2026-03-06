@@ -267,3 +267,43 @@ class HistorialRecetaService:
             )
             .values(vigente=False)
         )
+
+    @staticmethod
+    def restaurar_historial_receta(
+            s: Session,
+            *,
+            nro_referencia: str,
+            nro_receta: str,
+            recepcion_id: int,
+    ) -> None:
+
+        prev = (
+            s.execute(
+                select(Recetas)
+                .join(Asociacion, Asociacion.receta_id == Recetas.receta_id)
+                .join(Archivo, Archivo.archivo_id == Asociacion.archivo_id)
+                .where(
+                    Archivo.nro_referencia == nro_referencia,
+                    Archivo.nro_receta == nro_receta,
+                    Recetas.recepcion_id < recepcion_id,
+                )
+                .order_by(Recetas.recepcion_id.desc())
+                .limit(1)
+            )
+            .scalar_one_or_none()
+        )
+
+        if not prev:
+            return
+
+        # reabrir receta anterior
+        prev.vigente = True
+
+        # reabrir asociación
+        s.execute(
+            update(Asociacion)
+            .where(
+                Asociacion.receta_id == prev.receta_id,
+            )
+            .values(vigente=True)
+        )

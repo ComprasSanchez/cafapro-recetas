@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.db.session import session_scope
+from app.service.recetas.asociacion_service import AsociacionService
 from app.service.recetas.recetas_service import RecetaService
 from ui.dialogs.forzar_asocaicion_dialog import ForzarAsociacionDialog
 from ui.dialogs.numero_receta_dialog import NumeroRecetaDialog
@@ -392,6 +393,7 @@ class AuditoriaTab(BaseTabWidget):
 
         receta_item = self.tbl.item(row, self.COL_RECETA)
         ref_item = self.tbl.item(row, self.COL_REF)
+        asociacion_id = receta_item.data(Qt.ItemDataRole.UserRole) if receta_item else None
 
         receta = receta_item.text() if receta_item else ""
         referencia = ref_item.text() if ref_item else ""
@@ -437,6 +439,15 @@ class AuditoriaTab(BaseTabWidget):
                 lambda: self._eliminar_sobrante(receta_id)
             )
 
+        if asociacion_id and estado_id == 2:
+            menu.addSeparator()
+
+            act_desasociar = menu.addAction("Desasociar receta")
+            act_desasociar.setProperty("danger", True)
+
+            act_desasociar.triggered.connect(
+                lambda: self._desasociar_receta(receta_id)
+            )
         menu.exec(self.tbl.mapToGlobal(pos))
 
     # -------------------------
@@ -900,6 +911,27 @@ class AuditoriaTab(BaseTabWidget):
 
         with session_scope() as s:
             RecetaService.eliminar_sobrante(
+                s,
+                receta_id=receta_id,
+            )
+
+        self._after_anular_receta()
+
+    def _desasociar_receta(self, receta_id: int):
+
+        resp = QMessageBox.warning(
+            self,
+            "Desasociar receta",
+            "¿Seguro que desea desasociar la receta?\n\n"
+            "Se restaurará el historial anterior.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+
+        if resp != QMessageBox.StandardButton.Yes:
+            return
+
+        with session_scope() as s:
+            AsociacionService.desasociar(
                 s,
                 receta_id=receta_id,
             )

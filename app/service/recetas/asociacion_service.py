@@ -83,3 +83,57 @@ class AsociacionService:
         s.add(nueva)
 
         s.flush()
+
+    @staticmethod
+    def desasociar(
+            s: Session,
+            *,
+            receta_id: int,
+    ) -> None:
+
+        receta = s.get(Recetas, receta_id)
+        if not receta:
+            raise RuntimeError("Receta no encontrada")
+
+        # ------------------------------------------------
+        # 1) buscar asociación vigente de la receta
+        # ------------------------------------------------
+        asoc = (
+            s.execute(
+                select(Asociacion)
+                .where(
+                    Asociacion.receta_id == receta_id,
+                    Asociacion.vigente.is_(True),
+                )
+            )
+            .scalar_one_or_none()
+        )
+
+        if not asoc:
+            return
+
+        archivo = s.get(Archivo, asoc.archivo_id)
+
+        # ------------------------------------------------
+        # 2) eliminar asociación
+        # ------------------------------------------------
+        s.delete(asoc)
+
+        # ------------------------------------------------
+        # 3) restaurar receta actual
+        # ------------------------------------------------
+        receta.estado_receta_id = 3
+        receta.nro_receta = "-"
+
+        # ------------------------------------------------
+        # 4) restaurar historial
+        # ------------------------------------------------
+        HistorialRecetaService.restaurar_historial_receta(
+            s,
+            nro_referencia=archivo.nro_referencia,
+            nro_receta=archivo.nro_receta,
+            recepcion_id=receta.recepcion_id,
+        )
+
+        s.flush()
+
