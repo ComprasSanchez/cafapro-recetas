@@ -145,17 +145,40 @@ class RecepcionService:
 
     @staticmethod
     def create(
-        s: Session,
-        obra_social_id: int,
-        periodo_id: int,
-        prestador_id: int,
-        estado_recepcion_id: int,
-        fecha_presentacion,
-        observaciones: str | None = None,
-        creado_por_usuario_id: int | None = None,
+            s: Session,
+            obra_social_id: int,
+            periodo_id: int,
+            prestador_id: int,
+            estado_recepcion_id: int,
+            fecha_presentacion,
+            observaciones: str | None = None,
+            creado_por_usuario_id: int | None = None,
     ) -> Recepcion:
+
         if not estado_recepcion_id:
             raise ValueError("estado_recepcion es obligatorio.")
+
+        # ---------------------------------
+        # verificar si ya existe recepción
+        # ---------------------------------
+
+        existe = s.execute(
+            select(Recepcion.recepcion_id)
+            .where(
+                Recepcion.obra_social_id == int(obra_social_id),
+                Recepcion.periodo_id == int(periodo_id),
+                Recepcion.prestador_id == int(prestador_id),
+            )
+        ).scalar_one_or_none()
+
+        if existe:
+            raise RuntimeError(
+                "Ya existe una recepción para esta obra social, período y prestador."
+            )
+
+        # ---------------------------------
+        # crear recepción
+        # ---------------------------------
 
         rec = Recepcion(
             obra_social_id=int(obra_social_id),
@@ -170,6 +193,7 @@ class RecepcionService:
         s.add(rec)
         s.flush()
         s.refresh(rec)
+
         return rec
 
     @staticmethod
