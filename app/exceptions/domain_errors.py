@@ -1,0 +1,2 @@
+class AuditoriaValidationError(Exception):
+    pass

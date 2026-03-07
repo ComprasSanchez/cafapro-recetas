@@ -14,15 +14,16 @@ from PySide6.QtWidgets import (
 
 from app.db.models import EstadoTroquelEnum
 from app.db.session import session_scope
-from app.service.auditoria.auditoria_visual_service import AuditoriaVisualService, AuditoriaVisualData
-from app.service.debitos.debitos_service import DebitoInput, DebitosService
-from app.service.recetas.recetas_service import RecetaService
+from app.service.auditoria.auditoria_visual_service import AuditoriaVisualData
+from app.service.debitos.debitos_service import DebitoInput
 from ui.dialogs.estado_seguimeinto_pick_dialog import EstadoSeguimientoPickDialog
 from ui.dialogs.historial_dialog import HistorialDialog
 from ui.label.image_view_label import ImageViewer
 from ui.label.clickable_label import ClickableLabel
 from ui.dialogs.vendedor_pick_dialog import VendedorPickDialog
 from ui.dialogs.troquel_dialog import TroquelDialog
+from ui.state.auditoria_state import AuditoriaState
+from ui.usecase.auditoria_visual_usecase import AuditoriaVisualUseCase
 from ui.utils.worker import Worker
 
 from ui.usecase.auditoria_usecase import AuditoriaUseCase
@@ -46,6 +47,7 @@ class AuditoriaVisualDialog(QDialog):
 
         self.creado_por_usuario_id = creado_por_usuario_id
         self.data: AuditoriaVisualData | None = None
+        self.state = AuditoriaState()
 
         # navegación
         self._asociacion_ids: list[int] = [int(x) for x in (asociacion_ids or []) if x]
@@ -55,13 +57,9 @@ class AuditoriaVisualDialog(QDialog):
 
         self.asociacion_id: int | None = None
 
-        self._vendedor_id: int | None = None
-
-        # ✅ DebitoRow YA TIENE motivo_debito_id
-        self._selected_debitos: dict[int, str | None] = {}
-
         # cache de previews (incluye lado por seguridad)
-        self._preview_cache: dict[tuple[str, str, int, int], bytes] = {}
+        self._preview_cache: dict[str, bytes] = {}
+        self.MAX_PREVIEW_CACHE = 200
 
         self.setWindowTitle("Auditoría Visual")
         self.setModal(True)
@@ -520,6 +518,9 @@ class AuditoriaVisualDialog(QDialog):
 
             self._apply_data_to_state(data)
             self._render_all()
+
+            self._preload_images_for_data(data)
+
             self._preload_batch()
             return
 
@@ -531,64 +532,18 @@ class AuditoriaVisualDialog(QDialog):
         self._pool.start(w)
 
     def _render_all(self) -> None:
-        assert self.data is not None
+        if not self.data:
+            return
 
         QTimer.singleShot(0, self._focus_venta)
 
-        fr = (getattr(self.data.receta, "ubicacion_frente", None) or "").strip()
-        dr = (getattr(self.data.receta, "ubicacion_dorso", None) or "").strip()
-
-        if fr:
-            self._set_preview_and_fit("F", fr)
-        else:
-            self._clear_preview("F", "Sin imagen (frente)")
-
-        if dr:
-            self._set_preview_and_fit("D", dr)
-        else:
-            self._clear_preview("D", "Sin imagen (dorso)")
-
-
-        self._render_motivos_lado("F")
-        self._render_motivos_lado("D")
-
+        self._render_images()
+        self._render_motivos()
         self._render_troqueles()
         self._render_archivo_detalle()
-
-        # Fechas
-        self.in_prescripcion.setText(
-            self._fmt_date(getattr(self.data.receta, "fecha_prescripcion", None))
-        )
-
-        self.in_emision.setText(
-            self._fmt_date(getattr(self.data.receta, "fecha_emision", None))
-        )
-
-        self.in_venta.setText(
-            self._fmt_date(getattr(self.data.receta, "fecha_venta", None))
-        )
-
-        self.btn_debitada.setVisible(self.data.has_historial_debitada)
-
-        self.lb_a_cargo.setText(self._fmt_money(
-            Decimal(str(getattr(self.data.archivo, "a_cargo_entidad", 0) or 0))
-        ))
-
-        self.lb_imp_obs.setText(self._fmt_money(
-            Decimal(str(getattr(self.data.archivo, "importe_obs", 0) or 0))
-        ))
-
-        self.lb_imp_neto.setText(self._fmt_money(
-            Decimal(str(getattr(self.data.archivo, "importe_neto", 0) or 0))
-        ))
-
-        self.lb_big.setText(str(getattr(self.data.archivo, "orden_lote", "") or "—"))
-        self.lb_autorizacion.setText(str(getattr(self.data.archivo, "fecha", "") or "—"))
-
-        self.lb_pos.setText(
-            f"{self._idx + 1} / {len(self._asociacion_ids)}"
-        )
-
+        self._render_header()
+        self._render_resumen()
+        self._render_navigation()
 
     def _render_troqueles(self) -> None:
         assert self.data is not None
@@ -672,17 +627,18 @@ class AuditoriaVisualDialog(QDialog):
 
         self._last_preview_path[lado] = raw
 
-        scroll = self.scroll_frente if lado == "F" else self.scroll_dorso
-        viewer = self.img_frente if lado == "F" else self.img_dorso
+        scroll, viewer = self._widgets_por_lado(lado)
 
         vw = max(200, scroll.viewport().width() - 12)
         vh = max(200, scroll.viewport().height() - 12)
 
-        cache_key = (lado, raw, vw, vh)
-        if cache_key in self._preview_cache:
-            png_bytes = self._preview_cache[cache_key]
+        if raw in self._preview_cache:
+
+            png_bytes = self._preview_cache[raw]
+
             pix = QPixmap()
             ok = pix.loadFromData(png_bytes)
+
             if ok and not pix.isNull():
                 viewer.setText("")
                 viewer.set_pixmap(pix)
@@ -701,11 +657,10 @@ class AuditoriaVisualDialog(QDialog):
         self._pool.start(w)
 
     def _load_preview_via_usecase(self, *, lado: str, raw: str, vw: int, vh: int, req_id: int) -> dict:
-        key = (lado, raw, vw, vh)
-        if key in self._preview_cache:
+        if raw in self._preview_cache:
             return {
                 "lado": lado,
-                "png_bytes": self._preview_cache[key],
+                "png_bytes": self._preview_cache[raw],
                 "req_id": req_id,
                 "raw": raw
             }
@@ -713,7 +668,7 @@ class AuditoriaVisualDialog(QDialog):
         out = AuditoriaUseCase.load_preview_bytes(path=raw, vw=vw, vh=vh)
 
         if out.img_bytes:
-            self._preview_cache[key] = out.img_bytes
+            self._cache_preview(raw, out.img_bytes)
 
         return {
             "lado": lado,
@@ -737,12 +692,9 @@ class AuditoriaVisualDialog(QDialog):
             self._clear_preview(lado, "No se pudo cargar la imagen.")
             return
 
-        scroll = self.scroll_frente if lado == "F" else self.scroll_dorso
-        viewer = self.img_frente if lado == "F" else self.img_dorso
+        scroll, viewer = self._widgets_por_lado(lado)
 
-        vw = max(200, scroll.viewport().width() - 12)
-        vh = max(200, scroll.viewport().height() - 12)
-        self._preview_cache[(lado, raw, vw, vh)] = png_bytes
+        self._cache_preview(raw, png_bytes)
 
         pix = QPixmap()
         ok = pix.loadFromData(png_bytes)
@@ -763,6 +715,9 @@ class AuditoriaVisualDialog(QDialog):
         viewer.setText(f"No se pudo cargar la imagen.\n{nice}")
 
     def _render_motivos_lado(self, lado: str) -> None:
+        if not self.data:
+            return
+
         if lado == "F":
             motivos = self.data.motivos_frente
             list_widget = self.list_motivos_f
@@ -777,7 +732,7 @@ class AuditoriaVisualDialog(QDialog):
             motivo_id = int(m.motivo_debito_id)
             descripcion = m.descripcion
             activo = bool(getattr(m, "activo", True))
-            seleccionado = motivo_id in self._selected_debitos
+            seleccionado = motivo_id in self.state.debitos
 
             # 🔴 Si está inactivo y no estaba seleccionado → no se muestra
             if not activo and not seleccionado:
@@ -786,7 +741,7 @@ class AuditoriaVisualDialog(QDialog):
             text = descripcion
 
             if seleccionado:
-                detalle = self._selected_debitos.get(motivo_id)
+                detalle = self.state.debitos.get(motivo_id)
                 if detalle:
                     text = f"{descripcion}  ({detalle})"
 
@@ -819,10 +774,10 @@ class AuditoriaVisualDialog(QDialog):
         motivo_id = int(motivo_id)
 
         if item.checkState() != Qt.CheckState.Checked:
-            self._selected_debitos.pop(motivo_id, None)
+            self.state.debitos.pop(motivo_id, None)
             return
 
-        prev = self._selected_debitos.get(motivo_id) or ""
+        prev = self.state.debitos.get(motivo_id) or ""
         detalle, ok = QInputDialog.getText(
             self,
             "Detalle del débito",
@@ -832,10 +787,10 @@ class AuditoriaVisualDialog(QDialog):
 
         if not ok:
             item.setCheckState(Qt.CheckState.Unchecked)
-            self._selected_debitos.pop(motivo_id, None)
+            self.state.debitos.pop(motivo_id, None)
             return
 
-        self._selected_debitos[motivo_id] = (detalle.strip() or None)
+        self.state.debitos[motivo_id] = (detalle.strip() or None)
 
     # -------------------------
     # Vendedor
@@ -860,7 +815,7 @@ class AuditoriaVisualDialog(QDialog):
         if not v:
             return
 
-        self._vendedor_id = int(v.vendedor_id)
+        self.state.vendedor_id = int(v.vendedor_id)
         self.lb_vendedor.setText(str(getattr(v, "descripcion", "") or "—"))
         self.lb_vendedor.setToolTip(f"Código: {getattr(v, 'codigo', '')}")
 
@@ -903,7 +858,7 @@ class AuditoriaVisualDialog(QDialog):
                 return
 
         # -------- VALIDACIÓN 2: SI HAY DÉBITOS → VENDEDOR OBLIGATORIO --------
-        if self._selected_debitos and not self._vendedor_id:
+        if self.state.debitos and not self.state.vendedor_id:
             QMessageBox.warning(
                 self,
                 "Falta vendedor",
@@ -914,7 +869,7 @@ class AuditoriaVisualDialog(QDialog):
         # -------- CONSTRUCCIÓN DÉBITOS --------
         debitos_inputs = [
             DebitoInput(motivo_debito_id=mid, detalle=det)
-            for mid, det in self._selected_debitos.items()
+            for mid, det in self.state.debitos.items()
         ]
 
         estado_seg_id: int | None = None
@@ -941,24 +896,27 @@ class AuditoriaVisualDialog(QDialog):
             estado_seg_id = int(estado_seg_id)
 
         try:
-            with session_scope() as s:
-                DebitosService.replace_for_receta(s, receta_id=receta_id, items=debitos_inputs)
+            worker = Worker(
+                self._save_auditoria_background,
+                receta_id=receta_id,
+                vendedor_id=self.state.vendedor_id,
+                estado_seg_id=estado_seg_id,
+                fecha_prescripcion=fecha_prescripcion,
+                fecha_emision=fecha_emision,
+                fecha_venta=fecha_venta,
+                debitos_inputs=debitos_inputs,
+            )
 
-                RecetaService.update_auditoria(
-                    s,
-                    receta_id=receta_id,
-                    vendedor_id=self._vendedor_id,         # ✅ puede ser None
-                    estado_seguimiento_id=estado_seg_id,
-                    estado_receta_id=1,
-                    fecha_prescripcion=fecha_prescripcion,
-                    fecha_emision=fecha_emision,
-                    fecha_venta=fecha_venta,
-                    usuario_id=self.creado_por_usuario_id,
-                )
+            worker.signals.error.connect(self._on_save_error)
+
+            self._pool.start(worker)
+
+            # invalidar cache
             if self.asociacion_id:
                 asoc_id = int(self.asociacion_id)
                 self._data_cache.pop(asoc_id, None)
 
+            # PASAR A LA SIGUIENTE INMEDIATAMENTE
             self._on_next_only()
 
         except Exception as e:
@@ -1118,9 +1076,9 @@ class AuditoriaVisualDialog(QDialog):
     def _hide_loading(self):
         self._loading_overlay.hide()
 
-    def _load_data_background_sync(self, *, asociacion_id: int):
-        with session_scope() as s:
-            data = AuditoriaVisualService.load_by_asociacion_id(s, asociacion_id)
+    @staticmethod
+    def _load_data_background_sync(*, asociacion_id: int):
+        data = AuditoriaVisualUseCase.load_auditoria(asociacion_id)
         return {"id": asociacion_id, "data": data}
 
     def _on_data_loaded(self, result: dict):
@@ -1133,6 +1091,10 @@ class AuditoriaVisualDialog(QDialog):
 
         self._render_all()
         self._hide_loading()
+
+        self._preload_images_for_data(data)
+
+        # 🔥 precargar próximas recetas
         self._preload_batch()
 
     def _preload_batch(self, batch_size: int = 3):
@@ -1149,17 +1111,10 @@ class AuditoriaVisualDialog(QDialog):
             w.signals.finished.connect(self._on_preload_finished)
             self._pool.start(w)
 
-    def _on_preload_finished(self, result: dict):
-        asociacion_id = result["id"]
-        data = result["data"]
-
-        # Solo cachear, no tocar UI
-        self._data_cache[asociacion_id] = data
-
     def _reset_ui_state(self):
         self.data = None
-        self._selected_debitos = {}
-        self._vendedor_id = None
+        self.state.debitos = {}
+        self.state.vendedor_id = None
 
         self.lb_vendedor.setText("— Seleccioná —")
         self.lb_vendedor.setToolTip("")
@@ -1177,14 +1132,17 @@ class AuditoriaVisualDialog(QDialog):
         self.list_motivos_f.clear()
         self.list_motivos_d.clear()
 
-        self._clear_preview("F", "Sin imagen (frente)")
-        self._clear_preview("D", "Sin imagen (dorso)")
+        for lado, txt in {
+            "F": "Sin imagen (frente)",
+            "D": "Sin imagen (dorso)"
+        }.items():
+            self._clear_preview(lado, txt)
 
     def _apply_data_to_state(self, data):
         self.data = data
 
         # reconstruir débitos
-        self._selected_debitos = {
+        self.state.debitos = {
             int(d.motivo_debito_id): d.detalle
             for d in (data.debitos or [])
             if getattr(d, "motivo_debito_id", None)
@@ -1192,7 +1150,7 @@ class AuditoriaVisualDialog(QDialog):
 
         vendedor = getattr(data, "vendedor", None)
         if vendedor:
-            self._vendedor_id = vendedor.vendedor_id
+            self.state.vendedor_id = vendedor.vendedor_id
             self.lb_vendedor.setText(vendedor.descripcion or "—")
             self.lb_vendedor.setToolTip(f"Código: {vendedor.codigo or ''}")
 
@@ -1210,3 +1168,192 @@ class AuditoriaVisualDialog(QDialog):
         self._pool.clear()
         self._pool.waitForDone()
         super().closeEvent(event)
+
+
+
+    def _widgets_por_lado(self, lado: str):
+        if lado == "F":
+            return self.scroll_frente, self.img_frente
+        else:
+            return self.scroll_dorso, self.img_dorso
+
+    def _cache_preview(self, raw: str, img_bytes: bytes):
+
+        if not img_bytes:
+            return
+
+        # si ya existe, no hacer nada
+        if raw in self._preview_cache:
+            return
+
+        # controlar tamaño del cache
+        if len(self._preview_cache) >= self.MAX_PREVIEW_CACHE:
+            # eliminar el más antiguo
+            self._preview_cache.pop(next(iter(self._preview_cache)))
+
+        self._preview_cache[raw] = img_bytes
+
+    def _on_save_error(self, err):
+        QMessageBox.critical(
+            self,
+            "Error guardando auditoría",
+            str(err)
+        )
+
+    def _save_auditoria_background(
+            self,
+            *,
+            receta_id,
+            vendedor_id,
+            estado_seg_id,
+            fecha_prescripcion,
+            fecha_emision,
+            fecha_venta,
+            debitos_inputs,
+    ):
+        AuditoriaVisualUseCase.finalizar_auditoria(
+            receta_id=receta_id,
+            vendedor_id=vendedor_id,
+            estado_seguimiento_id=estado_seg_id,
+            fecha_prescripcion=fecha_prescripcion,
+            fecha_emision=fecha_emision,
+            fecha_venta=fecha_venta,
+            usuario_id=self.creado_por_usuario_id,
+            debitos_inputs=debitos_inputs,
+        )
+
+    def _render_images(self):
+
+        if not self.data:
+            return
+
+        fr = (getattr(self.data.receta, "ubicacion_frente", None) or "").strip()
+        dr = (getattr(self.data.receta, "ubicacion_dorso", None) or "").strip()
+
+        for lado, path in {
+            "F": fr,
+            "D": dr
+        }.items():
+
+            if path:
+                self._set_preview_and_fit(lado, path)
+            else:
+                self._clear_preview(
+                    lado,
+                    f"Sin imagen ({'frente' if lado == 'F' else 'dorso'})"
+                )
+
+    def _render_motivos(self):
+        self._render_motivos_lado("F")
+        self._render_motivos_lado("D")
+
+    def _render_header(self):
+
+        self.in_prescripcion.setText(
+            self._fmt_date(getattr(self.data.receta, "fecha_prescripcion", None))
+        )
+
+        self.in_emision.setText(
+            self._fmt_date(getattr(self.data.receta, "fecha_emision", None))
+        )
+
+        self.in_venta.setText(
+            self._fmt_date(getattr(self.data.receta, "fecha_venta", None))
+        )
+
+        self.lb_big.setText(
+            str(getattr(self.data.archivo, "orden_lote", "") or "—")
+        )
+
+        self.lb_autorizacion.setText(
+            str(getattr(self.data.archivo, "fecha", "") or "—")
+        )
+
+        self.btn_debitada.setVisible(self.data.has_historial_debitada)
+
+    def _render_resumen(self):
+
+        self.lb_a_cargo.setText(
+            self._fmt_money(
+                Decimal(str(getattr(self.data.archivo, "a_cargo_entidad", 0) or 0))
+            )
+        )
+
+        self.lb_imp_obs.setText(
+            self._fmt_money(
+                Decimal(str(getattr(self.data.archivo, "importe_obs", 0) or 0))
+            )
+        )
+
+        self.lb_imp_neto.setText(
+            self._fmt_money(
+                Decimal(str(getattr(self.data.archivo, "importe_neto", 0) or 0))
+            )
+        )
+
+    def _render_navigation(self):
+
+        self.lb_pos.setText(
+            f"{self._idx + 1} / {len(self._asociacion_ids)}"
+        )
+
+    def _preload_images_for_data(self, data: AuditoriaVisualData):
+
+        if not data:
+            return
+
+        fr = (getattr(data.receta, "ubicacion_frente", None) or "").strip()
+        dr = (getattr(data.receta, "ubicacion_dorso", None) or "").strip()
+
+        for raw in (fr, dr):
+
+            if not raw:
+                continue
+
+            if raw in self._preview_cache:
+                continue
+
+            worker = Worker(
+                self._preload_image_background,
+                raw=raw
+            )
+
+            worker.signals.finished.connect(self._on_preload_image_finished)
+
+            self._pool.start(worker)
+
+    @staticmethod
+    def _preload_image_background(*, raw: str):
+
+        out = AuditoriaUseCase.load_preview_bytes(
+            path=raw,
+            vw=800,
+            vh=800
+        )
+
+        if out.img_bytes:
+            return {
+                "raw": raw,
+                "bytes": out.img_bytes
+            }
+
+        return None
+
+    def _on_preload_image_finished(self, result):
+
+        if not result:
+            return
+
+        raw = result["raw"]
+        img_bytes = result["bytes"]
+
+        self._cache_preview(raw, img_bytes)
+
+    def _on_preload_finished(self, result: dict):
+
+        asociacion_id = result["id"]
+        data = result["data"]
+
+        self._data_cache[asociacion_id] = data
+
+        self._preload_images_for_data(data)
