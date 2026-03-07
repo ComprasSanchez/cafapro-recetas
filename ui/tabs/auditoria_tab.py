@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
     QLabel, QLineEdit, QPushButton, QSizePolicy,
     QMessageBox, QTableWidget, QTableWidgetItem,
     QHeaderView, QAbstractItemView, QSplitter, QScrollArea,
-    QComboBox, QCheckBox, QMenu, QApplication
+    QComboBox, QCheckBox, QMenu, QApplication, QStyle
 )
 
 from app.db.session import session_scope
@@ -17,6 +17,7 @@ from app.service.recetas.asociacion_service import AsociacionService
 from app.service.recetas.recetas_service import RecetaService
 from ui.dialogs.forzar_asocaicion_dialog import ForzarAsociacionDialog
 from ui.dialogs.numero_receta_dialog import NumeroRecetaDialog
+from ui.models.auditoria_row_vm import AuditoriaRowVM
 from ui.tabs.base_tab import BaseTabWidget
 from ui.dialogs.recepcion_pick_dialog import RecepcionPickDialog
 from ui.dialogs.auditoria_visual_dialog import AuditoriaVisualDialog
@@ -108,6 +109,15 @@ class AuditoriaTab(BaseTabWidget):
         self.btn_visual.setEnabled(False)
         self.btn_visual.clicked.connect(self._on_open_auditoria_visual)
 
+        self.btn_reload = QPushButton()
+        self.btn_reload.setToolTip("Recargar auditoría")
+        self.btn_reload.setMinimumHeight(32)
+
+        icon = self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload)
+        self.btn_reload.setIcon(icon)
+
+        self.btn_reload.clicked.connect(self._reload_auditoria)
+
         num_box = QWidget()
         num_l = QHBoxLayout(num_box)
         num_l.setContentsMargins(0, 0, 0, 0)
@@ -121,6 +131,7 @@ class AuditoriaTab(BaseTabWidget):
         row0_l.setSpacing(10)
         row0_l.addWidget(num_box, 0)
         row0_l.addWidget(self.btn_visual, 0)
+        row0_l.addWidget(self.btn_reload, 0)
         row0_l.addStretch(1)
 
         lb_obs = QLabel("Obra social:")
@@ -466,7 +477,7 @@ class AuditoriaTab(BaseTabWidget):
         self.cb_estado.blockSignals(False)
 
     def _apply_auditoria_rows(self, out: AuditoriaRowsOut) -> None:
-        self._rows_view = out.rows
+        self._rows_view = self._map_rows(out.rows)
         self.lb_status.setText(f"Auditoría cargada: {len(self._rows_view)} registros")
         self._apply_filters()
 
@@ -491,11 +502,7 @@ class AuditoriaTab(BaseTabWidget):
         if estado_sel is not None:
 
             if estado_sel == "SIN_ASOC":
-                # 🔥 filtrar filas sin asociación
-                idxs = [
-                    i for i in idxs
-                    if getattr(base_rows[i], "asociacion_id", None) is None
-                ]
+                idxs = [i for i in idxs if base_rows[i].asociacion_id is None]
 
             else:
                 sid = int(estado_sel)
@@ -532,87 +539,25 @@ class AuditoriaTab(BaseTabWidget):
         self._render_table(rows)
         self.lb_filtered.setText(f"Mostrando {len(rows)} de {total}")
 
-    def _render_table(self, rows: list) -> None:
+    def _render_table(self, rows):
+
         self._rendering_table = True
         self.tbl.setUpdatesEnabled(False)
+
         try:
+
             self.tbl.setSortingEnabled(False)
             self.tbl.setRowCount(len(rows))
 
             for i, r in enumerate(rows):
-                asociacion_id = getattr(r, "asociacion_id", None)
-
-                numero_receta = getattr(r, "numero_receta", "") or ""
-                numero_referencia = getattr(r, "numero_referencia", "") or ""
-                nro_lote = getattr(r, "nro_lote", "") or ""
-
-
-                existe_archivo = bool(getattr(r, "existe_archivo", False))
-                existe_receta = bool(getattr(r, "existe_receta", False))
-                es_revision = (not existe_archivo) and existe_receta
-
-                if es_revision:
-                    numero_referencia = "-"
-                    nro_lote = "-"
-
-                importe_reconocido = float(getattr(r, "importe_reconocido", 0) or 0)
-                importe_oficial = float(getattr(r, "importe_oficial", 0) or 0)
-
-                estado_receta_id = self._estado_id(r)
-                estado_receta = getattr(r, "estado_receta", "") or ""
-                frente_jpg = (getattr(r, "frente_jpg", "") or "").strip()
-
-                flag_debitos = bool(getattr(r, "flag_debitos", False))
-                auditada = (estado_receta_id == 1) or es_revision
-
-                self._set_item(i, self.COL_RECETA, str(numero_receta))
-                if es_revision:
-                    self._set_bg(i, self.COL_RECETA, QColor(210, 230, 255))
-                self._set_item(i, self.COL_REF, str(numero_referencia))
-                self._set_item(i, self.COL_LOTE, str(nro_lote))
-                self._set_item(i, self.COL_RECETA_OK, "SI" if existe_receta else "NO", align=Qt.AlignCenter)
-                self._set_item(i, self.COL_ARCHIVO_OK, "SI" if existe_archivo else "NO", align=Qt.AlignCenter)
-                self._set_item(i, self.COL_RECON, f"{importe_reconocido:.2f}", align=Qt.AlignRight)
-                self._set_item(i, self.COL_OFI, f"{importe_oficial:.2f}", align=Qt.AlignRight)
-                self._set_item(i, self.COL_ESTADO, str(estado_receta))
-                self._set_item(
-                    i,
-                    self.COL_DEBITOS,
-                    "SI" if (auditada and flag_debitos) else ("NO" if auditada else "-"),
-                    align=Qt.AlignCenter
-                )
-
-                c0 = self.tbl.item(i, self.COL_RECETA)
-
-                if c0:
-                    c0.setData(Qt.ItemDataRole.UserRole, asociacion_id)
-                    c0.setData(Qt.ItemDataRole.UserRole + 1, frente_jpg)
-                    c0.setData(Qt.ItemDataRole.UserRole + 2, es_revision)
-                    c0.setData(Qt.ItemDataRole.UserRole + 3, getattr(r, "receta_id", None))
-                    c0.setData(Qt.ItemDataRole.UserRole + 4, getattr(r, "estado_receta_id", None))
-
-                if auditada:
-                    color = QColor(252, 209, 22) if flag_debitos else Qt.GlobalColor.green
-                    self._set_bg(i, self.COL_DEBITOS, color)
-
-                self._set_bg(i, self.COL_OFI, Qt.GlobalColor.green)
-
-                if self._is_diff_money(importe_reconocido, importe_oficial):
-                    self._set_bg(i, self.COL_RECON, Qt.GlobalColor.red)
-                else:
-                    self._set_bg(i, self.COL_RECON, Qt.GlobalColor.green)
-
-                frente_path = (getattr(r, "frente_jpg", "") or "").strip()
-                nombre_archivo = Path(frente_path).name if frente_path else ""
-
-                self._set_item(i, self.COL_ARCHIVOS, nombre_archivo)
+                self._render_row(i, r)
 
             self.tbl.setSortingEnabled(True)
             self.tbl.clearSelection()
-            self.tbl.setCurrentCell(-1, -1)
             self._clear_preview()
 
         finally:
+
             self.tbl.setUpdatesEnabled(True)
             self._rendering_table = False
 
@@ -844,20 +789,7 @@ class AuditoriaTab(BaseTabWidget):
                 nro_receta=nro_receta
             )
 
-        self._after_anular_receta()
-
-    def _after_anular_receta(self):
-
-        if not self._recepcion_id:
-            return
-
-        self.run_job(
-            self._uc.load_auditoria,
-            recepcion_id=self._recepcion_id,
-            title="Actualizando auditoría...",
-            on_result=self._apply_auditoria_rows,
-            on_error=self._ui_error,
-        )
+        self._reload_auditoria()
 
     def _duplicar_receta(self, receta_id: int):
 
@@ -891,7 +823,7 @@ class AuditoriaTab(BaseTabWidget):
                 nro_receta=nro_receta,
             )
 
-        self._after_anular_receta()
+        self._reload_auditoria()
 
     def _eliminar_sobrante(self, receta_id: int):
 
@@ -915,7 +847,7 @@ class AuditoriaTab(BaseTabWidget):
                 receta_id=receta_id,
             )
 
-        self._after_anular_receta()
+        self._reload_auditoria()
 
     def _desasociar_receta(self, receta_id: int):
 
@@ -936,4 +868,110 @@ class AuditoriaTab(BaseTabWidget):
                 receta_id=receta_id,
             )
 
-        self._after_anular_receta()
+        self._reload_auditoria()
+
+    @staticmethod
+    def _map_rows(rows):
+
+        mapped = []
+
+        for r in rows:
+            vm = AuditoriaRowVM(
+                receta_id=getattr(r, "receta_id", None),
+                asociacion_id=getattr(r, "asociacion_id", None),
+
+                numero_receta=str(getattr(r, "numero_receta", "") or ""),
+                numero_referencia=str(getattr(r, "numero_referencia", "") or ""),
+                nro_lote=str(getattr(r, "nro_lote", "") or ""),
+
+                existe_receta=bool(getattr(r, "existe_receta", False)),
+                existe_archivo=bool(getattr(r, "existe_archivo", False)),
+
+                importe_reconocido=float(getattr(r, "importe_reconocido", 0) or 0),
+                importe_oficial=float(getattr(r, "importe_oficial", 0) or 0),
+
+                estado_receta_id=int(getattr(r, "estado_receta_id", 0) or 0),
+                estado_receta=str(getattr(r, "estado_receta", "") or ""),
+
+                flag_debitos=bool(getattr(r, "flag_debitos", False)),
+
+                frente_jpg=str(getattr(r, "frente_jpg", "") or ""),
+            )
+
+            mapped.append(vm)
+
+        return mapped
+
+    def _render_row(self, i: int, r: AuditoriaRowVM):
+
+        ref = r.numero_referencia
+        lote = r.nro_lote
+
+        if r.es_revision:
+            ref = "-"
+            lote = "-"
+
+        self._set_item(i, self.COL_RECETA, r.numero_receta)
+        self._set_item(i, self.COL_REF, ref)
+        self._set_item(i, self.COL_LOTE, lote)
+
+        self._set_item(i, self.COL_RECETA_OK, "SI" if r.existe_receta else "NO", align=Qt.AlignCenter)
+        self._set_item(i, self.COL_ARCHIVO_OK, "SI" if r.existe_archivo else "NO", align=Qt.AlignCenter)
+
+        self._set_item(i, self.COL_RECON, f"{r.importe_reconocido:.2f}", align=Qt.AlignRight)
+        self._set_item(i, self.COL_OFI, f"{r.importe_oficial:.2f}", align=Qt.AlignRight)
+
+        self._set_item(i, self.COL_ESTADO, r.estado_receta)
+
+        deb = "SI" if (r.auditada and r.flag_debitos) else ("NO" if r.auditada else "-")
+        self._set_item(i, self.COL_DEBITOS, deb, align=Qt.AlignCenter)
+
+        self._apply_row_colors(i, r)
+
+        self._store_row_data(i, r)
+
+        nombre_archivo = Path(r.frente_jpg).name if r.frente_jpg else ""
+        self._set_item(i, self.COL_ARCHIVOS, nombre_archivo)
+
+    def _store_row_data(self, row, r: AuditoriaRowVM):
+
+        it = self.tbl.item(row, self.COL_RECETA)
+
+        if not it:
+            return
+
+        data = {
+            "asociacion_id": r.asociacion_id,
+            "receta_id": r.receta_id,
+            "frente": r.frente_jpg,
+            "estado_id": r.estado_receta_id,
+            "es_revision": r.es_revision,
+        }
+
+        it.setData(Qt.UserRole, data)
+
+    def _apply_row_colors(self, row, r: AuditoriaRowVM):
+
+        if r.auditada:
+            color = QColor(252, 209, 22) if r.flag_debitos else Qt.green
+            self._set_bg(row, self.COL_DEBITOS, color)
+
+        self._set_bg(row, self.COL_OFI, Qt.green)
+
+        if r.diferencia_montos:
+            self._set_bg(row, self.COL_RECON, Qt.red)
+        else:
+            self._set_bg(row, self.COL_RECON, Qt.green)
+
+    def _reload_auditoria(self):
+
+        if not self._recepcion_id:
+            return
+
+        self.run_job(
+            self._uc.load_auditoria,
+            recepcion_id=self._recepcion_id,
+            title="Actualizando auditoría...",
+            on_result=self._apply_auditoria_rows,
+            on_error=self._ui_error,
+        )
