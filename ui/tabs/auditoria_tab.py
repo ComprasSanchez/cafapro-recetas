@@ -710,6 +710,7 @@ class AuditoriaTab(BaseTabWidget):
         )
 
         dlg.exec()
+        self._reload_auditoria()
 
     # -------------------------
     # UI error helpers
