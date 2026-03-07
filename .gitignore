@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment variables
+.env
+
+# PyCharm
+.idea/
+
+# Build
+build/
+dist/
+
+# PyInstaller
+*.spec
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
