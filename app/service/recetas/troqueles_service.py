@@ -97,7 +97,8 @@ class TroquelesService:
         if not troq:
             raise ValueError(f"Troquel {troquel_id} no existe")
 
-        troq.cantidad = int(cantidad)
+        troq.cantidad = int(cantidad) #Hacer validacion de cantidad con archvio detalle
+        troq.estado = EstadoTroquelEnum.V
         s.flush()
 
     # -------------------------
