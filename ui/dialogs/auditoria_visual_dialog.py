@@ -1204,9 +1204,31 @@ class AuditoriaVisualDialog(QDialog):
         self.in_venta.selectAll()
 
     def keyPressEvent(self, event):
-        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-            event.ignore()
+
+        if event.key() not in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            super().keyPressEvent(event)
             return
+
+        focus = self.focusWidget()
+
+        # ENTER en fecha de venta
+        if focus is self.in_venta:
+
+            fecha_venta = self._parse_ddmmyyyy(self.in_venta.text())
+
+            # si no hay fecha, no hacer nada
+            if not fecha_venta:
+                return
+
+            # pasar foco a finalizar
+            self.btn_finalizar.setFocus()
+            return
+
+        # ENTER en botón finalizar
+        if focus is self.btn_finalizar:
+            self._on_finalizar()
+            return
+
         super().keyPressEvent(event)
 
     def closeEvent(self, event):
