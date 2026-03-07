@@ -12,8 +12,8 @@ class MedicamentoClient:
     def __init__(
         self,
         base_url: Optional[str] = None,
-        timeout_s: float = 3.0,
-        retries: int = 1,
+        timeout_s: float = 15.0,
+        retries: int = 3,
     ):
         self.base_url = (
             base_url
@@ -29,11 +29,6 @@ class MedicamentoClient:
             timeout=httpx.Timeout(timeout_s),
         )
 
-    @staticmethod
-    def _is_valid_codebar(codebar: str) -> bool:
-        codebar = (codebar or "").strip()
-        return bool(codebar) and codebar.isdigit() and len(codebar) == 13
-
     def get_by_codebar(self, codebar: str) -> Optional[MedicamentoDTO]:
         """
         Devuelve:
@@ -42,10 +37,6 @@ class MedicamentoClient:
         Lanza excepción si hay errores transitorios (timeout/5xx) luego de reintentos.
         """
         codebar = (codebar or "").strip()
-
-        # inválido => lo tratamos como "no encontrado"
-        if not self._is_valid_codebar(codebar):
-            return None
 
         attempts = 1 + self.retries
         last_exc: Optional[Exception] = None
