@@ -51,3 +51,15 @@ class S3Storage:
             extra["ContentDisposition"] = content_disposition
 
         self._client.put_object(**extra)
+
+    def delete_object(self, key: str) -> None:
+
+        key = (key or "").lstrip("/")
+
+        if not key:
+            return
+
+        self._client.delete_object(
+            Bucket=self.cfg.bucket,
+            Key=key,
+        )

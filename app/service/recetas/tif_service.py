@@ -308,6 +308,23 @@ class TiffService:
 
         return results
 
+    @staticmethod
+    def _archivo_ya_asociado(s: Session, recepcion_id: int, archivo_id: int) -> bool:
+        rid = (
+            s.execute(
+                select(Recetas.receta_id)
+                .join(Asociacion, Asociacion.receta_id == Recetas.receta_id)
+                .where(
+                    Recetas.recepcion_id == int(recepcion_id),
+                    Asociacion.archivo_id == int(archivo_id),
+                    Asociacion.vigente.is_(True),
+                )
+                .limit(1)
+            )
+            .scalar_one_or_none()
+        )
+        return rid is not None
+
     # -------------------------
     # MAIN (por tandas)
     # -------------------------
@@ -321,6 +338,8 @@ class TiffService:
 
         total = ProcesarResumen()
         med_cache: Dict[str, Optional[MedicamentoDTO]] = {}
+        seen_recetas: Set[str] = set()
+        seen_refs: Set[str] = set()
 
         revision_counter = 1
 
@@ -402,6 +421,25 @@ class TiffService:
                     revision_items.append(x)
                     continue
 
+                if self._archivo_ya_asociado(s, recepcion_id, archivo.archivo_id):
+                    revision_items.append(x)
+                    continue
+
+                nro_rec = self._norm_str(getattr(archivo, "nro_receta", None))
+                nro_ref = self._norm_str(getattr(archivo, "nro_referencia", None))
+
+                # 🔥 duplicado en esta corrida
+                if (nro_rec and nro_rec in seen_recetas) or (nro_ref and nro_ref in seen_refs):
+                    revision_items.append(x)
+                    continue
+
+                # marcar como vistos
+                if nro_rec:
+                    seen_recetas.add(nro_rec)
+
+                if nro_ref:
+                    seen_refs.add(nro_ref)
+
                 work.append(_WorkItem(it=x.it, scan=x.scan, archivo_id=int(archivo.archivo_id)))
                 archivo_ids.append(int(archivo.archivo_id))
 
@@ -417,59 +455,6 @@ class TiffService:
             detalles_by_archivo: Dict[int, List[ArchivoDetalle]] = {}
             for d in detalles:
                 detalles_by_archivo.setdefault(d.archivo_id, []).append(d)
-
-            # 2.5) versionado ESTRICTO: (nro_referencia, nro_receta) deben coincidir ambos
-
-            pairs: set[tuple[str, str]] = set()
-
-            for aid in archivo_ids:
-                ar = archivo_by_id.get(aid)
-                if not ar:
-                    continue
-
-                ref = (getattr(ar, "nro_referencia", None) or "").strip()
-                recn = (getattr(ar, "nro_receta", None) or "").strip()
-
-                # Si falta alguno, NO se puede asegurar identidad => NO versionamos por ese archivo
-                if ref and recn:
-                    pairs.add((ref, recn))
-
-            receta_ids_prev: list[int] = []
-
-            if pairs:
-                # Busco recetas vigentes anteriores que estén asociadas a un Archivo
-                # cuyo (nro_referencia, nro_receta) coincide con alguno de los pares nuevos.
-                q = (
-                    select(Recetas.receta_id)
-                    .join(Asociacion, Asociacion.receta_id == Recetas.receta_id)
-                    .join(Archivo, Archivo.archivo_id == Asociacion.archivo_id)
-                    .where(
-                        Recetas.recepcion_id == int(recepcion_id),
-                        Recetas.vigente.is_(True),
-                        Asociacion.vigente.is_(True),
-                        tuple_(Archivo.nro_referencia, Archivo.nro_receta).in_(list(pairs)),
-                    )
-                    .distinct()
-                )
-                receta_ids_prev = s.execute(q).scalars().all()
-
-            if receta_ids_prev:
-                # Apago asociaciones vigentes de esas recetas
-                s.execute(
-                    update(Asociacion)
-                    .where(
-                        Asociacion.receta_id.in_(receta_ids_prev),
-                        Asociacion.vigente.is_(True),
-                    )
-                    .values(vigente=False)
-                )
-
-                # Apago recetas vigentes
-                s.execute(
-                    update(Recetas)
-                    .where(Recetas.receta_id.in_(receta_ids_prev))
-                    .values(vigente=False)
-                )
 
             # 2.6) precomputar estados + troqueles + vencido (SIN render ni S3 todavía)
             estado_render_by_archivo_id: Dict[int, Dict[str, Literal["V","A","R"]]] = {}
@@ -585,8 +570,7 @@ class TiffService:
             for u in valid_uploaded:
 
                 if u.work.archivo_id == 0:
-                    nro_receta = str(revision_counter)
-                    revision_counter += 1
+                    nro_receta = "-"
 
                     receta = Recetas(
                         recepcion_id=int(recepcion_id),
@@ -605,7 +589,7 @@ class TiffService:
                     continue
 
                 archivo = archivo_by_id[u.work.archivo_id]
-                nro_receta = self._norm_str(getattr(archivo, "nro_receta", None)) or "-"
+                nro_receta = self._norm_str(getattr(archivo, "nro_receta", None)) or f"REV-{revision_counter}"
 
                 receta = Recetas(
                     recepcion_id=int(recepcion_id),

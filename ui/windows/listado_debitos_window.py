@@ -207,7 +207,7 @@ class ListadoDebitosWindow(QDialog):
             self.tbl.setRowHeight(i, self.ROW_H)
 
             self._set_item(i, 0, str(getattr(r, "recepcion_numero", "") or ""))
-            self._set_item(i, 1, str(getattr(r, "orden_lote", "") or ""))
+            self._set_item(i, 1, str(getattr(r, "orden_lote", "") or "-"))
             self._set_item(i, 2, str(getattr(r, "nro_receta", "") or ""))
 
             creado_en = getattr(r, "creado_en", None)
@@ -220,9 +220,9 @@ class ListadoDebitosWindow(QDialog):
                 creado_txt = ""
             self._set_item(i, 3, creado_txt)
 
-            self._set_item(i, 4, self._fmt_money(getattr(r, "importe_obs", None)))
-            self._set_item(i, 5, self._fmt_money(getattr(r, "a_cargo_entidad", None)))
-            self._set_item(i, 6, str(getattr(r, "descripcion_debito", "") or ""))
+            self._set_item(i, 4, self._fmt_money(getattr(r, "importe_obs", "-")))
+            self._set_item(i, 5, self._fmt_money(getattr(r, "a_cargo_entidad", "-")))
+            self._set_item(i, 6, str(getattr(r, "descripcion_debito", "") or "-"))
 
             # 7 Estado seguimiento (Combo)
             receta_id = int(getattr(r, "receta_id", 0) or 0)
@@ -493,11 +493,11 @@ class ListadoDebitosWindow(QDialog):
             html += f"""
                     <tr>
                         <td>{r.prestador_nombre or ''}</td>
-                        <td>{r.orden_lote}</td>
-                        <td>{r.nro_receta}</td>
-                        <td class="right">{r.importe_obs}</td>
-                        <td class="right">{r.a_cargo_entidad}</td>
-                        <td>{r.descripcion_debito}</td>
+                        <td>{r.orden_lote or ''}</td>
+                        <td>{r.nro_receta or ''}</td>
+                        <td class="right">{r.importe_obs or ''}</td>
+                        <td class="right">{r.a_cargo_entidad or ''}</td>
+                        <td>{r.descripcion_debito or ''}</td>
                         <td>{r.detalle or ''}</td>
                         <td>{r.estado_seguimiento or ''}</td>
                         <td>{r.vendedor_nombre or ''}</td>

@@ -5,8 +5,9 @@ from datetime import date, datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import Recetas, Asociacion, Troqueles, Archivo
+from app.db.models import Recetas, Asociacion, Troqueles, Archivo, Debitos
 from app.db.session import session_scope
+from app.infra.storage import s3_storage
 
 
 class RecetaService:
@@ -147,13 +148,98 @@ class RecetaService:
             rec.estado_seguimiento_id = estado_seguimiento_id
 
     @staticmethod
-    def anular_receta(s: Session, receta_id: int):
+    def anular_receta(s: Session, receta_id: int, nro_receta: str):
 
         receta = s.get(Recetas, receta_id)
 
         if not receta:
             raise RuntimeError("Receta no encontrada")
 
+        # actualizar numero receta
+        receta.nro_receta = nro_receta
+
+        # estado ANULADA
         receta.estado_receta_id = 4
+
+        receta.estado_seguimiento_id = 3
+
+        # evitar duplicar debito
+        existe = s.execute(
+            select(Debitos.debito_id)
+            .where(
+                Debitos.receta_id == receta_id,
+                Debitos.motivo_debito_id == 24
+            )
+        ).first()
+
+        if not existe:
+            deb = Debitos(
+                receta_id=receta_id,
+                motivo_debito_id=24,
+                detalle="Receta Anulada"
+            )
+            s.add(deb)
+
+    @staticmethod
+    def duplicar_receta(s: Session, receta_id: int, nro_receta: str):
+
+        receta = s.get(Recetas, receta_id)
+
+        if not receta:
+            raise RuntimeError("Receta no encontrada")
+
+        # actualizar numero receta
+        receta.nro_receta = nro_receta
+
+        # estado DUPLICADA
+        receta.estado_receta_id = 5
+
+        receta.estado_seguimiento_id = 3
+
+        # evitar duplicar debito
+        existe = s.execute(
+            select(Debitos.debito_id)
+            .where(
+                Debitos.receta_id == receta_id,
+                Debitos.motivo_debito_id == 32,
+            )
+        ).first()
+
+        if not existe:
+            deb = Debitos(
+                receta_id=receta_id,
+                motivo_debito_id=32,
+                detalle="RECETA DUPLICADA",
+            )
+            s.add(deb)
+
+    @staticmethod
+    def eliminar_sobrante(
+            s: Session,
+            *,
+            receta_id: int,
+    ) -> None:
+
+        receta = s.get(Recetas, receta_id)
+
+        if not receta:
+            raise RuntimeError("Receta no encontrada")
+
+        # ---------------------------------
+        # eliminar imágenes S3
+        # ---------------------------------
+
+        if receta.ubicacion_frente:
+            s3_storage.delete_object(receta.ubicacion_frente)
+
+        if receta.ubicacion_dorso:
+            s3_storage.delete_object(receta.ubicacion_dorso)
+
+        # ---------------------------------
+        # eliminar receta
+        # ---------------------------------
+
+        s.delete(receta)
+
 
 

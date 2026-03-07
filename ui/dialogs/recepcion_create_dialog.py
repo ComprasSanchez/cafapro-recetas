@@ -127,19 +127,20 @@ class RecepcionCreateDialog(QDialog):
 
         try:
             with session_scope() as s:
+
                 rec = RecepcionService.create(
                     s,
                     obra_social_id=int(obra_id),
                     periodo_id=int(periodo_id),
                     prestador_id=int(prestador_id),
-                    estado_recepcion_id=int(estado_recepcion_id),  # ✅ FK
+                    estado_recepcion_id=int(estado_recepcion_id),
                     fecha_presentacion=fecha,
                     observaciones=obs,
                     creado_por_usuario_id=self.creado_por_usuario_id,
                 )
 
                 self.created_recepcion_id = int(rec.recepcion_id)
-                # mostrar número asignado
+
                 try:
                     self.in_numero.setText(str(rec.numero))
                 except Exception:
