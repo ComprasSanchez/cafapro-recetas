@@ -30,6 +30,14 @@ from ui.usecase.auditoria_usecase import AuditoriaUseCase
 
 
 class AuditoriaVisualDialog(QDialog):
+    # ---------------------------------------------------------
+    # Dialog principal de auditoría visual.
+    # Maneja:
+    # - navegación entre asociaciones
+    # - render de datos de auditoría
+    # - carga async de datos e imágenes
+    # - cache de recetas y previews
+    # ---------------------------------------------------------
     def __init__(
         self,
         asociacion_ids: list[int],
@@ -496,9 +504,13 @@ class AuditoriaVisualDialog(QDialog):
         lay.addWidget(self.btn_finalizar, 0)
         return box
 
-    # -------------------------
-    # Navegación
-    # -------------------------
+    # ---------------------------------------------------------
+    # Navega a una posición de la lista de asociaciones.
+    # - limpia estado visual
+    # - usa cache si el registro ya fue cargado
+    # - si no, dispara carga async
+    # - inicia preload de registros siguientes
+    # ---------------------------------------------------------
     def _goto(self, idx: int) -> None:
         if not self._asociacion_ids:
             return
@@ -531,6 +543,12 @@ class AuditoriaVisualDialog(QDialog):
         w.signals.finished.connect(self._on_data_loaded)
         self._pool.start(w)
 
+    # ---------------------------------------------------------
+    # Carga preview de imagen para frente/dorso.
+    # - usa cache si existe
+    # - si no, carga async
+    # - ajusta zoom al viewport
+    # ---------------------------------------------------------
     def _render_all(self) -> None:
         if not self.data:
             return
@@ -619,6 +637,12 @@ class AuditoriaVisualDialog(QDialog):
             self.img_dorso.setText(text)
         self._last_preview_path[lado] = None
 
+    # ---------------------------------------------------------
+    # Carga preview de imagen para frente/dorso.
+    # - usa cache si existe
+    # - si no, carga async
+    # - ajusta zoom al viewport
+    # ---------------------------------------------------------
     def _set_preview_and_fit(self, lado: str, key_or_path: str) -> None:
         raw = (key_or_path or "").strip()
         if not raw:
@@ -656,6 +680,10 @@ class AuditoriaVisualDialog(QDialog):
         w.signals.error.connect(lambda e, _lado=lado: self._ui_error_preview(_lado, e))
         self._pool.start(w)
 
+    # ---------------------------------------------------------
+    # Worker thread:
+    # obtiene preview reducido de imagen vía UseCase.
+    # ---------------------------------------------------------
     def _load_preview_via_usecase(self, *, lado: str, raw: str, vw: int, vh: int, req_id: int) -> dict:
         if raw in self._preview_cache:
             return {
@@ -677,6 +705,10 @@ class AuditoriaVisualDialog(QDialog):
             "raw": raw
         }
 
+    # ---------------------------------------------------------
+    # Aplica preview cargado al viewer correspondiente.
+    # Valida request_id para evitar race conditions.
+    # ---------------------------------------------------------
     def _apply_preview_bytes(self, out: dict) -> None:
         lado = (out.get("lado") or "F").strip()
         req_id = int(out.get("req_id") or 0)
@@ -819,9 +851,10 @@ class AuditoriaVisualDialog(QDialog):
         self.lb_vendedor.setText(str(getattr(v, "descripcion", "") or "—"))
         self.lb_vendedor.setToolTip(f"Código: {getattr(v, 'codigo', '')}")
 
-    # -------------------------
-    # Finalizar (guarda y siguiente)
-    # -------------------------
+    # ---------------------------------------------------------
+    # Valida datos ingresados y guarda la auditoría.
+    # Si es exitosa, navega automáticamente a la siguiente.
+    # ---------------------------------------------------------
     def _on_finalizar(self) -> None:
         if not self.data:
             return
@@ -1076,6 +1109,10 @@ class AuditoriaVisualDialog(QDialog):
     def _hide_loading(self):
         self._loading_overlay.hide()
 
+    # ---------------------------------------------------------
+    # Worker thread:
+    # carga datos completos de auditoría para una asociación.
+    # ---------------------------------------------------------
     @staticmethod
     def _load_data_background_sync(*, asociacion_id: int):
         data = AuditoriaVisualUseCase.load_auditoria(asociacion_id)
@@ -1097,6 +1134,10 @@ class AuditoriaVisualDialog(QDialog):
         # 🔥 precargar próximas recetas
         self._preload_batch()
 
+    # ---------------------------------------------------------
+    # Precarga en background las próximas asociaciones
+    # para navegación más fluida.
+    # ---------------------------------------------------------
     def _preload_batch(self, batch_size: int = 3):
         for i in range(1, batch_size + 1):
             idx = self._idx + i
@@ -1111,6 +1152,10 @@ class AuditoriaVisualDialog(QDialog):
             w.signals.finished.connect(self._on_preload_finished)
             self._pool.start(w)
 
+    # ---------------------------------------------------------
+    # Limpia completamente el estado visual antes de
+    # mostrar una nueva asociación.
+    # ---------------------------------------------------------
     def _reset_ui_state(self):
         self.data = None
         self.state.debitos = {}
@@ -1169,14 +1214,16 @@ class AuditoriaVisualDialog(QDialog):
         self._pool.waitForDone()
         super().closeEvent(event)
 
-
-
     def _widgets_por_lado(self, lado: str):
         if lado == "F":
             return self.scroll_frente, self.img_frente
         else:
             return self.scroll_dorso, self.img_dorso
 
+    # ---------------------------------------------------------
+    # Guarda preview en cache con límite MAX_PREVIEW_CACHE.
+    # Elimina el más antiguo cuando se llena.
+    # ---------------------------------------------------------
     def _cache_preview(self, raw: str, img_bytes: bytes):
 
         if not img_bytes:
@@ -1297,6 +1344,10 @@ class AuditoriaVisualDialog(QDialog):
             f"{self._idx + 1} / {len(self._asociacion_ids)}"
         )
 
+    # ---------------------------------------------------------
+    # Precarga previews de frente/dorso en background
+    # y los guarda en cache de imágenes.
+    # ---------------------------------------------------------
     def _preload_images_for_data(self, data: AuditoriaVisualData):
 
         if not data:
