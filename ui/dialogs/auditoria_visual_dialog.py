@@ -1095,8 +1095,13 @@ class AuditoriaVisualDialog(QDialog):
             return ""
 
     def _on_next_only(self):
+
         if self._idx + 1 < len(self._asociacion_ids):
             self._goto(self._idx + 1)
+            return
+
+        # si es la última → cerrar dialog
+        self.accept()
 
     def _on_prev(self):
         if self._idx - 1 >= 0:
