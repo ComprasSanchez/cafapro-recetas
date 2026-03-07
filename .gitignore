@@ -17,6 +17,7 @@ env/
 # Build
 build/
 dist/
+output/
 
 # PyInstaller
 *.spec
