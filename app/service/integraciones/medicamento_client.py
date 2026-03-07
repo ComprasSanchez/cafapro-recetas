@@ -78,7 +78,6 @@ class MedicamentoClient:
         clean = [
             cb.strip()
             for cb in codebars
-            if self._is_valid_codebar(cb)
         ]
 
         if not clean:
