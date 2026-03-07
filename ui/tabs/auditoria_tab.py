@@ -397,6 +397,7 @@ class AuditoriaTab(BaseTabWidget):
     def _show_row_menu(self, pos):
 
         item = self.tbl.itemAt(pos)
+
         if not item:
             return
 
@@ -404,13 +405,15 @@ class AuditoriaTab(BaseTabWidget):
 
         receta_item = self.tbl.item(row, self.COL_RECETA)
         ref_item = self.tbl.item(row, self.COL_REF)
-        asociacion_id = receta_item.data(Qt.ItemDataRole.UserRole) if receta_item else None
 
         receta = receta_item.text() if receta_item else ""
         referencia = ref_item.text() if ref_item else ""
 
-        receta_id = receta_item.data(Qt.ItemDataRole.UserRole + 3) if receta_item else None
-        estado_id = receta_item.data(Qt.ItemDataRole.UserRole + 4) if receta_item else None
+        data = receta_item.data(Qt.UserRole) or {}
+
+        receta_id = data.get("receta_id")
+        estado_id = data.get("estado_id")
+        asociacion_id = data.get("asociacion_id")
 
         menu = QMenu(self)
 
@@ -428,7 +431,6 @@ class AuditoriaTab(BaseTabWidget):
 
         if estado_id == 3 and receta_id:
             act_forzar = menu.addAction("Forzar asociación")
-
             act_forzar.triggered.connect(
                 lambda: self._open_forzar_asociacion(receta_id)
             )
@@ -439,13 +441,11 @@ class AuditoriaTab(BaseTabWidget):
             )
 
             act_dup = menu.addAction("Marcar como duplicada")
-
             act_dup.triggered.connect(
                 lambda: self._duplicar_receta(receta_id)
             )
 
             act_del = menu.addAction("Eliminar / Sobrante")
-
             act_del.triggered.connect(
                 lambda: self._eliminar_sobrante(receta_id)
             )
@@ -459,6 +459,7 @@ class AuditoriaTab(BaseTabWidget):
             act_desasociar.triggered.connect(
                 lambda: self._desasociar_receta(receta_id)
             )
+
         menu.exec(self.tbl.mapToGlobal(pos))
 
     # -------------------------
@@ -591,7 +592,8 @@ class AuditoriaTab(BaseTabWidget):
         if not c0:
             return
 
-        raw = (c0.data(Qt.ItemDataRole.UserRole + 1) or "").strip()
+        data = c0.data(Qt.UserRole) or {}
+        raw = (data.get("frente") or "").strip()
         if not raw:
             self._clear_preview()
             self._last_preview_path = None
@@ -668,7 +670,10 @@ class AuditoriaTab(BaseTabWidget):
         if not c0:
             self.btn_visual.setEnabled(False)
             return
-        asociacion_id = c0.data(Qt.ItemDataRole.UserRole)
+
+        data = c0.data(Qt.UserRole) or {}
+        asociacion_id = data.get("asociacion_id")
+
         self.btn_visual.setEnabled(bool(asociacion_id))
 
     def _on_open_auditoria_visual(self) -> None:
@@ -676,18 +681,25 @@ class AuditoriaTab(BaseTabWidget):
         if start_row < 0:
             return
 
-        # construir lista desde la fila actual hasta el final
         asociacion_ids: list[int] = []
+
         for row in range(start_row, self.tbl.rowCount()):
             c0 = self.tbl.item(row, self.COL_RECETA)
             if not c0:
                 continue
-            asociacion_id = c0.data(Qt.ItemDataRole.UserRole)
+
+            data = c0.data(Qt.UserRole) or {}
+            asociacion_id = data.get("asociacion_id")
+
             if asociacion_id:
                 asociacion_ids.append(int(asociacion_id))
 
         if not asociacion_ids:
-            QMessageBox.warning(self, "Sin registros", "No hay asociaciones para auditar desde esta fila.")
+            QMessageBox.warning(
+                self,
+                "Sin registros",
+                "No hay asociaciones para auditar desde esta fila.",
+            )
             return
 
         dlg = AuditoriaVisualDialog(
@@ -696,17 +708,8 @@ class AuditoriaTab(BaseTabWidget):
             parent=self,
             creado_por_usuario_id=self.creado_por_usuario_id,
         )
-        dlg.exec()
 
-        # refresca UNA sola vez
-        if self._recepcion_id:
-            self.run_job(
-                self._uc.load_auditoria,
-                recepcion_id=self._recepcion_id,
-                title="Actualizando auditoría…",
-                on_result=self._apply_auditoria_rows,
-                on_error=self._ui_error,
-            )
+        dlg.exec()
 
     # -------------------------
     # UI error helpers
