@@ -50,11 +50,12 @@ class VwArchivoRecetaDebitos(Base):
         ),
     )
 
-
     recepcion_numero: Mapped[int] = mapped_column(sa.Integer, nullable=True)
+
     receta_id: Mapped[int] = mapped_column(sa.Integer)
     recepcion_id: Mapped[int] = mapped_column(sa.Integer)
 
+    motivo_debito_id: Mapped[int] = mapped_column(sa.Integer)
     estado_seguimiento_id: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
     estado_seguimiento: Mapped[str | None] = mapped_column(sa.String, nullable=True)
 
@@ -71,6 +72,7 @@ class VwArchivoRecetaDebitos(Base):
     detalle: Mapped[str | None] = mapped_column(sa.String, nullable=True)
     creado_en: Mapped[sa.DateTime] = mapped_column(sa.DateTime, nullable=False)
     prestador_nombre: Mapped[str] = mapped_column(sa.String)
+    obs: Mapped[str] = mapped_column(sa.String)
     vendedor_nombre: Mapped[str | None] = mapped_column(sa.String, nullable=True)
     auditor_nombre: Mapped[str | None] = mapped_column(sa.String, nullable=True)
 

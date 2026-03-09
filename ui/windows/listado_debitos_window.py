@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from PySide6.QtCore import Qt, QSignalBlocker, QMarginsF
+from PySide6.QtCore import Qt, QSignalBlocker, QMarginsF, QThreadPool
 from PySide6.QtGui import QTextDocument, QPageSize, QPageLayout
 from PySide6.QtPrintSupport import QPrinter, QPrintDialog
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout,
     QLabel, QComboBox, QPushButton, QMessageBox,
     QTableWidget, QTableWidgetItem, QAbstractItemView,
-    QHeaderView, QFrame, QSizePolicy, QWidget, QLineEdit
+    QHeaderView, QFrame, QSizePolicy, QWidget, QLineEdit, QFileDialog, QProgressDialog
 )
 
 from app.db.session import session_scope
@@ -17,6 +17,8 @@ from app.service.recetas.estado_seguimiento_service import EstadoSeguimientoServ
 from app.service.recetas.recetas_service import RecetaService
 from app.service.debitos.view_debitos import ViewDebitos
 from ui.dialogs.recepcion_pick_dialog import RecepcionPickDialog
+from ui.usecase.download_wrong_debitos_usecase import DownloadDebitosUseCase, DownloadDebitosIn
+from ui.utils.worker import Worker
 
 
 class ListadoDebitosWindow(QDialog):
@@ -151,6 +153,13 @@ class ListadoDebitosWindow(QDialog):
         btn_close.setProperty("variant", "ghost")
         btn_close.setMinimumHeight(32)
         btn_close.clicked.connect(self.close)
+
+        self.btn_download = QPushButton("Descargar Mal Cargados")
+        self.btn_download.setMinimumHeight(32)
+        self.btn_download.clicked.connect(self._download_wrong_debitos)
+
+        footer.addWidget(self.btn_download)
+
 
         footer.addWidget(btn_close)
         root.addLayout(footer)
@@ -540,8 +549,74 @@ class ListadoDebitosWindow(QDialog):
         doc = QTextDocument()
         doc.setDocumentMargin(0)
 
-        page_rect = printer.pageLayout().paintRect(QPageLayout.Point)
+        page_rect = printer.pageLayout().paintRect(QPageLayout.Unit.Point)
         doc.setPageSize(page_rect.size())
 
         doc.setHtml(html)
         doc.print_(printer)
+
+    def _download_wrong_debitos(self):
+
+        rows = [
+            r for r in self._all_rows
+            if getattr(r, "motivo_debito_id", None) == 9
+        ]
+
+        if not rows:
+            QMessageBox.information(
+                self,
+                "Sin datos",
+                "No hay débitos mal cargados."
+            )
+            return
+
+        folder = QFileDialog.getExistingDirectory(
+            self,
+            "Seleccionar carpeta"
+        )
+
+        if not folder:
+            return
+
+        self.progress = QProgressDialog(
+            "Descargando imágenes...",
+            None,
+            0,
+            0,
+            self
+        )
+
+        self.progress.show()
+
+        worker = Worker(
+            DownloadDebitosUseCase.run,
+            data=DownloadDebitosIn(
+                rows=rows,
+                folder=folder
+            )
+        )
+
+        worker.signals.finished.connect(self._download_finished)
+        worker.signals.error.connect(self._download_error)
+
+        QThreadPool.globalInstance().start(worker)
+
+    def _download_finished(self, out):
+
+        self.progress.close()
+
+        QMessageBox.information(
+            self,
+            "Descarga finalizada",
+            f"Imágenes descargadas: {out.total}"
+        )
+
+    def _download_error(self, err):
+
+        self.progress.close()
+
+        QMessageBox.critical(
+            self,
+            "Error",
+            err
+        )

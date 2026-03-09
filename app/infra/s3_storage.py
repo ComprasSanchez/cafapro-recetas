@@ -63,3 +63,16 @@ class S3Storage:
             Bucket=self.cfg.bucket,
             Key=key,
         )
+
+    def download_file(self, key: str, local_path: str):
+
+        key = (key or "").lstrip("/")
+
+        if not key:
+            raise ValueError("S3 key vacía")
+
+        self._client.download_file(
+            self.cfg.bucket,
+            key,
+            local_path,
+        )
