@@ -911,12 +911,16 @@ class AuditoriaVisualDialog(QDialog):
     @staticmethod
     def _parse_ddmmyyyy(s: str) -> date | None:
         s = (s or "").strip()
-        if not s or "_" in s:
+        if not s:
             return None
-        try:
-            return datetime.strptime(s, "%d/%m/%Y").date()
-        except ValueError:
-            return None
+
+        for fmt in ("%d/%m/%Y", "%d/%m/%y"):
+            try:
+                return datetime.strptime(s, fmt).date()
+            except ValueError:
+                pass
+
+        return None
 
     def _on_troqueles_context_menu(self, pos) -> None:
 
@@ -1043,7 +1047,7 @@ class AuditoriaVisualDialog(QDialog):
         if not d:
             return ""
         try:
-            return d.strftime("%d/%m/%Y")
+            return d.strftime("%d/%m/%y")
         except Exception:
             return ""
 
