@@ -20,6 +20,11 @@ from ui.dialogs.recepcion_pick_dialog import RecepcionPickDialog
 from ui.usecase.download_wrong_debitos_usecase import DownloadDebitosUseCase, DownloadDebitosIn
 from ui.utils.worker import Worker
 
+class NoWheelComboBox(QComboBox):
+
+    def wheelEvent(self, event):
+        event.ignore()
+
 
 class ListadoDebitosWindow(QDialog):
     ROW_H = 38
@@ -236,7 +241,7 @@ class ListadoDebitosWindow(QDialog):
             # 7 Estado seguimiento (Combo)
             receta_id = int(getattr(r, "receta_id", 0) or 0)
 
-            cb = QComboBox()
+            cb = NoWheelComboBox()
             cb.setMinimumHeight(self.COMBO_H)
             cb.setMaximumHeight(self.COMBO_H)
             cb.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
@@ -258,11 +263,12 @@ class ListadoDebitosWindow(QDialog):
             cb.currentIndexChanged.connect(self._on_estado_changed)
 
             cell = QWidget()
-            cell.setMinimumHeight(self.ROW_H)
             cell_l = QHBoxLayout(cell)
-            cell_l.setContentsMargins(8, 4, 8, 4)
+            cell_l.setContentsMargins(0, 0, 0, 0)
             cell_l.setSpacing(0)
-            cell_l.addWidget(cb, 1)
+            cb.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
+            cell_l.addWidget(cb)
 
             self.tbl.setCellWidget(i, 7, cell)
 
@@ -270,7 +276,7 @@ class ListadoDebitosWindow(QDialog):
 
     def _on_estado_changed(self) -> None:
         cb = self.sender()
-        if not isinstance(cb, QComboBox):
+        if not isinstance(cb, NoWheelComboBox):
             return
 
         receta_id = cb.property("receta_id")
