@@ -303,43 +303,31 @@ class AuditoriaVisualDialog(QDialog):
     # Debitos block (dos segmentos: Frente + Dorso)
     # -------------------------
     def _build_debitos_block(self) -> QWidget:
-        w = QWidget()
-        root = QVBoxLayout(w)
-        root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(10)
+        box = QFrame()
+        box.setObjectName("card")
 
-        # ---------- Frente ----------
-        box_f = QFrame()
-        box_f.setObjectName("card")
-        lay_f = QVBoxLayout(box_f)
-        lay_f.setContentsMargins(12, 12, 12, 12)
-        lay_f.setSpacing(8)
+        lay = QVBoxLayout(box)
+        lay.setContentsMargins(12, 12, 12, 12)
+        lay.setSpacing(6)
 
-        title_f = QLabel("Motivos débito – Frente")
-        lay_f.addWidget(title_f)
+        title = QLabel("Motivos de débito")
+        title.setProperty("role", "subtitle")
+        lay.addWidget(title)
 
-        self.list_motivos_f = QListWidget()
-        lay_f.addWidget(self.list_motivos_f, 1)
+        self.list_motivos = QListWidget()
+        self.list_motivos.itemChanged.connect(self._on_motivo_item_changed)
+        self.list_motivos.setSpacing(1)
+        self.list_motivos.setUniformItemSizes(True)
+        self.list_motivos.setStyleSheet("""
+        QListWidget::item {
+            padding: 2px 4px;
+            margin: 0px;
+        }
+        """)
 
-        # ---------- Dorso ----------
-        box_d = QFrame()
-        box_d.setObjectName("card")
-        lay_d = QVBoxLayout(box_d)
-        lay_d.setContentsMargins(12, 12, 12, 12)
-        lay_d.setSpacing(8)
+        lay.addWidget(self.list_motivos)
 
-        title_d = QLabel("Motivos débito – Dorso")
-        lay_d.addWidget(title_d)
-
-        self.list_motivos_d = QListWidget()
-        lay_d.addWidget(self.list_motivos_d, 1)
-
-        self.list_motivos_f.itemChanged.connect(self._on_motivo_item_changed)
-        self.list_motivos_d.itemChanged.connect(self._on_motivo_item_changed)
-
-        root.addWidget(box_f, 1)
-        root.addWidget(box_d, 1)
-        return w
+        return box
 
     def _build_right_header(self) -> QFrame:
         box = QFrame()
@@ -746,57 +734,6 @@ class AuditoriaVisualDialog(QDialog):
         viewer.set_pixmap(None)
         viewer.setText(f"No se pudo cargar la imagen.\n{nice}")
 
-    def _render_motivos_lado(self, lado: str) -> None:
-        if not self.data:
-            return
-
-        if lado == "F":
-            motivos = self.data.motivos_frente
-            list_widget = self.list_motivos_f
-        else:
-            motivos = self.data.motivos_dorso
-            list_widget = self.list_motivos_d
-
-        list_widget.blockSignals(True)
-        list_widget.clear()
-
-        for m in motivos:
-            motivo_id = int(m.motivo_debito_id)
-            descripcion = m.descripcion
-            activo = bool(getattr(m, "activo", True))
-            seleccionado = motivo_id in self.state.debitos
-
-            # 🔴 Si está inactivo y no estaba seleccionado → no se muestra
-            if not activo and not seleccionado:
-                continue
-
-            text = descripcion
-
-            if seleccionado:
-                detalle = self.state.debitos.get(motivo_id)
-                if detalle:
-                    text = f"{descripcion}  ({detalle})"
-
-            item = QListWidgetItem(text)
-            item.setData(Qt.ItemDataRole.UserRole, motivo_id)
-
-            # Habilitamos checkbox
-            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-
-            if seleccionado:
-                item.setCheckState(Qt.CheckState.Checked)
-            else:
-                item.setCheckState(Qt.CheckState.Unchecked)
-
-            # 🔥 Si está inactivo → deshabilitar interacción y pintar gris
-            if not activo:
-                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
-                item.setForeground(QBrush(QColor(150, 150, 150)))
-
-            list_widget.addItem(item)
-
-        list_widget.blockSignals(False)
-
 
     def _on_motivo_item_changed(self, item: QListWidgetItem):
         motivo_id = item.data(Qt.ItemDataRole.UserRole)
@@ -1195,8 +1132,7 @@ class AuditoriaVisualDialog(QDialog):
         self.tbl_troqueles.setRowCount(0)
         self.tbl_arch_det.setRowCount(0)
 
-        self.list_motivos_f.clear()
-        self.list_motivos_d.clear()
+        self.list_motivos.clear()
 
         for lado, txt in {
             "F": "Sin imagen (frente)",
@@ -1334,8 +1270,58 @@ class AuditoriaVisualDialog(QDialog):
                 )
 
     def _render_motivos(self):
-        self._render_motivos_lado("F")
-        self._render_motivos_lado("D")
+
+        if not self.data:
+            return
+
+        self.list_motivos.blockSignals(True)
+        self.list_motivos.clear()
+
+        # unir motivos frente + dorso
+        motivos = (self.data.motivos_frente or []) + (self.data.motivos_dorso or [])
+
+        # evitar duplicados por motivo_id
+        uniq = {}
+        for m in motivos:
+            uniq[int(m.motivo_debito_id)] = m
+
+        motivos = list(uniq.values())
+
+        # 🔥 ordenar alfabéticamente
+        motivos.sort(key=lambda m: (m.descripcion or "").lower())
+
+        for m in motivos:
+
+            motivo_id = int(m.motivo_debito_id)
+            descripcion = m.descripcion
+            activo = bool(getattr(m, "activo", True))
+            seleccionado = motivo_id in self.state.debitos
+
+            if not activo and not seleccionado:
+                continue
+
+            text = descripcion
+
+            if seleccionado:
+                detalle = self.state.debitos.get(motivo_id)
+                if detalle:
+                    text = f"{descripcion}  ({detalle})"
+
+            item = QListWidgetItem(text)
+            item.setData(Qt.ItemDataRole.UserRole, motivo_id)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+
+            item.setCheckState(
+                Qt.CheckState.Checked if seleccionado else Qt.CheckState.Unchecked
+            )
+
+            if not activo:
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
+                item.setForeground(QBrush(QColor(150, 150, 150)))
+
+            self.list_motivos.addItem(item)
+
+        self.list_motivos.blockSignals(False)
 
     def _render_header(self):
 
