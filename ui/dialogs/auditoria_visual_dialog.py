@@ -982,6 +982,7 @@ class AuditoriaVisualDialog(QDialog):
             return None
 
     def _on_troqueles_context_menu(self, pos) -> None:
+
         if not self.data or not self.asociacion_id:
             return
 
@@ -994,8 +995,19 @@ class AuditoriaVisualDialog(QDialog):
         menu = QMenu(self)
 
         act_add = menu.addAction("Agregar troquel…")
+
         act_edit = menu.addAction("Editar cantidad…")
         act_edit.setEnabled(row >= 0)
+
+        act_delete = None
+
+        # 🔥 verificar estado del troquel
+        if row >= 0:
+            estado_item = tbl.item(row, 6)
+            estado = estado_item.text() if estado_item else ""
+
+            if estado == str(EstadoTroquelEnum.A):
+                act_delete = menu.addAction("Eliminar troquel")
 
         chosen = menu.exec(tbl.viewport().mapToGlobal(pos))
         if not chosen:
@@ -1003,8 +1015,12 @@ class AuditoriaVisualDialog(QDialog):
 
         if chosen == act_add:
             self._ctx_add_troquel()
+
         elif chosen == act_edit:
             self._ctx_edit_troquel_qty()
+
+        elif act_delete and chosen == act_delete:
+            self._ctx_delete_troquel()
 
     def _ctx_add_troquel(self) -> None:
         if not self.asociacion_id:
@@ -1435,3 +1451,55 @@ class AuditoriaVisualDialog(QDialog):
         self._data_cache[asociacion_id] = data
 
         self._preload_images_for_data(data)
+
+    def _ctx_delete_troquel(self):
+
+        row = self.tbl_troqueles.currentRow()
+        if row < 0:
+            return
+
+        it0 = self.tbl_troqueles.item(row, 0)
+        if not it0:
+            return
+
+        troquel_id = int(it0.data(Qt.ItemDataRole.UserRole) or 0)
+
+        if not troquel_id:
+            QMessageBox.warning(self, "Error", "No se pudo determinar troquel_id.")
+            return
+
+        ok = QMessageBox.question(
+            self,
+            "Eliminar troquel",
+            "¿Seguro que querés eliminar este troquel?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+
+        if ok != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+
+            with session_scope() as s:
+
+                from app.db.models import Troqueles
+
+                troquel = s.get(Troqueles, troquel_id)
+
+                if troquel:
+                    s.delete(troquel)
+
+            # 🔥 invalidar cache
+            if self.asociacion_id:
+                asoc_id = int(self.asociacion_id)
+                self._data_cache.pop(asoc_id, None)
+
+            # recargar
+            self._goto(self._idx)
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"No se pudo eliminar el troquel:\n{e}"
+            )
