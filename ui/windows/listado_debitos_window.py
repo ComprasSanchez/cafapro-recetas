@@ -4,7 +4,7 @@ from datetime import datetime
 
 from PySide6.QtCore import Qt, QSignalBlocker, QMarginsF, QThreadPool
 from PySide6.QtGui import QTextDocument, QPageSize, QPageLayout
-from PySide6.QtPrintSupport import QPrinter, QPrintDialog
+from PySide6.QtPrintSupport import QPrinter, QPrintDialog, QPrintPreviewDialog
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout,
     QLabel, QComboBox, QPushButton, QMessageBox,
@@ -310,23 +310,6 @@ class ListadoDebitosWindow(QDialog):
         except Exception:
             return str(v)
 
-    def _reload(self) -> None:
-        if not self._recepcion_id:
-            self._set_empty_state()
-            return
-
-        try:
-            rows = ViewDebitos.list_debitos(
-                recepcion_id=int(self._recepcion_id),
-                fecha_auditoria=None,
-            )
-
-            self._all_rows = rows
-            self._render(self._all_rows)
-
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"No se pudo cargar los débitos.\n\n{e}")
-
     def _apply_table_filter(self) -> None:
 
         if not self._all_rows:
@@ -371,6 +354,11 @@ class ListadoDebitosWindow(QDialog):
         fecha_filtro = self.in_fecha.text().strip()
 
         fecha_auditoria_html = ""
+
+        obs = ""
+
+        if rows:
+            obs = getattr(rows[0], "obs", "") or ""
 
         if fecha_filtro and len(fecha_filtro.replace("/", "")) == 8:
             fecha_auditoria_html = f"""
@@ -427,6 +415,12 @@ class ListadoDebitosWindow(QDialog):
                     font-size: 6pt;
                     margin-bottom: 6px;
                 }}
+                
+                .obs {{
+                    text-align: center;
+                    font-size: 8pt;
+                    margin-bottom: 4px;
+                }}
 
                 table {{
                     width: 100%;
@@ -466,6 +460,10 @@ class ListadoDebitosWindow(QDialog):
                     {periodo_texto}
                 </div>
                 
+                <div class="obs">
+                    Obra Social: {obs}
+                </div>
+                
                 {fecha_auditoria_html}
 
                 <div class="auditores">
@@ -501,6 +499,7 @@ class ListadoDebitosWindow(QDialog):
                         <th>Detalle</th>
                         <th>Estado</th>
                         <th>Vendedor</th>
+                        <th>Fecha Auditoría</th>
                     </tr>
         """
 
@@ -516,6 +515,7 @@ class ListadoDebitosWindow(QDialog):
                         <td>{r.detalle or ''}</td>
                         <td>{r.estado_seguimiento or ''}</td>
                         <td>{r.vendedor_nombre or ''}</td>
+                        <td>{r.creado_en.strftime("%d/%m/%Y") if r.creado_en else ''}</td>
                     </tr>
             """
 
@@ -537,6 +537,7 @@ class ListadoDebitosWindow(QDialog):
         self._print_rows(self._all_rows)
 
     def _print_rows(self, rows):
+
         if not rows:
             QMessageBox.information(self, "Sin datos", "No hay datos para imprimir.")
             return
@@ -546,9 +547,12 @@ class ListadoDebitosWindow(QDialog):
         printer.setPageOrientation(QPageLayout.Orientation.Landscape)
         printer.setPageMargins(QMarginsF(0, 0, 0, 0), QPageLayout.Unit.Millimeter)
 
-        dialog = QPrintDialog(printer, self)
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            return
+        preview = QPrintPreviewDialog(printer, self)
+        preview.paintRequested.connect(lambda p: self._render_print(p, rows))
+
+        preview.exec()
+
+    def _render_print(self, printer, rows):
 
         html = self._generate_html(rows)
 
