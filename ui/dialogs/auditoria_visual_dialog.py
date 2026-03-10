@@ -947,7 +947,7 @@ class AuditoriaVisualDialog(QDialog):
             estado_item = tbl.item(row, 6)
             estado = estado_item.text() if estado_item else ""
 
-            if estado == str(EstadoTroquelEnum.A):
+            if estado in (str(EstadoTroquelEnum.A), str(EstadoTroquelEnum.R)):
                 act_delete = menu.addAction("Eliminar troquel")
 
         chosen = menu.exec(tbl.viewport().mapToGlobal(pos))
@@ -1449,6 +1449,8 @@ class AuditoriaVisualDialog(QDialog):
             return
 
         it0 = self.tbl_troqueles.item(row, 0)
+        estado_item = self.tbl_troqueles.item(row, 6)
+        estado = estado_item.text() if estado_item else ""
         if not it0:
             return
 
@@ -1458,12 +1460,27 @@ class AuditoriaVisualDialog(QDialog):
             QMessageBox.warning(self, "Error", "No se pudo determinar troquel_id.")
             return
 
-        ok = QMessageBox.question(
-            self,
-            "Eliminar troquel",
-            "¿Seguro que querés eliminar este troquel?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
+        if estado == str(EstadoTroquelEnum.R):
+            ok = QMessageBox.warning(
+                self,
+                "Eliminar troquel rechazado",
+                (
+                    "⚠ Este troquel está en estado RECHAZADO.\n\n"
+                    "Eliminar este troquel puede romper la auditoría "
+                    "y generar inconsistencias en la validación.\n\n"
+                    "Verificá correctamente la receta física antes de continuar."
+                ),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
+            )
+
+        else:
+            ok = QMessageBox.question(
+                self,
+                "Eliminar troquel",
+                "¿Seguro que querés eliminar este troquel?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
 
         if ok != QMessageBox.StandardButton.Yes:
             return
