@@ -370,8 +370,8 @@ class CargaRecepcionTab(BaseTabWidget):
         ans = QMessageBox.question(
             self,
             "Cerrar recepción",
-            f"¿Querés cerrar la recepción #{self._recepcion_id}?\n"
-            "Se cambiará su estado a CERRADO (estado_recepcion_id = 2).",
+            f"¿Querés cerrar la recepción #{self.in_numero.text()}?\n"
+            "Se cambiará su estado a CERRADO.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if ans != QMessageBox.StandardButton.Yes:
