@@ -241,6 +241,7 @@ class ArchivoDetalle(Base):
     __tablename__ = "archivo_detalle"
     __table_args__ = (
         sa.Index("ix_archivo_detalle_archivo_id", "archivo_id"),
+        sa.UniqueConstraint("archivo_id", "cod_medic", name="uq_archivo_detalle_archivo_cod_medic"),
     )
 
     archivo_detalle_id: Mapped[int] = mapped_column(sa.Integer, sa.Identity(), primary_key=True)

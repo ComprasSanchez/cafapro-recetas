@@ -438,9 +438,23 @@ class ArchivoCvsTab(BaseTabWidget):
             detalles_por_ref=self._detalles_por_ref,
             title="Subiendo recetas…",
             on_result=self._show_subir_result,
-            on_error=lambda err: QMessageBox.critical(self, "Error", err),
+            on_error=self._on_subir_error,
             on_finished=lambda: (self.btn_subir.setEnabled(True), self.btn_cargar.setEnabled(True)),
         )
+
+    def _on_subir_error(self, err: str) -> None:
+        msg = str(err)
+
+        if "uq_archivo_detalle_archivo_cod_medic" in msg or "UniqueViolation" in msg:
+            QMessageBox.warning(
+                self,
+                "CSV inválido",
+                "El archivo IMED contiene medicamentos duplicados para la misma receta.\n\n"
+                "Debe descargarse nuevamente."
+            )
+            return
+
+        QMessageBox.critical(self, "Error", msg)
 
     def _show_subir_result(self, out: SubirOut) -> None:
         resumen = (
