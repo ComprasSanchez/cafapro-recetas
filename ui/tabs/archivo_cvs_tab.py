@@ -243,7 +243,7 @@ class ArchivoCvsTab(BaseTabWidget):
     # Recepción (async)
     # --------------------------
     def _on_pick_recepcion(self):
-        dlg = RecepcionPickDialog(self, all=False)
+        dlg = RecepcionPickDialog(self, show_closed=False, enable_filter=False)
         if dlg.exec() != dlg.DialogCode.Accepted:
             return
 

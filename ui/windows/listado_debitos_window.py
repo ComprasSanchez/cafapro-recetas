@@ -177,7 +177,7 @@ class ListadoDebitosWindow(QDialog):
 
     # ---------------- recepción (patrón Excluidos) ----------------
     def _pick_recepcion(self) -> None:
-        dlg = RecepcionPickDialog(self, all=False)
+        dlg = RecepcionPickDialog(self, show_closed=False, enable_filter=True)
         if dlg.exec() != dlg.DialogCode.Accepted:
             return
 
