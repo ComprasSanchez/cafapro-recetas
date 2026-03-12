@@ -63,7 +63,7 @@ class TroquelDialog(QDialog):
         self.in_codigo.setMinimumHeight(28)
 
         self.in_cantidad = QSpinBox()
-        self.in_cantidad.setMinimum(0)      # <- recomendación: sin delete, no permitir 0
+        self.in_cantidad.setMinimum(0)
         self.in_cantidad.setMaximum(999)
         self.in_cantidad.setValue(max(0, int(cantidad or 1)))
         self.in_cantidad.setMinimumHeight(28)
