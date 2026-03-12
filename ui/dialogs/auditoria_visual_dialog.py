@@ -65,6 +65,9 @@ class AuditoriaVisualDialog(QDialog):
 
         self.asociacion_id: int | None = None
 
+        self._prefetch_ptr = self._idx
+        self.PREFETCH_SIZE = 6
+
         # cache de previews (incluye lado por seguridad)
         self._preview_cache: dict[str, bytes] = {}
         self.MAX_PREVIEW_CACHE = 200
@@ -1100,19 +1103,36 @@ class AuditoriaVisualDialog(QDialog):
     # Precarga en background las próximas asociaciones
     # para navegación más fluida.
     # ---------------------------------------------------------
-    def _preload_batch(self, batch_size: int = 3):
-        for i in range(1, batch_size + 1):
-            idx = self._idx + i
+    def _preload_batch(self):
+
+        if not self._asociacion_ids:
+            return
+
+        target = min(
+            len(self._asociacion_ids),
+            self._idx + self.PREFETCH_SIZE
+        )
+
+        while self._prefetch_ptr < target:
+
+            idx = self._prefetch_ptr
+
             if idx >= len(self._asociacion_ids):
                 break
 
-            next_id = int(self._asociacion_ids[idx])
-            if next_id in self._data_cache:
-                continue
+            asociacion_id = int(self._asociacion_ids[idx])
 
-            w = Worker(self._load_data_background_sync, asociacion_id=next_id)
-            w.signals.finished.connect(self._on_preload_finished)
-            self._pool.start(w)
+            if asociacion_id not in self._data_cache:
+                w = Worker(
+                    self._load_data_background_sync,
+                    asociacion_id=asociacion_id
+                )
+
+                w.signals.finished.connect(self._on_preload_finished)
+
+                self._pool.start(w)
+
+            self._prefetch_ptr += 1
 
     # ---------------------------------------------------------
     # Limpia completamente el estado visual antes de
