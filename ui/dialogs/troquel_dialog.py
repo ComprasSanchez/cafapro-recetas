@@ -27,7 +27,7 @@ class TroquelDialog(QDialog):
         asociacion_id: Optional[int] = None,
         troquel_id: Optional[int] = None,
         codigo_barra: str = "",
-        cantidad: int = 1,
+        cantidad: int = 0,
         parent=None,
     ):
         super().__init__(parent)
@@ -63,9 +63,9 @@ class TroquelDialog(QDialog):
         self.in_codigo.setMinimumHeight(28)
 
         self.in_cantidad = QSpinBox()
-        self.in_cantidad.setMinimum(1)      # <- recomendación: sin delete, no permitir 0
+        self.in_cantidad.setMinimum(0)      # <- recomendación: sin delete, no permitir 0
         self.in_cantidad.setMaximum(999)
-        self.in_cantidad.setValue(max(1, int(cantidad or 1)))
+        self.in_cantidad.setValue(max(0, int(cantidad or 1)))
         self.in_cantidad.setMinimumHeight(28)
 
         form.addRow(QLabel("Código barra:"), self.in_codigo)
@@ -107,6 +107,14 @@ class TroquelDialog(QDialog):
 
         if not codigo:
             QMessageBox.warning(self, "Falta dato", "Tenés que ingresar un código de barra.")
+            return
+
+        if qty == 0:
+            QMessageBox.warning(
+                self,
+                "Cantidad inválida",
+                "La cantidad no puede ser cero."
+            )
             return
 
         svc = TroquelesService()
