@@ -67,6 +67,7 @@ class AuditoriaVisualDialog(QDialog):
 
         self._prefetch_ptr = self._idx
         self.PREFETCH_SIZE = 6
+        self._prefetch_running = False
 
         # cache de previews (incluye lado por seguridad)
         self._preview_cache: dict[str, bytes] = {}
@@ -1105,34 +1106,32 @@ class AuditoriaVisualDialog(QDialog):
     # ---------------------------------------------------------
     def _preload_batch(self):
 
-        if not self._asociacion_ids:
+        if self._prefetch_running:
             return
 
-        target = min(
-            len(self._asociacion_ids),
-            self._idx + self.PREFETCH_SIZE
+        if self._prefetch_ptr >= len(self._asociacion_ids):
+            return
+
+        if self._prefetch_ptr >= self._idx + self.PREFETCH_SIZE:
+            return
+
+        asociacion_id = int(self._asociacion_ids[self._prefetch_ptr])
+
+        if asociacion_id in self._data_cache:
+            self._prefetch_ptr += 1
+            self._preload_batch()
+            return
+
+        self._prefetch_running = True
+
+        w = Worker(
+            self._load_data_background_sync,
+            asociacion_id=asociacion_id
         )
 
-        while self._prefetch_ptr < target:
+        w.signals.finished.connect(self._on_preload_finished)
 
-            idx = self._prefetch_ptr
-
-            if idx >= len(self._asociacion_ids):
-                break
-
-            asociacion_id = int(self._asociacion_ids[idx])
-
-            if asociacion_id not in self._data_cache:
-                w = Worker(
-                    self._load_data_background_sync,
-                    asociacion_id=asociacion_id
-                )
-
-                w.signals.finished.connect(self._on_preload_finished)
-
-                self._pool.start(w)
-
-            self._prefetch_ptr += 1
+        self._pool.start(w)
 
     # ---------------------------------------------------------
     # Limpia completamente el estado visual antes de
@@ -1461,6 +1460,12 @@ class AuditoriaVisualDialog(QDialog):
         self._data_cache[asociacion_id] = data
 
         self._preload_images_for_data(data)
+
+        self._prefetch_ptr += 1
+        self._prefetch_running = False
+
+        # lanzar el siguiente
+        self._preload_batch()
 
     def _ctx_delete_troquel(self):
 
