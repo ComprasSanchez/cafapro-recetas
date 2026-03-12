@@ -68,6 +68,7 @@ class AuditoriaVisualDialog(QDialog):
         self._prefetch_ptr = self._idx
         self.PREFETCH_SIZE = 6
         self._prefetch_running = False
+        self._loading_ids = set()
 
         # cache de previews (incluye lado por seguridad)
         self._preview_cache: dict[str, bytes] = {}
@@ -1122,6 +1123,10 @@ class AuditoriaVisualDialog(QDialog):
             self._preload_batch()
             return
 
+        if asociacion_id in self._loading_ids:
+            return
+
+        self._loading_ids.add(asociacion_id)
         self._prefetch_running = True
 
         w = Worker(
@@ -1132,7 +1137,6 @@ class AuditoriaVisualDialog(QDialog):
         w.signals.finished.connect(self._on_preload_finished)
 
         self._pool.start(w)
-
     # ---------------------------------------------------------
     # Limpia completamente el estado visual antes de
     # mostrar una nueva asociación.
@@ -1458,13 +1462,13 @@ class AuditoriaVisualDialog(QDialog):
         data = result["data"]
 
         self._data_cache[asociacion_id] = data
+        self._loading_ids.discard(asociacion_id)
 
         self._preload_images_for_data(data)
 
         self._prefetch_ptr += 1
         self._prefetch_running = False
 
-        # lanzar el siguiente
         self._preload_batch()
 
     def _ctx_delete_troquel(self):
