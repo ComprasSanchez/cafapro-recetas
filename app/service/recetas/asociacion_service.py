@@ -137,3 +137,79 @@ class AsociacionService:
 
         s.flush()
 
+    @staticmethod
+    def reasociar(
+            s: Session,
+            *,
+            receta_id: int,
+            archivo_id: int,
+    ) -> None:
+
+        archivo = s.get(Archivo, archivo_id)
+        if not archivo:
+            raise RuntimeError("Archivo no encontrado")
+
+        receta = s.get(Recetas, receta_id)
+        if not receta:
+            raise RuntimeError("Receta no encontrada")
+
+        # ------------------------------------------------
+        # validar estado auditado
+        # ------------------------------------------------
+        if receta.estado_receta_id != 3:
+            raise RuntimeError("Solo se puede reasociar una receta en revision")
+
+        # ------------------------------------------------
+        # buscar asociación vigente del archivo
+        # ------------------------------------------------
+        asoc_prev = (
+            s.execute(
+                select(Asociacion)
+                .where(
+                    Asociacion.archivo_id == archivo_id,
+                    Asociacion.vigente.is_(True),
+                )
+            )
+            .scalar_one_or_none()
+        )
+
+        if not asoc_prev:
+            raise RuntimeError("El archivo no tiene asociación vigente")
+
+        # ------------------------------------------------
+        # cerrar historial
+        # ------------------------------------------------
+        s.execute(
+            update(Asociacion)
+            .where(
+                Asociacion.asociacion_id == asoc_prev.asociacion_id
+            )
+            .values(vigente=False)
+        )
+
+        s.execute(
+            update(Recetas)
+            .where(
+                Recetas.receta_id == asoc_prev.receta_id
+            )
+            .values(vigente=False)
+        )
+
+        # ------------------------------------------------
+        # actualizar receta nueva
+        # ------------------------------------------------
+        receta.nro_receta = archivo.nro_receta
+        receta.estado_receta_id = 2
+
+        # ------------------------------------------------
+        # crear nueva asociación
+        # ------------------------------------------------
+        nueva = Asociacion(
+            receta_id=receta.receta_id,
+            archivo_id=archivo_id,
+            vigente=True,
+        )
+
+        s.add(nueva)
+
+        s.flush()

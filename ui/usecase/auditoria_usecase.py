@@ -268,6 +268,28 @@ class AuditoriaUseCase:
                 archivo_id=archivo_id,
             )
 
+    @staticmethod
+    def load_archivos_reasociables(recepcion_id: int):
+
+        with session_scope() as s:
+            return ViewAuditoriaService.list_archivos_reasociables(
+                s,
+                recepcion_id,
+            )
+
+    @staticmethod
+    def reasociar(
+            receta_id: int,
+            archivo_id: int,
+    ):
+
+        with session_scope() as s:
+            AsociacionService.reasociar(
+                s,
+                receta_id=receta_id,
+                archivo_id=archivo_id,
+            )
+
 
 
 

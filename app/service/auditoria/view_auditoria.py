@@ -35,3 +35,20 @@ class ViewAuditoriaService:
 
         return rows
 
+    @staticmethod
+    def list_archivos_reasociables(
+            s: Session,
+            recepcion_id: int,
+    ):
+        rows = s.execute(
+            select(VwArchivoResumenAuditoria)
+            .where(
+                VwArchivoResumenAuditoria.recepcion_id == recepcion_id,
+                VwArchivoResumenAuditoria.asociacion_id.is_not(None),
+                VwArchivoResumenAuditoria.estado_receta_id == 1,
+            )
+            .order_by(VwArchivoResumenAuditoria.numero_referencia)
+        ).scalars().all()
+
+        return rows
+

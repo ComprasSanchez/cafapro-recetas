@@ -17,6 +17,7 @@ from app.service.recetas.asociacion_service import AsociacionService
 from app.service.recetas.recetas_service import RecetaService
 from ui.dialogs.forzar_asocaicion_dialog import ForzarAsociacionDialog
 from ui.dialogs.numero_receta_dialog import NumeroRecetaDialog
+from ui.dialogs.reasociar_reeta_dialog import ReasociarRecetaDialog
 from ui.models.auditoria_row_vm import AuditoriaRowVM
 from ui.tabs.base_tab import BaseTabWidget
 from ui.dialogs.recepcion_pick_dialog import RecepcionPickDialog
@@ -448,6 +449,12 @@ class AuditoriaTab(BaseTabWidget):
             act_del = menu.addAction("Eliminar / Sobrante")
             act_del.triggered.connect(
                 lambda: self._eliminar_sobrante(receta_id)
+            )
+
+            act_reasociar = menu.addAction("Reasociar receta")
+
+            act_reasociar.triggered.connect(
+                lambda: self._open_reasociar_receta(receta_id)
             )
 
         if asociacion_id and estado_id == 2:
@@ -979,3 +986,14 @@ class AuditoriaTab(BaseTabWidget):
             on_result=self._apply_auditoria_rows,
             on_error=self._ui_error,
         )
+
+    def _open_reasociar_receta(self, receta_id: int):
+
+        dlg = ReasociarRecetaDialog(
+            recepcion_id=self._recepcion_id,
+            receta_id=receta_id,
+            parent=self,
+        )
+
+        if dlg.exec():
+            self._reload_auditoria()
