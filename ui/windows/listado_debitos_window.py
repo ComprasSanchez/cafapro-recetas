@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
+import re
+import unicodedata
 
 from PySide6.QtCore import Qt, QSignalBlocker, QMarginsF, QThreadPool
-from PySide6.QtGui import QTextDocument, QPageSize, QPageLayout
+from PySide6.QtGui import QTextDocument, QPageSize, QPageLayout, QPdfWriter
 from PySide6.QtPrintSupport import QPrinter, QPrintDialog, QPrintPreviewDialog
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout,
@@ -13,6 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.db.session import session_scope
+from app.db.models import Periodo, Recepcion
 from app.service.recetas.estado_seguimiento_service import EstadoSeguimientoService
 from app.service.recetas.recetas_service import RecetaService
 from app.service.debitos.view_debitos import ViewDebitos
@@ -48,6 +52,8 @@ class ListadoDebitosWindow(QDialog):
 
         self._all_rows = []
         self.filtrados = []
+        self._wrong_rows_ctx = []
+        self._wrong_folder_ctx: str | None = None
 
         self._build_ui()
         self._load_estados()
@@ -176,7 +182,7 @@ class ListadoDebitosWindow(QDialog):
         btn_close.setMinimumHeight(32)
         btn_close.clicked.connect(self.close)
 
-        self.btn_download = QPushButton("Descargar Mal Entregados")
+        self.btn_download = QPushButton("Descargar + PDF Mal Entregados")
         self.btn_download.setMinimumHeight(32)
         self.btn_download.clicked.connect(self._download_wrong_debitos)
 
@@ -558,12 +564,12 @@ class ListadoDebitosWindow(QDialog):
         return html
 
     def _print_filtered(self):
-        self._print_rows(self.filtrados)
+        self._preview_rows(self.filtrados)
 
     def _print_all(self):
         self._print_rows(self._all_rows)
 
-    def _print_rows(self, rows):
+    def _preview_rows(self, rows):
 
         if not rows:
             QMessageBox.information(self, "Sin datos", "No hay datos para imprimir.")
@@ -579,6 +585,23 @@ class ListadoDebitosWindow(QDialog):
 
         preview.exec()
 
+    def _print_rows(self, rows):
+
+        if not rows:
+            QMessageBox.information(self, "Sin datos", "No hay datos para imprimir.")
+            return
+
+        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+        printer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
+        printer.setPageOrientation(QPageLayout.Orientation.Landscape)
+        printer.setPageMargins(QMarginsF(0, 0, 0, 0), QPageLayout.Unit.Millimeter)
+
+        dlg = QPrintDialog(printer, self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        self._render_print(printer, rows)
+
     def _render_print(self, printer, rows):
 
         html = self._generate_html(rows)
@@ -593,17 +616,13 @@ class ListadoDebitosWindow(QDialog):
         doc.print_(printer)
 
     def _download_wrong_debitos(self):
-
-        rows = [
-            r for r in self._all_rows
-            if getattr(r, "motivo_debito_id", None) == 9
-        ]
+        rows = self._get_wrong_rows()
 
         if not rows:
             QMessageBox.information(
                 self,
                 "Sin datos",
-                "No hay débitos mal cargados."
+                "No hay débitos mal entregados."
             )
             return
 
@@ -614,6 +633,9 @@ class ListadoDebitosWindow(QDialog):
 
         if not folder:
             return
+
+        self._wrong_rows_ctx = list(rows)
+        self._wrong_folder_ctx = folder
 
         self.progress = QProgressDialog(
             "Descargando imágenes...",
@@ -642,18 +664,106 @@ class ListadoDebitosWindow(QDialog):
 
         self.progress.close()
 
+        pdf_path = None
+        pdf_error = None
+
+        try:
+            if self._wrong_rows_ctx and self._wrong_folder_ctx:
+                pdf_path = self._export_wrong_pdf(self._wrong_rows_ctx, self._wrong_folder_ctx)
+        except Exception as e:
+            pdf_error = str(e)
+
+        msg = f"Imágenes descargadas: {out.total}"
+        if pdf_path:
+            msg += f"\nPDF generado:\n{pdf_path}"
+
+        if pdf_error:
+            msg += f"\n\nNo se pudo generar el PDF:\n{pdf_error}"
+
         QMessageBox.information(
             self,
-            "Descarga finalizada",
-            f"Imágenes descargadas: {out.total}"
+            "Mal entregados",
+            msg,
         )
+
+        self._wrong_rows_ctx = []
+        self._wrong_folder_ctx = None
 
     def _download_error(self, err):
 
         self.progress.close()
+
+        self._wrong_rows_ctx = []
+        self._wrong_folder_ctx = None
 
         QMessageBox.critical(
             self,
             "Error",
             err
         )
+
+    def _get_wrong_rows(self):
+        return [
+            r for r in self._all_rows
+            if getattr(r, "motivo_debito_id", None) == 9
+        ]
+
+    def _export_wrong_pdf(self, rows, folder: str) -> str:
+        filename = self._wrong_pdf_filename(rows)
+        output_path = Path(folder) / filename
+
+        pdf = QPdfWriter(str(output_path))
+        pdf.setResolution(300)
+        pdf.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
+        pdf.setPageOrientation(QPageLayout.Orientation.Landscape)
+        pdf.setPageMargins(QMarginsF(0, 0, 0, 0), QPageLayout.Unit.Millimeter)
+
+        html = self._generate_html(rows)
+        doc = QTextDocument()
+        doc.setDocumentMargin(0)
+
+        page_rect = pdf.pageLayout().paintRect(QPageLayout.Unit.Point)
+        doc.setPageSize(page_rect.size())
+        doc.setHtml(html)
+        doc.print_(pdf)
+
+        return str(output_path)
+
+    def _wrong_pdf_filename(self, rows) -> str:
+        first = rows[0] if rows else None
+        obs = self._slug_part(getattr(first, "obs", ""), fallback="sin-obs")
+        prestador = self._slug_part(getattr(first, "prestador_nombre", ""), fallback="sin-prestador")
+        periodo = self._slug_part(self._periodo_label(), fallback="sin-periodo")
+        return f"{obs}-{prestador}-{periodo}-mal-entregado".upper() + ".PDF"
+
+    def _periodo_label(self) -> str:
+        if not self._recepcion_id:
+            return "sin-periodo"
+
+        try:
+            with session_scope() as s:
+                row = (
+                    s.query(Periodo.anio, Periodo.mes, Periodo.quincena)
+                    .join(Recepcion, Recepcion.periodo_id == Periodo.periodo_id)
+                    .filter(Recepcion.recepcion_id == int(self._recepcion_id))
+                    .first()
+                )
+
+            if not row:
+                return "sin-periodo"
+
+            anio, mes, quincena = row
+            return f"{int(anio):04d}-{int(mes):02d}-q{int(quincena)}"
+        except Exception:
+            return "sin-periodo"
+
+    @staticmethod
+    def _slug_part(value, *, fallback: str) -> str:
+        text = str(value or "").strip().lower()
+        if not text:
+            return fallback
+
+        text = unicodedata.normalize("NFD", text)
+        text = text.encode("ascii", "ignore").decode("utf-8")
+        text = re.sub(r"[^a-z0-9]+", "-", text).strip("-")
+        return text or fallback
