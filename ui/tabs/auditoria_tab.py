@@ -3,13 +3,14 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QPixmap, QColor
+from PySide6.QtGui import QPixmap, QColor, QPen, QIcon
 from PySide6.QtWidgets import (
     QWidget, QFrame, QVBoxLayout, QGridLayout, QHBoxLayout,
     QLabel, QLineEdit, QPushButton, QSizePolicy,
     QMessageBox, QTableWidget, QTableWidgetItem,
     QHeaderView, QAbstractItemView, QSplitter, QScrollArea,
-    QComboBox, QCheckBox, QMenu, QApplication, QStyle
+    QComboBox, QCheckBox, QMenu, QApplication, QStyle,
+    QStyledItemDelegate,
 )
 
 from app.db.session import session_scope
@@ -26,6 +27,52 @@ from ui.dialogs.auditoria_visual_dialog import AuditoriaVisualDialog
 from ui.usecase.auditoria_usecase import (
     AuditoriaUseCase, RecepcionOut, EstadosOut, AuditoriaRowsOut, PreviewBytesOut
 )
+
+
+class RowOutlineDelegate(QStyledItemDelegate):
+    def __init__(self, table: QTableWidget):
+        super().__init__(table)
+        self._table = table
+        self._pen = QPen(QColor(75, 85, 99))
+        self._pen.setWidth(1)
+
+    def paint(self, painter, option, index) -> None:
+        super().paint(painter, option, index)
+
+        active_row = getattr(self._table, "_active_row", -1)
+        if active_row < 0 or index.row() != active_row:
+            return
+
+        model = self._table.model()
+        if model is None:
+            return
+
+        visible_columns = [c for c in range(model.columnCount()) if not self._table.isColumnHidden(c)]
+        if not visible_columns:
+            return
+
+        first_col = visible_columns[0]
+        last_col = visible_columns[-1]
+
+        if index.column() != first_col:
+            return
+
+        first_idx = model.index(index.row(), first_col)
+        first_rect = self._table.visualRect(first_idx)
+        right_idx = model.index(index.row(), last_col)
+        right_rect = self._table.visualRect(right_idx)
+
+        row_left = first_rect.left()
+        row_top = first_rect.top()
+        row_bottom = first_rect.bottom() - 1
+        row_right = right_rect.right() - 1
+
+        painter.save()
+        painter.setPen(self._pen)
+        painter.drawLine(row_left, row_top, row_right, row_top)
+        painter.drawLine(row_left, row_bottom, row_right, row_bottom)
+
+        painter.restore()
 
 
 class AuditoriaTab(BaseTabWidget):
@@ -49,6 +96,9 @@ class AuditoriaTab(BaseTabWidget):
         self._recepcion_id: int | None = None
         self._rows_view: list = []
         self._last_preview_path: str | None = None
+        self._active_row: int = -1
+        self._active_marker_icon = self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowRight)
+        self._empty_icon = QIcon()
 
         self._uc = AuditoriaUseCase()
 
@@ -254,6 +304,7 @@ class AuditoriaTab(BaseTabWidget):
         left_l.setSpacing(0)
 
         self.tbl = QTableWidget(0, 10)
+        self.tbl.setObjectName("auditoria_rows_table")
         self.tbl.setHorizontalHeaderLabels([
             "Receta", "Referencia", "Lote",
             "Receta OK", "Archivo OK",
@@ -263,13 +314,35 @@ class AuditoriaTab(BaseTabWidget):
 
         self.tbl.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tbl.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.tbl.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.tbl.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
         self.tbl.setAlternatingRowColors(True)
         self.tbl.setSortingEnabled(True)
+        self.tbl.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.tbl.verticalHeader().setVisible(False)
         self.tbl.verticalHeader().setDefaultSectionSize(self.ROW_H)
         self.tbl.verticalHeader().setMinimumSectionSize(self.ROW_H)
         self.tbl.setWordWrap(False)
+        self.tbl.setStyleSheet(
+            "QTableWidget#auditoria_rows_table {"
+            " selection-background-color: transparent;"
+            " selection-color: #111827;"
+            " outline: none;"
+            "}"
+            "QTableWidget#auditoria_rows_table::item:selected,"
+            "QTableWidget#auditoria_rows_table::item:selected:active,"
+            "QTableWidget#auditoria_rows_table::item:selected:!active {"
+            " background: transparent;"
+            " color: #111827;"
+            " border: none;"
+            " outline: none;"
+            "}"
+            "QTableWidget#auditoria_rows_table::item:focus {"
+            " outline: none;"
+            " border: 0px;"
+            " background-color:transparent;"
+            "}"
+        )
+        self.tbl.setItemDelegate(RowOutlineDelegate(self.tbl))
 
         self.tbl.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.tbl.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -299,8 +372,8 @@ class AuditoriaTab(BaseTabWidget):
         hh.setContextMenuPolicy(Qt.CustomContextMenu)
         hh.customContextMenuRequested.connect(self._show_column_menu)
 
-        self.tbl.itemClicked.connect(self._on_item_clicked)
-        self.tbl.itemSelectionChanged.connect(self._on_selection_changed)
+        self.tbl.cellClicked.connect(self._on_cell_clicked)
+        self.tbl.currentCellChanged.connect(self._on_current_cell_changed)
 
         left_l.addWidget(self.tbl, 1)
         split.addWidget(left)
@@ -403,6 +476,7 @@ class AuditoriaTab(BaseTabWidget):
             return
 
         row = item.row()
+        self._set_active_row(row)
 
         receta_item = self.tbl.item(row, self.COL_RECETA)
         ref_item = self.tbl.item(row, self.COL_REF)
@@ -562,6 +636,7 @@ class AuditoriaTab(BaseTabWidget):
 
             self.tbl.setSortingEnabled(True)
             self.tbl.clearSelection()
+            self._set_active_row(-1)
             self._clear_preview()
 
         finally:
@@ -572,18 +647,68 @@ class AuditoriaTab(BaseTabWidget):
     def _set_item(self, row: int, col: int, text: str, align: Qt.AlignmentFlag | None = None) -> None:
         it = QTableWidgetItem(text)
         it.setTextAlignment(Qt.AlignVCenter | (align if align is not None else Qt.AlignLeft))
+        it.setFlags(it.flags() & ~Qt.ItemFlag.ItemIsEditable & ~Qt.ItemFlag.ItemIsSelectable)
         self.tbl.setItem(row, col, it)
 
     # -------------------------
     # Selection -> Preview
     # -------------------------
-    def _on_selection_changed(self) -> None:
+    def _set_active_row(self, row: int) -> None:
+        if row < 0 or row >= self.tbl.rowCount():
+            row = -1
+
+        if self._active_row == row:
+            return
+
+        old_row = self._active_row
+        if old_row >= 0:
+            self._paint_active_row(old_row, active=False)
+
+        self._active_row = row
+        if self._active_row >= 0:
+            self._paint_active_row(self._active_row, active=True)
+
+        self.tbl.viewport().update()
+
+    def _paint_active_row(self, row: int, *, active: bool) -> None:
+        if row < 0 or row >= self.tbl.rowCount():
+            return
+
+        for col in range(self.tbl.columnCount()):
+            it = self.tbl.item(row, col)
+            if not it:
+                continue
+
+            font = it.font()
+            font.setBold(active)
+            it.setFont(font)
+
+            if col == self.COL_RECETA:
+                it.setIcon(self._active_marker_icon if active else self._empty_icon)
+
+    def _on_cell_clicked(self, row: int, _col: int) -> None:
+        self._set_active_row(row)
+
+        c0 = self.tbl.item(row, self.COL_RECETA)
+        if not c0:
+            self._clear_preview()
+            self._sync_visual_button_state()
+            return
+
+        self._on_item_clicked(c0)
+
+    def _on_current_cell_changed(self, current_row: int, _current_col: int, _prev_row: int, _prev_col: int) -> None:
         if self._rendering_table:
             return
 
+        self._set_active_row(current_row)
         self._sync_visual_button_state()
 
-        it = self.tbl.currentItem()
+        if current_row < 0:
+            self._clear_preview()
+            return
+
+        it = self.tbl.item(current_row, self.COL_RECETA)
         if not it:
             self._clear_preview()
             return
@@ -668,11 +793,14 @@ class AuditoriaTab(BaseTabWidget):
     # Auditoría visual (✅ NUEVO: abre una sola vez)
     # -------------------------
     def _sync_visual_button_state(self) -> None:
-        it = self.tbl.currentItem()
-        if not it:
+        row = self._active_row
+        if row < 0:
+            row = self.tbl.currentRow()
+
+        if row < 0:
             self.btn_visual.setEnabled(False)
             return
-        row = it.row()
+
         c0 = self.tbl.item(row, self.COL_RECETA)
         if not c0:
             self.btn_visual.setEnabled(False)
@@ -684,7 +812,7 @@ class AuditoriaTab(BaseTabWidget):
         self.btn_visual.setEnabled(bool(asociacion_id))
 
     def _on_open_auditoria_visual(self) -> None:
-        start_row = self.tbl.currentRow()
+        start_row = self._active_row if self._active_row >= 0 else self.tbl.currentRow()
         if start_row < 0:
             return
 
