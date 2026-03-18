@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
 from PySide6.QtCore import Qt, QDate
 from PySide6.QtWidgets import (
@@ -9,8 +9,11 @@ from PySide6.QtWidgets import (
     QTableWidgetItem, QTableWidget, QAbstractItemView
 )
 
+from app.db.session import session_scope
+from app.service.recetas.archivo_service import ArchivoService
 from app.service.recetas.tif_service import ProcesarItemIn
 from config.config_manager import ConfigManager
+from ui.dialogs.dias_descargado_dialog import DiasDescargadosDialog
 from ui.dialogs.recepcion_create_dialog import RecepcionCreateDialog
 from ui.dialogs.recepcion_pick_dialog import RecepcionPickDialog
 
@@ -21,6 +24,8 @@ from ui.usecase.carga_recepcion_usecase import (
     ListImagesOut,
     ProcesarOut,
 )
+from ui.windows.excluidos_window import ExcluidosWindow
+from ui.windows.listado_debitos_window import ListadoDebitosWindow
 
 
 class CargaRecepcionTab(BaseTabWidget):
@@ -81,6 +86,9 @@ class CargaRecepcionTab(BaseTabWidget):
         self.btn_cargar.setEnabled(enabled)
         self.btn_procesar.setEnabled(enabled)
         self.btn_cerrar.setEnabled(enabled)
+        self.btn_debitos.setEnabled(enabled)
+        self.btn_excluidos.setEnabled(enabled)
+        self.btn_dias_descargados.setEnabled(enabled)
         self.de_fecha.setEnabled(enabled)
 
     # --------------------------
@@ -89,7 +97,7 @@ class CargaRecepcionTab(BaseTabWidget):
     def _build_header(self) -> QFrame:
         header = QFrame()
         header.setObjectName("card")
-        header.setMaximumHeight(98)
+        header.setMaximumHeight(128)
 
         grid = QGridLayout(header)
         grid.setContentsMargins(12, 10, 12, 10)
@@ -126,19 +134,44 @@ class CargaRecepcionTab(BaseTabWidget):
         self.de_fecha.setDisplayFormat("dd/MM/yyyy")
         self.de_fecha.setMinimumHeight(28)
         self.de_fecha.setFixedWidth(120)
+        self.btn_dias_descargados = self._btn("Días descargados", variant="ghost", size="md", w=140, h=32)
 
         self.btn_cargar = self._btn("Cargar", variant="ghost", size="md", w=90, h=32)
         self.btn_procesar = self._btn("Procesar", variant="primary", size="md", w=90, h=32)
 
         self.btn_cerrar = self._btn("Cerrar recepción", variant="ghost", size="md", w=140, h=32)
+        self.btn_debitos = self._btn("Débitos", variant="ghost", size="md", w=90, h=32)
+        self.btn_excluidos = self._btn("Excluidos", variant="ghost", size="md", w=90, h=32)
+
+        fecha_box = QWidget()
+        fecha_l = QHBoxLayout(fecha_box)
+        fecha_l.setContentsMargins(0, 0, 0, 0)
+        fecha_l.setSpacing(6)
+        fecha_l.addWidget(self.de_fecha)
 
         right_box = QWidget()
-        right_l = QHBoxLayout(right_box)
+        right_l = QVBoxLayout(right_box)
         right_l.setContentsMargins(0, 0, 0, 0)
-        right_l.setSpacing(8)
-        right_l.addWidget(self.btn_cargar)
-        right_l.addWidget(self.btn_procesar)
-        right_l.addWidget(self.btn_cerrar)
+        right_l.setSpacing(6)
+
+        right_top = QWidget()
+        right_top_l = QHBoxLayout(right_top)
+        right_top_l.setContentsMargins(0, 0, 0, 0)
+        right_top_l.setSpacing(8)
+        right_top_l.addWidget(self.btn_cargar)
+        right_top_l.addWidget(self.btn_procesar)
+        right_top_l.addWidget(self.btn_cerrar)
+
+        right_bottom = QWidget()
+        right_bottom_l = QHBoxLayout(right_bottom)
+        right_bottom_l.setContentsMargins(0, 0, 0, 0)
+        right_bottom_l.setSpacing(8)
+        right_bottom_l.addWidget(self.btn_debitos)
+        right_bottom_l.addWidget(self.btn_excluidos)
+        right_bottom_l.addWidget(self.btn_dias_descargados)
+
+        right_l.addWidget(right_top)
+        right_l.addWidget(right_bottom)
 
         num_box = QWidget()
         num_l = QHBoxLayout(num_box)
@@ -163,16 +196,19 @@ class CargaRecepcionTab(BaseTabWidget):
         grid.addWidget(lb_quincena, 1, 6, Qt.AlignmentFlag.AlignRight)
         grid.addWidget(self.in_quincena, 1, 7)
 
-        grid.addWidget(self.de_fecha, 1, 9)
+        grid.addWidget(fecha_box, 1, 9)
 
         grid.setColumnStretch(8, 1)
-        grid.addWidget(right_box, 1, 10, Qt.AlignmentFlag.AlignRight)
+        grid.addWidget(right_box, 0, 10, 2, 1, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
         self.btn_pick_recepcion.clicked.connect(self._on_pick_recepcion)
         self.btn_new_recepcion.clicked.connect(self._on_new_recepcion)
         self.btn_cargar.clicked.connect(self._on_cargar)
         self.btn_procesar.clicked.connect(self._on_procesar)
         self.btn_cerrar.clicked.connect(self._on_cerrar_recepcion)
+        self.btn_debitos.clicked.connect(self._on_open_debitos)
+        self.btn_excluidos.clicked.connect(self._on_open_excluidos)
+        self.btn_dias_descargados.clicked.connect(self._on_dias_descargados)
 
         return header
 
@@ -361,6 +397,52 @@ class CargaRecepcionTab(BaseTabWidget):
                     msg += f"\n... y {len(errs) - 10} más"
 
         QMessageBox.information(self, "Procesar", msg)
+
+    def _on_open_debitos(self) -> None:
+        if not self._recepcion_id:
+            QMessageBox.warning(self, "Atención", "Primero seleccioná una recepción.")
+            return
+
+        numero = self.in_numero.text().strip()
+        dlg = ListadoDebitosWindow(
+            self,
+            recepcion_id=self._recepcion_id,
+            recepcion_numero=numero,
+        )
+        dlg.exec()
+
+    def _on_open_excluidos(self) -> None:
+        if not self._recepcion_id:
+            QMessageBox.warning(self, "Atención", "Primero seleccioná una recepción.")
+            return
+
+        numero = self.in_numero.text().strip()
+        dlg = ExcluidosWindow(
+            self,
+            recepcion_id=self._recepcion_id,
+            recepcion_numero=numero,
+        )
+        dlg.exec()
+
+    def _on_dias_descargados(self) -> None:
+        if not self._recepcion_id:
+            QMessageBox.warning(self, "Atención", "Primero seleccioná una recepción.")
+            return
+
+        with session_scope() as s:
+            fechas = ArchivoService.list_fechas(s, recepcion_id=self._recepcion_id)
+
+        dlg = DiasDescargadosDialog(
+            recepcion_id=self._recepcion_id,
+            fechas_descargadas=fechas,
+            parent=self,
+        )
+
+        def on_pick(d: date) -> None:
+            self.de_fecha.setDate(QDate(d.year, d.month, d.day))
+
+        dlg.dateSelected.connect(on_pick)
+        dlg.exec()
 
     def _on_cerrar_recepcion(self) -> None:
         if not self._recepcion_id:

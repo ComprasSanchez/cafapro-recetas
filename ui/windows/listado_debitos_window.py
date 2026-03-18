@@ -30,14 +30,21 @@ class ListadoDebitosWindow(QDialog):
     ROW_H = 38
     COMBO_H = 28
 
-    def __init__(self, parent=None):
+    def __init__(
+        self,
+        parent=None,
+        recepcion_id: int | None = None,
+        recepcion_numero: str | None = None,
+    ):
         super().__init__(parent)
         self.setWindowTitle("Débitos por recepción")
         self.setMinimumSize(1100, 650)
         self.setModal(True)
 
         self._estados: list[tuple[int, str]] = []
-        self._recepcion_id: int | None = None
+        self._recepcion_id: int | None = int(recepcion_id) if recepcion_id is not None else None
+        self._recepcion_numero = str(recepcion_numero or "").strip()
+        self._recepcion_fija = recepcion_id is not None
 
         self._all_rows = []
         self.filtrados = []
@@ -45,7 +52,17 @@ class ListadoDebitosWindow(QDialog):
         self._build_ui()
         self._load_estados()
 
-        # estado inicial
+        if self._recepcion_id:
+            self._set_recepcion_label(self._recepcion_numero or str(self._recepcion_id))
+            self.btn_reload.setEnabled(True)
+
+            if self._recepcion_fija:
+                self.btn_pick.setVisible(False)
+                self.btn_pick.setEnabled(False)
+
+            self._reload()
+            return
+
         self._set_empty_state()
 
     # ---------------- UI ----------------
@@ -181,17 +198,27 @@ class ListadoDebitosWindow(QDialog):
         if dlg.exec() != dlg.DialogCode.Accepted:
             return
 
-        rid, numero= dlg.selected()
+        rid, numero = dlg.selected()
         if not rid:
             return
 
         self._recepcion_id = int(rid)
-        self.lb_recepcion.setText(f"Recepción: {numero}")
+        self._set_recepcion_label(numero)
         self.btn_reload.setEnabled(True)
         self._reload()
 
+    def _set_recepcion_label(self, numero: str) -> None:
+        value = str(numero or "").strip()
+        self.lb_recepcion.setText(f"Recepción: {value or '—'}")
+
     def _set_empty_state(self) -> None:
         self.tbl.setRowCount(0)
+
+        if self._recepcion_fija and self._recepcion_id:
+            self._set_recepcion_label(self._recepcion_numero or str(self._recepcion_id))
+            self.btn_reload.setEnabled(True)
+            return
+
         self.lb_recepcion.setText("Recepción: —")
         self.btn_reload.setEnabled(bool(self._recepcion_id))
 

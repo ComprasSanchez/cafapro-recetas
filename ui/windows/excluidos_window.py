@@ -15,12 +15,19 @@ from ui.dialogs.recepcion_pick_dialog import RecepcionPickDialog
 
 
 class ExcluidosWindow(QDialog):
-    def __init__(self, parent=None):
+    def __init__(
+        self,
+        parent=None,
+        recepcion_id: int | None = None,
+        recepcion_numero: str | None = None,
+    ):
         super().__init__(parent)
         self.setWindowTitle("Archivos Excluidos")
         self.setMinimumSize(950, 520)
 
-        self._recepcion_id: int | None = None
+        self._recepcion_id: int | None = int(recepcion_id) if recepcion_id is not None else None
+        self._recepcion_numero = str(recepcion_numero or "").strip()
+        self._recepcion_fija = recepcion_id is not None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(12, 12, 12, 12)
@@ -76,6 +83,16 @@ class ExcluidosWindow(QDialog):
 
         root.addLayout(actions)
 
+        if self._recepcion_id:
+            self._set_recepcion_label(self._recepcion_numero or str(self._recepcion_id))
+            self.btn_reload.setEnabled(True)
+
+            if self._recepcion_fija:
+                self.btn_pick.setVisible(False)
+                self.btn_pick.setEnabled(False)
+
+            self._load()
+
     def _pick_recepcion(self) -> None:
         dlg = RecepcionPickDialog(self, show_closed=False, enable_filter=False)
         if dlg.exec() != dlg.DialogCode.Accepted:
@@ -86,10 +103,14 @@ class ExcluidosWindow(QDialog):
             return
 
         self._recepcion_id = int(rid)
-        self.lb_recepcion.setText(f"Recepción: {numero}")
+        self._set_recepcion_label(numero)
         self.btn_reload.setEnabled(True)
 
         self._load()
+
+    def _set_recepcion_label(self, numero: str) -> None:
+        value = str(numero or "").strip()
+        self.lb_recepcion.setText(f"Recepción: {value or '—'}")
 
     def _load(self) -> None:
         if not self._recepcion_id:
