@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QEvent, QTimer
 from PySide6.QtGui import QPixmap, QColor, QPen, QIcon
 from PySide6.QtWidgets import (
     QWidget, QFrame, QVBoxLayout, QGridLayout, QHBoxLayout,
@@ -317,7 +317,7 @@ class AuditoriaTab(BaseTabWidget):
         self.tbl.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
         self.tbl.setAlternatingRowColors(True)
         self.tbl.setSortingEnabled(True)
-        self.tbl.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.tbl.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.tbl.verticalHeader().setVisible(False)
         self.tbl.verticalHeader().setDefaultSectionSize(self.ROW_H)
         self.tbl.verticalHeader().setMinimumSectionSize(self.ROW_H)
@@ -343,6 +343,7 @@ class AuditoriaTab(BaseTabWidget):
             "}"
         )
         self.tbl.setItemDelegate(RowOutlineDelegate(self.tbl))
+        self.tbl.installEventFilter(self)
 
         self.tbl.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.tbl.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -714,6 +715,31 @@ class AuditoriaTab(BaseTabWidget):
             return
 
         self._on_item_clicked(it)
+
+    def eventFilter(self, obj, event):
+        if obj is getattr(self, "tbl", None) and event.type() == QEvent.Type.KeyPress:
+            key = event.key()
+            if key in (Qt.Key.Key_Up, Qt.Key.Key_Down):
+                row_count = self.tbl.rowCount()
+                if row_count <= 0:
+                    return True
+
+                current_row = self._active_row if self._active_row >= 0 else self.tbl.currentRow()
+                if current_row < 0:
+                    current_row = 0
+
+                step = -1 if key == Qt.Key.Key_Up else 1
+                new_row = max(0, min(row_count - 1, current_row + step))
+
+                self.tbl.setCurrentCell(new_row, self.COL_RECETA)
+
+                it = self.tbl.item(new_row, self.COL_RECETA)
+                if it:
+                    self.tbl.scrollToItem(it, QAbstractItemView.ScrollHint.PositionAtCenter)
+
+                return True
+
+        return super().eventFilter(obj, event)
 
     # -------------------------
     # Preview async

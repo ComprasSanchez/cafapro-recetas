@@ -176,7 +176,7 @@ class ListadoDebitosWindow(QDialog):
         btn_close.setMinimumHeight(32)
         btn_close.clicked.connect(self.close)
 
-        self.btn_download = QPushButton("Descargar Mal Cargados")
+        self.btn_download = QPushButton("Descargar Mal Entregados")
         self.btn_download.setMinimumHeight(32)
         self.btn_download.clicked.connect(self._download_wrong_debitos)
 
