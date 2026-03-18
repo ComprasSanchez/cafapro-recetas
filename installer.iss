@@ -1,6 +1,6 @@
 [Setup]
 AppName=CafaproRecetas
-AppVersion=1.2.5-beta
+AppVersion=1.2.6-beta
 DefaultDirName={pf}\CafaproRecetas
 DefaultGroupName=CafaproRecetas
 OutputDir=output
