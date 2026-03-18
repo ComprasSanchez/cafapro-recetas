@@ -65,10 +65,10 @@ class AuditoriaVisualDialog(QDialog):
 
         self.asociacion_id: int | None = None
 
-        self._prefetch_ptr = self._idx
         self.PREFETCH_SIZE = 6
         self._prefetch_running = False
         self._loading_ids = set()
+        self._prefetch_queue: list[int] = []
 
         # cache de previews (incluye lado por seguridad)
         self._preview_cache: dict[str, bytes] = {}
@@ -342,10 +342,15 @@ class AuditoriaVisualDialog(QDialog):
         lay.setSpacing(12)
 
         self.lb_big = QLabel("—")
+        self.lb_big.setObjectName("ordenLoteBig")
         self.lb_big.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lb_big.setMinimumWidth(120)
         self.lb_big.setMinimumHeight(70)
         self.lb_big.setFrameShape(QFrame.Shape.StyledPanel)
+        self.lb_big.setStyleSheet(
+            "QLabel#ordenLoteBig { font-size: 42px; font-weight: 900; padding: 0px; }"
+        )
+
         lay.addWidget(self.lb_big, 0)
 
         grid = QGridLayout()
@@ -513,6 +518,7 @@ class AuditoriaVisualDialog(QDialog):
 
         asociacion_id = int(self._asociacion_ids[self._idx])
         self.asociacion_id = asociacion_id
+        self._rebuild_prefetch_queue()
 
         # 🔥 reset visual
         self._reset_ui_state()
@@ -1102,28 +1108,74 @@ class AuditoriaVisualDialog(QDialog):
         self._preload_batch()
 
     # ---------------------------------------------------------
-    # Precarga en background las próximas asociaciones
-    # para navegación más fluida.
+    # Construye cola bidireccional de prefetch alrededor del
+    # índice actual: +1, -1, +2, -2, ... (hasta PREFETCH_SIZE).
+    # ---------------------------------------------------------
+    def _rebuild_prefetch_queue(self) -> None:
+        self._prefetch_queue.clear()
+
+        if not self._asociacion_ids:
+            return
+
+        total = len(self._asociacion_ids)
+        if total <= 1:
+            return
+
+        current_id = int(self._asociacion_ids[self._idx])
+
+        step = 1
+        while len(self._prefetch_queue) < self.PREFETCH_SIZE and step < total:
+            for delta in (step, -step):
+                j = self._idx + delta
+                if j < 0 or j >= total:
+                    continue
+
+                asociacion_id = int(self._asociacion_ids[j])
+                if asociacion_id == current_id:
+                    continue
+
+                if asociacion_id in self._data_cache:
+                    continue
+
+                if asociacion_id in self._loading_ids:
+                    continue
+
+                if asociacion_id in self._prefetch_queue:
+                    continue
+
+                self._prefetch_queue.append(asociacion_id)
+
+                if len(self._prefetch_queue) >= self.PREFETCH_SIZE:
+                    break
+
+            step += 1
+
+    # ---------------------------------------------------------
+    # Precarga en background asociaciones cercanas para
+    # navegación fluida en ambos sentidos.
     # ---------------------------------------------------------
     def _preload_batch(self):
 
         if self._prefetch_running:
             return
 
-        if self._prefetch_ptr >= len(self._asociacion_ids):
+        if not self._prefetch_queue:
             return
 
-        if self._prefetch_ptr >= self._idx + self.PREFETCH_SIZE:
-            return
+        asociacion_id: int | None = None
+        while self._prefetch_queue:
+            candidate = int(self._prefetch_queue.pop(0))
 
-        asociacion_id = int(self._asociacion_ids[self._prefetch_ptr])
+            if candidate in self._data_cache:
+                continue
 
-        if asociacion_id in self._data_cache:
-            self._prefetch_ptr += 1
-            self._preload_batch()
-            return
+            if candidate in self._loading_ids:
+                continue
 
-        if asociacion_id in self._loading_ids:
+            asociacion_id = candidate
+            break
+
+        if not asociacion_id:
             return
 
         self._loading_ids.add(asociacion_id)
@@ -1465,8 +1517,8 @@ class AuditoriaVisualDialog(QDialog):
         self._loading_ids.discard(asociacion_id)
 
         self._preload_images_for_data(data)
+        self._rebuild_prefetch_queue()
 
-        self._prefetch_ptr += 1
         self._prefetch_running = False
 
         self._preload_batch()
