@@ -20,6 +20,9 @@ class RecepcionListItem:
     fecha_presentacion: object
     creado_en: Optional[object]
     imed: str
+    validador: str
+    dias_vencimiento: int | None
+    codigo_financiador: int | None
 
 @dataclass(frozen=True)
 class PrestadorConRecepcionesItem:
@@ -111,6 +114,9 @@ class RecepcionService:
                 Recepcion.fecha_presentacion,
                 Recepcion.creado_en,
                 Prestador.imed,
+                ObraSocial.validador,
+                ObraSocial.dias_vencimiento,
+                ObraSocial.codigo_financiador,
             )
             .join(ObraSocial, ObraSocial.obra_social_id == Recepcion.obra_social_id)
             .join(Periodo, Periodo.periodo_id == Recepcion.periodo_id)
@@ -125,7 +131,7 @@ class RecepcionService:
         out: list[RecepcionListItem] = []
         for r in rows:
             (rid, numero, os_nombre, anio, mes, quin, pres_cod, pres_nom,
-             estado, fecha_rec, creado_en, imed) = r
+             estado, fecha_rec, creado_en, imed, validador, dias_vencimiento, codigo_financiador) = r
             periodo_txt = f"{anio}-{mes:02d} Q{quin}"
             prestador_txt = f"{pres_nom or ''}"
             out.append(
@@ -139,6 +145,9 @@ class RecepcionService:
                     fecha_presentacion=fecha_rec,
                     creado_en=creado_en,
                     imed=imed or "",
+                    validador=(validador or "imed"),
+                    dias_vencimiento=(int(dias_vencimiento) if dias_vencimiento is not None else None),
+                    codigo_financiador=(int(codigo_financiador) if codigo_financiador is not None else None),
                 )
             )
         return out
@@ -206,14 +215,23 @@ class RecepcionService:
 
     @staticmethod
     def cerrar_recepcion(s: Session, recepcion_id: int) -> None:
-        rec = (
-            s.execute(select(Recepcion).where(Recepcion.recepcion_id == int(recepcion_id)))
-            .scalar_one_or_none()
+        row = (
+            s.execute(
+                select(Recepcion, ObraSocial.dias_vencimiento)
+                .join(ObraSocial, ObraSocial.obra_social_id == Recepcion.obra_social_id)
+                .where(Recepcion.recepcion_id == int(recepcion_id))
+            )
+            .first()
         )
-        if not rec:
+        if not row:
             raise RuntimeError(f"No existe la recepción {recepcion_id}")
 
-        cutoff = rec.fecha_presentacion - timedelta(days=60)
+        rec, dias_vencimiento = row
+        dias_venc = int(dias_vencimiento) if dias_vencimiento is not None else None
+        fecha_presentacion = rec.fecha_presentacion
+        cutoff = None
+        if dias_venc is not None and isinstance(fecha_presentacion, datetime):
+            cutoff = fecha_presentacion - timedelta(days=dias_venc)
 
         # Archivos de la recepción que NO tienen asociación vigente
         archivos_sin_asoc = (
@@ -236,9 +254,18 @@ class RecepcionService:
         )
 
         for a in archivos_sin_asoc:
-            # fecha y hora siempre vienen
-            archivo_ts = datetime.combine(a.fecha, a.hora)
-            if archivo_ts < cutoff:
+            archivo_fecha = a.fecha
+            archivo_hora = a.hora
+            if archivo_fecha is None or archivo_hora is None:
+                continue
+
+            if isinstance(archivo_fecha, datetime):
+                archivo_fecha = archivo_fecha.date()
+            if isinstance(archivo_hora, datetime):
+                archivo_hora = archivo_hora.time()
+
+            archivo_ts = datetime.fromisoformat(f"{archivo_fecha} {archivo_hora}")
+            if cutoff is not None and archivo_ts < cutoff:
                 a.vencido = True
 
         rec.estado_recepcion_id = 2

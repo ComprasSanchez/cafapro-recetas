@@ -49,10 +49,23 @@ estado_troquel_enum = sa.Enum(EstadoTroquelEnum, name="estado_troquel_enum", nat
 # =========================
 class ObraSocial(Base):
     __tablename__ = "obra_social"
+    __table_args__ = (
+        sa.CheckConstraint(
+            "validador IN ('imed','preserfar','facaf')",
+            name="obra_social_validador",
+        ),
+    )
 
     obra_social_id: Mapped[int] = mapped_column(sa.Integer, sa.Identity(), primary_key=True)
     codigo: Mapped[str] = mapped_column(sa.String, nullable=False, unique=True)
     nombre: Mapped[str] = mapped_column(sa.String, nullable=False)
+    validador: Mapped[str] = mapped_column(
+        sa.String(20),
+        nullable=False,
+        server_default=sa.text("'imed'"),
+    )
+    dias_vencimiento: Mapped[int | None] = mapped_column(sa.Integer, nullable=True, server_default=sa.text("60"))
+    codigo_financiador: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
     activo: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, server_default=sa.true())
     creado_en: Mapped[sa.DateTime] = mapped_column(sa.DateTime, nullable=False, server_default=sa.func.now())
 
@@ -249,6 +262,7 @@ class ArchivoDetalle(Base):
 
     # --- Similar a la grilla IMED ---
     cod_medic: Mapped[str | None] = mapped_column(sa.String, nullable=False)
+    codigo_barra: Mapped[str | None] = mapped_column(sa.String, nullable=True)
     nombre: Mapped[str | None] = mapped_column(sa.String, nullable=False)            # name
     presentacion: Mapped[str | None] = mapped_column(sa.String, nullable=False)      # description / present.
     estado: Mapped[str | None] = mapped_column(sa.String, nullable=False)            # estado

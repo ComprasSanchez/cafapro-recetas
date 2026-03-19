@@ -161,7 +161,10 @@ class ArchivoService:
         # --------- detalles ---------
         rows: list[ArchivoDetalle] = []
         for d in detalles:
-            cod_medic = d.get("cod_medic")
+            cod_medic_raw = d.get("cod_medic")
+            cod_medic = str(cod_medic_raw).strip() if cod_medic_raw not in (None, "") else None
+            codigo_barra_raw = d.get("codigo_barra")
+            codigo_barra = str(codigo_barra_raw).strip() if codigo_barra_raw not in (None, "") else None
 
             nombre = (d.get("nombre") or "").strip() or None
             present = (d.get("presentacion") or "").strip() or None
@@ -189,6 +192,7 @@ class ArchivoService:
                 ArchivoDetalle(
                     archivo_id=int(archivo.archivo_id),
                     cod_medic=cod_medic,
+                    codigo_barra=codigo_barra,
                     nombre=nombre,
                     presentacion=present,
                     estado=estado,

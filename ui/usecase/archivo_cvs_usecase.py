@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
+from typing import Any
 
 from sqlalchemy import select
 
 from app.db.models import Archivo
 from app.db.session import session_scope
+from app.service.integraciones.validators_client import ValidatorsClient
 from app.service.recetas.archivo_service import ArchivoService
 from app.service.recepcion.recepcion_service import RecepcionService
 from app.service.recepcion.arrastre_exclusivos_service import ArrastreExcluidosService
@@ -25,6 +27,69 @@ def parse_aut_ts(receta: dict) -> datetime:
     return datetime.strptime(f"{f} {h}", "%d/%m/%Y %H:%M:%S")
 
 
+def _fmt_num(v: Any) -> str:
+    if v is None:
+        return "0"
+    return str(v)
+
+
+def _to_ddmmyyyy(v: str | None) -> str:
+    if not v:
+        return datetime.now().strftime("%d/%m/%Y")
+
+    s = str(v).strip()
+    if not s:
+        return datetime.now().strftime("%d/%m/%Y")
+
+    try:
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        return dt.strftime("%d/%m/%Y")
+    except Exception:
+        pass
+
+    if "T" in s:
+        s = s.split("T", 1)[0]
+    elif " " in s:
+        s = s.split(" ", 1)[0]
+
+    if len(s) == 10 and s[4] == "-" and s[7] == "-":
+        yyyy, mm, dd = s.split("-")
+        return f"{dd}/{mm}/{yyyy}"
+
+    if len(s) == 10 and s[2] == "/" and s[5] == "/":
+        return s
+
+    return datetime.now().strftime("%d/%m/%Y")
+
+
+def _to_hhmmss(v: str | None) -> str:
+    if not v:
+        return "00:00:00"
+
+    s = str(v).strip()
+    if not s:
+        return "00:00:00"
+
+    try:
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        return dt.strftime("%H:%M:%S")
+    except Exception:
+        pass
+
+    if "T" in s:
+        s = s.split("T", 1)[1]
+    elif " " in s:
+        s = s.split(" ", 1)[1]
+
+    s = s.strip().rstrip("Z")
+    if len(s) >= 8 and s[2] == ":" and s[5] == ":":
+        return s[:8]
+    if len(s) >= 5 and s[2] == ":":
+        return f"{s[:5]}:00"
+
+    return "00:00:00"
+
+
 @dataclass(frozen=True)
 class RecepcionOut:
     recepcion_id: int
@@ -33,6 +98,9 @@ class RecepcionOut:
     obra_social: str
     imed: str
     obs: str
+    validador: str
+    dias_vencimiento: int | None
+    codigo_financiador: int | None
 
 
 @dataclass(frozen=True)
@@ -53,6 +121,7 @@ class SubirOut:
 class ArchivoCvsUseCase:
     def __init__(self) -> None:
         self._cvs = ImedCvsHandler()
+        self._validators = ValidatorsClient()
 
     @staticmethod
     def load_recepcion(*, recepcion_id: int, ctx=None) -> RecepcionOut:
@@ -73,20 +142,133 @@ class ArchivoCvsUseCase:
             obra_social=str(getattr(rec, "obra_social", "") or ""),
             imed=str(getattr(rec, "imed", "") or ""),
             obs=str(getattr(rec, "obra_social", "") or ""),
+            validador=str(getattr(rec, "validador", "imed") or "imed").lower(),
+            dias_vencimiento=getattr(rec, "dias_vencimiento", None),
+            codigo_financiador=getattr(rec, "codigo_financiador", None),
         )
 
-    def load_csv(self, *, imed: str, fecha_str: str, obs: str,ctx=None) -> CsvOut:
-        if ctx:
-            ctx.emit_progress(10, "Leyendo CSV IMED…")
+    def load_csv(
+        self,
+        *,
+        imed: str,
+        fecha_str: str,
+        obs: str,
+        validador: str,
+        nro_prestador: str,
+        codigo_financiador: int | None,
+        ctx=None,
+    ) -> CsvOut:
+        validador_norm = (validador or "imed").strip().lower()
 
-        recetas, detalles = self._cvs.read_cvs_by_imed_and_date(imed=imed, date=fecha_str, obs=obs)
-        recetas = recetas or {}
-        detalles = detalles or {}
+        if validador_norm == "imed":
+            if ctx:
+                ctx.emit_progress(10, "Leyendo CSV IMED…")
+
+            recetas, detalles = self._cvs.read_cvs_by_imed_and_date(imed=imed, date=fecha_str, obs=obs)
+            recetas = recetas or {}
+            detalles = detalles or {}
+
+            recetas_norm = {str(k): dict(v) for k, v in recetas.items()}
+            detalles_norm = {str(k): [dict(d) for d in arr] for k, arr in detalles.items()}
+
+            if ctx:
+                ctx.emit_progress(90, f"CSV listo: {len(recetas_norm)} recetas")
+
+            return CsvOut(recetas_por_ref=recetas_norm, detalles_por_ref=detalles_norm)
+
+        if not nro_prestador:
+            raise ValueError("La recepcion no tiene prestador.imed para consultar API.")
+        if codigo_financiador is None:
+            raise ValueError("La obra social no tiene codigo financiador configurado.")
+
+        try:
+            nro_prestador_int = int(str(nro_prestador).strip())
+        except Exception as e:
+            raise ValueError("Prestador.imed debe ser numerico para consultar API.") from e
 
         if ctx:
-            ctx.emit_progress(90, f"CSV listo: {len(recetas)} recetas")
+            ctx.emit_progress(10, "Consultando API de validadores…")
+
+        raw = self._validators.get_pendientes(
+            validador=validador_norm,
+            nro_prestador=nro_prestador_int,
+            cod_financiador=int(codigo_financiador),
+            fecha_hasta=date.today().isoformat(),
+        )
+
+        recetas, detalles = self._api_to_internal(raw)
+
+        if ctx:
+            ctx.emit_progress(90, f"API lista: {len(recetas)} recetas")
 
         return CsvOut(recetas_por_ref=recetas, detalles_por_ref=detalles)
+
+    @staticmethod
+    def _api_to_internal(rows: list[dict[str, Any]]) -> tuple[dict[str, dict], dict[str, list[dict]]]:
+        recetas_por_ref: dict[str, dict] = {}
+        detalles_por_ref: dict[str, list[dict]] = {}
+
+        if not isinstance(rows, list):
+            return recetas_por_ref, detalles_por_ref
+
+        for raw in rows:
+            if not isinstance(raw, dict):
+                continue
+
+            ref = str(raw.get("referencia") or "").strip()
+            if not ref:
+                continue
+
+            fecha_txt = _to_ddmmyyyy(raw.get("fecha"))
+            hora_txt = _to_hhmmss(raw.get("hora") or raw.get("fecha"))
+            totales_raw = raw.get("totales")
+            importe_bruto = _fmt_num(totales_raw.get("importeBruto", 0) if isinstance(totales_raw, dict) else 0)
+            importe_cobertura = "0"
+            importe_afiliado = _fmt_num(totales_raw.get("importeCobertura", 0) if isinstance(totales_raw, dict) else 0)
+
+            receta = {
+                "Beneficiario": str(raw.get("beneficiarioId") or "").strip(),
+                "Orden_Del_Lote": str(raw.get("ordenLote") or 0),
+                "Fecha": fecha_txt,
+                "Hora": hora_txt,
+                "Nro_Referencia": ref,
+                "Nro_Receta": str(raw.get("numeroReceta") or "").strip(),
+                "Importe_Gral": importe_bruto,
+                "Importe_Pami": importe_cobertura,
+                "A_Cargo_Entidad": importe_afiliado,
+            }
+            recetas_por_ref[ref] = receta
+
+            out_items: list[dict] = []
+            items_raw = raw.get("items")
+            items: list[Any] = []
+            if isinstance(items_raw, list):
+                items = items_raw
+            for idx, it in enumerate(items, start=1):
+                if not isinstance(it, dict):
+                    continue
+                codigo_medic = it.get("codigoMedicamento")
+                codigo_barra = it.get("codigoBarra")
+                descuento = it.get("descuentoPorcentaje")
+
+                out_items.append(
+                    {
+                        "cod_medic": str(codigo_medic).strip() if codigo_medic is not None else None,
+                        "codigo_barra": str(codigo_barra).strip() if codigo_barra not in (None, "") else None,
+                        "nombre": str(it.get("nombre") or "").strip(),
+                        "presentacion": str(it.get("presentacion") or "").strip(),
+                        "estado": str(it.get("estado") or "").strip(),
+                        "nro_aut": str(idx),
+                        "cantidad": str(it.get("cantidad") or 0),
+                        "importe_gral": _fmt_num(it.get("importeBruto", 0)),
+                        "importe_pami": _fmt_num(it.get("importeCobertura", 0)),
+                        "desc": f"{descuento}%" if descuento not in (None, "") else None,
+                    }
+                )
+
+            detalles_por_ref[ref] = out_items
+
+        return recetas_por_ref, detalles_por_ref
 
     @staticmethod
     def subir(
@@ -134,10 +316,12 @@ class ArchivoCvsUseCase:
             # ---------------------------------------------------------
             refs = [ref for _, ref, _ in items]
             existing_refs = set(
-                s.execute(
+                str(x).strip()
+                for x in s.execute(
                     select(Archivo.nro_referencia)
                     .where(Archivo.nro_referencia.in_(refs))
                 ).scalars().all()
+                if x not in (None, "")
             )
 
             CHUNK = 500

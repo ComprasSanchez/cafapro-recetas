@@ -31,6 +31,8 @@ class ArchivoCvsTab(BaseTabWidget):
 
         self.imed: str | None = None
         self.obs: str | None = None
+        self._validador: str = "imed"
+        self._codigo_financiador: int | None = None
 
         self._uc = ArchivoCvsUseCase()
 
@@ -247,7 +249,8 @@ class ArchivoCvsTab(BaseTabWidget):
         if dlg.exec() != dlg.DialogCode.Accepted:
             return
 
-        rid = dlg.selected()[0]
+        selected = dlg.selected()
+        rid = next(iter(selected or []), None)
         if not rid:
             return
 
@@ -256,7 +259,7 @@ class ArchivoCvsTab(BaseTabWidget):
             recepcion_id=rid,
             title="Cargando recepción…",
             on_result=self._apply_recepcion,
-            on_error=lambda err: QMessageBox.critical(self, "Error", err),
+            on_error=self._show_worker_error,
         )
 
     def _apply_recepcion(self, out: RecepcionOut) -> None:
@@ -268,7 +271,12 @@ class ArchivoCvsTab(BaseTabWidget):
 
         self.imed = out.imed
         self.obs = out.obs
+        self._validador = (out.validador or "imed").strip().lower()
+        self._codigo_financiador = out.codigo_financiador
         self.in_imed.setText(self.imed)
+
+        usa_csv = self._validador == "imed"
+        self.de_fecha.setEnabled(usa_csv)
 
         # al cambiar recepción: limpiar tablas / cache
         self._recetas_por_ref = {}
@@ -276,6 +284,13 @@ class ArchivoCvsTab(BaseTabWidget):
         self._current_ref = None
         self._render_recetas()
         self._render_detalles(None)
+
+    def _show_worker_error(self, err: str) -> None:
+        QMessageBox.critical(self, "Error", err)
+
+    def _enable_subir_controls(self) -> None:
+        self.btn_subir.setEnabled(True)
+        self.btn_cargar.setEnabled(True)
 
     # --------------------------
     # CSV (async)
@@ -289,12 +304,19 @@ class ArchivoCvsTab(BaseTabWidget):
             QMessageBox.warning(self, "Atención", "Primero seleccioná una recepción (para tener IMED).")
             return
 
+        if self._validador != "imed" and self._codigo_financiador is None:
+            QMessageBox.warning(self, "Atención", "La obra social no tiene código financiador configurado.")
+            return
+
         self.run_job(
             self._uc.load_csv,
             imed=imed,
             fecha_str=fecha,
             obs=obs,
-            title="Cargando CSV…",
+            validador=self._validador,
+            nro_prestador=imed,
+            codigo_financiador=self._codigo_financiador,
+            title="Cargando recetas…",
             on_result=self._apply_csv,
         )
 
@@ -439,7 +461,7 @@ class ArchivoCvsTab(BaseTabWidget):
             title="Subiendo recetas…",
             on_result=self._show_subir_result,
             on_error=self._on_subir_error,
-            on_finished=lambda: (self.btn_subir.setEnabled(True), self.btn_cargar.setEnabled(True)),
+            on_finished=self._enable_subir_controls,
         )
 
     def _on_subir_error(self, err: str) -> None:

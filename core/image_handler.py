@@ -36,6 +36,8 @@ class ImageHandler:
             return "apross_"
         if "pami" in o:
             return "pami_"
+        if "valesalud" in o:
+            return "valesalud_"
         raise ValueError(f"No se pudo determinar el prefijo para obs='{obs}'")
 
 

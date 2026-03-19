@@ -40,6 +40,7 @@ class RecetaRow(TypedDict, total=False):
 
 class DetalleRow(TypedDict, total=False):
     cod_medic: Optional[str]
+    codigo_barra: Optional[str]
     nombre: Optional[str]
     presentacion: Optional[str]
     estado: Optional[str]

@@ -24,6 +24,7 @@ from app.db.models import (
     Recepcion,
     Debitos,
     Prestador,
+    ObraSocial,
 )
 from app.infra.s3_storage import S3Storage
 from app.service.integraciones.medicamento_client import MedicamentoClient
@@ -141,11 +142,13 @@ class TiffService:
 
     @staticmethod
     def _archivo_ts(a: Archivo) -> datetime:
-        return datetime.combine(a.fecha, a.hora)
+        return datetime.fromisoformat(f"{a.fecha} {a.hora}")
 
     @staticmethod
-    def _esta_vencido(archivo_ts: datetime, fecha_presentacion: datetime) -> bool:
-        cutoff = fecha_presentacion - timedelta(days=60)
+    def _esta_vencido(archivo_ts: datetime, fecha_presentacion: datetime, dias_vencimiento: int | None) -> bool:
+        if dias_vencimiento is None:
+            return False
+        cutoff = fecha_presentacion - timedelta(days=int(dias_vencimiento))
         return archivo_ts < cutoff
 
     @staticmethod
@@ -153,20 +156,30 @@ class TiffService:
         return Path(full_path).stem
 
     @staticmethod
-    def _match_all_refs(s: Session, recepcion_id: int, refs: List[str]) -> _MatchResult:
+    def _match_all_refs(
+        s: Session,
+        recepcion_id: int,
+        refs: List[str],
+        *,
+        only_referencia: bool = False,
+    ) -> _MatchResult:
         refs_set: Set[str] = {str(r).strip() for r in refs if r and str(r).strip()}
         if not refs_set:
             return _MatchResult(ref_to_archivo={}, duplicated_refs=set(), missing_refs=set())
+
+        where_match = Archivo.nro_referencia.in_(list(refs_set))
+        if not only_referencia:
+            where_match = or_(
+                where_match,
+                Archivo.nro_receta.in_(list(refs_set)),
+            )
 
         rows = (
             s.execute(
                 select(Archivo).where(
                     and_(
                         Archivo.recepcion_id == int(recepcion_id),
-                        or_(
-                            Archivo.nro_referencia.in_(list(refs_set)),
-                            Archivo.nro_receta.in_(list(refs_set)),
-                        ),
+                        where_match,
                     )
                 )
             )
@@ -181,7 +194,7 @@ class TiffService:
 
             if nro_ref and nro_ref in refs_set:
                 by_token.setdefault(nro_ref, []).append(a)
-            if nro_rec and nro_rec in refs_set:
+            if not only_referencia and nro_rec and nro_rec in refs_set:
                 by_token.setdefault(nro_rec, []).append(a)
 
         duplicated = {tok for tok, arr in by_token.items() if len(arr) > 1}
@@ -206,7 +219,9 @@ class TiffService:
             if len(yyyy) == 4 and 1 <= int(mm) <= 12:
                 return yyyy, mm
         try:
-            return f"{archivo.fecha.year:04d}", f"{archivo.fecha.month:02d}"
+            fecha_txt = str(archivo.fecha)
+            yyyy, mm, _dd = fecha_txt.split("-", 2)
+            return yyyy, mm
         except Exception:
             ts = datetime.fromtimestamp(os.path.getmtime(tif_path))
             return f"{ts.year:04d}", f"{ts.month:02d}"
@@ -325,6 +340,10 @@ class TiffService:
         )
         return rid is not None
 
+    @staticmethod
+    def _is_valesalud(obra_social_nombre: str | None) -> bool:
+        return "valesalud" in (obra_social_nombre or "").strip().lower()
+
     # -------------------------
     # MAIN (por tandas)
     # -------------------------
@@ -361,7 +380,19 @@ class TiffService:
             raise RuntimeError("Prestador.imed está vacío; no se puede armar key S3.")
 
         fecha_presentacion = rec.fecha_presentacion
-        MOTIVO_DEBITO_VENCIDO_60_ID = 11
+        if isinstance(fecha_presentacion, datetime):
+            fecha_presentacion_dt = fecha_presentacion
+        else:
+            fecha_presentacion_dt = datetime.fromisoformat(str(fecha_presentacion))
+        os_row = s.execute(
+            select(ObraSocial.nombre, ObraSocial.dias_vencimiento)
+            .where(ObraSocial.obra_social_id == rec.obra_social_id)
+        ).first()
+        os_nombre = (os_row[0] if os_row else None)
+        dias_vencimiento_raw = (os_row[1] if os_row else None)
+        dias_vencimiento = int(dias_vencimiento_raw) if dias_vencimiento_raw is not None else None
+        only_ref_match = self._is_valesalud(os_nombre)
+        MOTIVO_DEBITO_RECETA_VENCIDA_ID = 11
 
         # 1) Idempotencia (se mantiene)
         items_filtrados: List[ProcesarItemIn] = []
@@ -390,7 +421,12 @@ class TiffService:
             all_refs: List[str] = []
             for x in scanned:
                 all_refs.extend(x.scan.headers or [])
-            match = self._match_all_refs(s, recepcion_id, all_refs)
+            match = self._match_all_refs(
+                s,
+                recepcion_id,
+                all_refs,
+                only_referencia=only_ref_match,
+            )
 
             # 2.3) elegir work (archivo_id por tiff)
             work: List[_WorkItem] = []
@@ -429,12 +465,17 @@ class TiffService:
                 nro_ref = self._norm_str(getattr(archivo, "nro_referencia", None))
 
                 # 🔥 duplicado en esta corrida
-                if (nro_rec and nro_rec in seen_recetas) or (nro_ref and nro_ref in seen_refs):
-                    revision_items.append(x)
-                    continue
+                if only_ref_match:
+                    if nro_ref and nro_ref in seen_refs:
+                        revision_items.append(x)
+                        continue
+                else:
+                    if (nro_rec and nro_rec in seen_recetas) or (nro_ref and nro_ref in seen_refs):
+                        revision_items.append(x)
+                        continue
 
                 # marcar como vistos
-                if nro_rec:
+                if not only_ref_match and nro_rec:
                     seen_recetas.add(nro_rec)
 
                 if nro_ref:
@@ -492,7 +533,7 @@ class TiffService:
                     continue
 
                 archivo_ts = self._archivo_ts(archivo)
-                esta_vencido = self._esta_vencido(archivo_ts, fecha_presentacion)
+                esta_vencido = self._esta_vencido(archivo_ts, fecha_presentacion_dt, dias_vencimiento)
                 if getattr(archivo, "vencido", False) != esta_vencido:
                     archivo.vencido = esta_vencido
 
@@ -696,7 +737,7 @@ class TiffService:
                 ya_tienen = set(
                     s.execute(
                         select(Debitos.receta_id).where(
-                            Debitos.motivo_debito_id == MOTIVO_DEBITO_VENCIDO_60_ID,
+                            Debitos.motivo_debito_id == MOTIVO_DEBITO_RECETA_VENCIDA_ID,
                             Debitos.receta_id.in_(recetas_vencidas_ids),
                         )
                     ).scalars().all()
@@ -707,8 +748,12 @@ class TiffService:
                     s.add(
                         Debitos(
                             receta_id=rid,
-                            motivo_debito_id=MOTIVO_DEBITO_VENCIDO_60_ID,
-                            detalle="Vencido por 60 días (auto)",
+                            motivo_debito_id=MOTIVO_DEBITO_RECETA_VENCIDA_ID,
+                            detalle=(
+                                f"Vencido por {dias_vencimiento} dias (auto)"
+                                if dias_vencimiento is not None
+                                else "Vencido (auto)"
+                            ),
                         )
                     )
 

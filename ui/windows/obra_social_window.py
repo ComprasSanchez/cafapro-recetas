@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QIntValidator
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFrame, QLabel,
     QPushButton, QTableWidget, QTableWidgetItem, QMessageBox,
-    QHeaderView, QLineEdit
+    QHeaderView, QLineEdit, QComboBox
 )
 
 from app.db.session import session_scope
@@ -15,7 +16,7 @@ class ObrasSocialesWindow(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Obras Sociales")
-        self.setMinimumSize(950, 560)
+        self.setMinimumSize(1180, 560)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(12, 12, 12, 12)
@@ -53,6 +54,24 @@ class ObrasSocialesWindow(QDialog):
         self.in_nombre.setMinimumHeight(28)
         self.in_nombre.setMinimumWidth(320)
 
+        self.cb_validador = QComboBox()
+        self.cb_validador.setMinimumHeight(28)
+        self.cb_validador.setFixedWidth(140)
+        self.cb_validador.addItems(["imed", "preserfar", "facaf"])
+
+        self.in_dias_venc = QLineEdit()
+        self.in_dias_venc.setPlaceholderText("Dias venc.")
+        self.in_dias_venc.setMinimumHeight(28)
+        self.in_dias_venc.setFixedWidth(110)
+        self.in_dias_venc.setValidator(QIntValidator(0, 3650, self))
+        self.in_dias_venc.setText("60")
+
+        self.in_codigo_fin = QLineEdit()
+        self.in_codigo_fin.setPlaceholderText("Cod. financiador")
+        self.in_codigo_fin.setMinimumHeight(28)
+        self.in_codigo_fin.setFixedWidth(140)
+        self.in_codigo_fin.setValidator(QIntValidator(0, 2_000_000_000, self))
+
         self.btn_refresh = QPushButton("Refrescar")
         self.btn_refresh.setProperty("variant", "ghost")
         self.btn_refresh.setMinimumHeight(32)
@@ -75,6 +94,12 @@ class ObrasSocialesWindow(QDialog):
         cl.addWidget(self.in_codigo)
         cl.addWidget(QLabel("Nombre"))
         cl.addWidget(self.in_nombre)
+        cl.addWidget(QLabel("Validador"))
+        cl.addWidget(self.cb_validador)
+        cl.addWidget(QLabel("Dias venc."))
+        cl.addWidget(self.in_dias_venc)
+        cl.addWidget(QLabel("Cod. financiador"))
+        cl.addWidget(self.in_codigo_fin)
         cl.addStretch(1)
         cl.addWidget(self.btn_refresh)
         cl.addWidget(self.btn_create)
@@ -90,8 +115,15 @@ class ObrasSocialesWindow(QDialog):
         tl.setContentsMargins(12, 12, 12, 12)
         tl.setSpacing(8)
 
-        self.table = QTableWidget(0, 3)
-        self.table.setHorizontalHeaderLabels(["Código", "Nombre", "Estado"])
+        self.table = QTableWidget(0, 6)
+        self.table.setHorizontalHeaderLabels([
+            "Código",
+            "Nombre",
+            "Validador",
+            "Dias venc.",
+            "Cod. financiador",
+            "Estado",
+        ])
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -148,9 +180,15 @@ class ObrasSocialesWindow(QDialog):
         if row >= 0:
             it_cod = self.table.item(row, 0)
             it_nom = self.table.item(row, 1)
+            it_val = self.table.item(row, 2)
+            it_dias = self.table.item(row, 3)
+            it_fin = self.table.item(row, 4)
             if it_cod and it_nom:
                 self.in_codigo.setText(it_cod.text().strip())
                 self.in_nombre.setText(it_nom.text().strip())
+                self.cb_validador.setCurrentText((it_val.text().strip() if it_val else "imed") or "imed")
+                self.in_dias_venc.setText("" if (not it_dias or it_dias.text().strip() == "-") else it_dias.text().strip())
+                self.in_codigo_fin.setText("" if (not it_fin or it_fin.text().strip() == "-") else it_fin.text().strip())
 
     # ---------------- data ----------------
     def load_data(self) -> None:
@@ -170,16 +208,28 @@ class ObrasSocialesWindow(QDialog):
             it_cod = QTableWidgetItem(os.codigo)
             it_cod.setData(Qt.ItemDataRole.UserRole, os.obra_social_id)
             it_cod.setData(Qt.ItemDataRole.UserRole + 1, os.activo)
-            it_cod.setTextAlignment(Qt.AlignCenter)
+            it_cod.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.table.setItem(r, 0, it_cod)
 
             it_nom = QTableWidgetItem(os.nombre)
-            it_nom.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            it_nom.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
             self.table.setItem(r, 1, it_nom)
 
+            it_val = QTableWidgetItem(os.validador or "imed")
+            it_val.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.table.setItem(r, 2, it_val)
+
+            it_dias = QTableWidgetItem(str(os.dias_vencimiento) if os.dias_vencimiento is not None else "-")
+            it_dias.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.table.setItem(r, 3, it_dias)
+
+            it_fin = QTableWidgetItem(str(os.codigo_financiador) if os.codigo_financiador is not None else "-")
+            it_fin.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.table.setItem(r, 4, it_fin)
+
             it_estado = QTableWidgetItem("Activo" if os.activo else "Inactivo")
-            it_estado.setTextAlignment(Qt.AlignCenter)
-            self.table.setItem(r, 2, it_estado)
+            it_estado.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.table.setItem(r, 5, it_estado)
 
         # reset estado botones
         self.btn_update.setEnabled(False)
@@ -190,16 +240,29 @@ class ObrasSocialesWindow(QDialog):
     def on_create(self) -> None:
         codigo = self.in_codigo.text().strip()
         nombre = self.in_nombre.text().strip()
+        validador = self.cb_validador.currentText().strip().lower()
+        dias_venc = self.in_dias_venc.text().strip()
+        codigo_fin = self.in_codigo_fin.text().strip()
 
         try:
             with session_scope() as s:
-                ObraSocialService.create(s, codigo=codigo, nombre=nombre)
+                ObraSocialService.create(
+                    s,
+                    codigo=codigo,
+                    nombre=nombre,
+                    validador=validador,
+                    dias_vencimiento=dias_venc or None,
+                    codigo_financiador=codigo_fin or None,
+                )
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
             return
 
         self.in_codigo.clear()
         self.in_nombre.clear()
+        self.in_dias_venc.setText("60")
+        self.in_codigo_fin.clear()
+        self.cb_validador.setCurrentText("imed")
         self.load_data()
 
     def on_update(self) -> None:
@@ -210,6 +273,9 @@ class ObrasSocialesWindow(QDialog):
 
         codigo = self.in_codigo.text().strip()
         nombre = self.in_nombre.text().strip()
+        validador = self.cb_validador.currentText().strip().lower()
+        dias_venc = self.in_dias_venc.text().strip()
+        codigo_fin = self.in_codigo_fin.text().strip()
 
         try:
             with session_scope() as s:
@@ -218,6 +284,9 @@ class ObrasSocialesWindow(QDialog):
                     obra_social_id=obra_social_id,
                     codigo=codigo,
                     nombre=nombre,
+                    validador=validador,
+                    dias_vencimiento=dias_venc or None,
+                    codigo_financiador=codigo_fin or None,
                 )
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
