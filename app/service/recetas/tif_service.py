@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -51,11 +51,7 @@ class ProcesarResumen:
     sin_match: int = 0
     duplicados: int = 0
     ya_asociado: int = 0
-    errores: List[str] = None
-
-    def __post_init__(self) -> None:
-        if self.errores is None:
-            self.errores = []
+    errores: List[str] = field(default_factory=list)
 
     def merge(self, other: "ProcesarResumen") -> None:
         self.ok += other.ok
@@ -547,7 +543,8 @@ class TiffService:
                     if not ca:
                         continue
                     cods_detalle.add(ca)
-                    importe_por_cod[ca] = importe_por_cod.get(ca, 0.0) + float(getattr(d, "importe_obs", 0) or 0)
+                    imp_cob = getattr(d, "importe_cobertura", 0)
+                    importe_por_cod[ca] = importe_por_cod.get(ca, 0.0) + float(imp_cob or 0)
                     cant_por_cod[ca] = cant_por_cod.get(ca, 0) + int(getattr(d, "cantidad", 0) or 0)
 
                 counts: Dict[str, int] = dict(Counter(self._norm_str(c) for c in (w.scan.troqueles or []) if self._norm_str(c)))
@@ -681,7 +678,8 @@ class TiffService:
                     if not ca:
                         continue
                     cods_detalle.add(ca)
-                    importe_por_cod[ca] = importe_por_cod.get(ca, 0.0) + float(getattr(d, "importe_obs", 0) or 0)
+                    imp_cob = getattr(d, "importe_cobertura", 0)
+                    importe_por_cod[ca] = importe_por_cod.get(ca, 0.0) + float(imp_cob or 0)
                     cant_por_cod[ca] = cant_por_cod.get(ca, 0) + int(getattr(d, "cantidad", 0) or 0)
 
                 counts: Dict[str, int] = dict(Counter(self._norm_str(c) for c in (w.scan.troqueles or []) if self._norm_str(c)))

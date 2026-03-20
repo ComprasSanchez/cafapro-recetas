@@ -17,7 +17,7 @@ class ValidatorsClient:
         self.base_url = (
             base_url
             or os.getenv("VALIDATORS_API_BASE_URL")
-            or "http://localhost:3000" #"https://recetas-api-production.up.railway.app"
+            or "https://recetas-api-production.up.railway.app"
         ).rstrip("/")
         self.retries = max(0, int(retries))
         self._client = httpx.Client(

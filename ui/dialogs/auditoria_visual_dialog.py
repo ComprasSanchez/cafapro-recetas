@@ -412,13 +412,13 @@ class AuditoriaVisualDialog(QDialog):
         lay.setContentsMargins(12, 12, 12, 12)
         lay.setSpacing(10)
 
-        self.card_a_cargo, self.lb_a_cargo = self._mk_resumen_card("A cargo OS")
-        self.card_pvp_pami, self.lb_imp_obs = self._mk_resumen_card("PVP Pami")
-        self.card_pvp, self.lb_imp_neto = self._mk_resumen_card("PVP")
+        self.card_a_cargo, self.lb_a_cargo = self._mk_resumen_card("A cargo OBS")
+        self.card_pvp_pami, self.lb_imp_obs = self._mk_resumen_card("A cargo Afiliado")
+        self.card_pvp, self.lb_imp_neto = self._mk_resumen_card("Total")
 
+        lay.addWidget(self.card_pvp, 1)
         lay.addWidget(self.card_a_cargo, 1)
         lay.addWidget(self.card_pvp_pami, 1)
-        lay.addWidget(self.card_pvp, 1)
 
         return box
 
@@ -614,8 +614,8 @@ class AuditoriaVisualDialog(QDialog):
             self._set_cell(self.tbl_arch_det, i, 3, str(getattr(d, "estado", "") or ""))
             self._set_cell(self.tbl_arch_det, i, 4, str(getattr(d, "nro_autorizacion", "") or ""))
             self._set_cell(self.tbl_arch_det, i, 5, str(getattr(d, "cantidad", "") or ""))
-            self._set_cell(self.tbl_arch_det, i, 6, self._fmt_money(Decimal(str(getattr(d, "importe_neto", 0) or 0))))
-            self._set_cell(self.tbl_arch_det, i, 7, self._fmt_money(Decimal(str(getattr(d, "importe_obs", 0) or 0))))
+            self._set_cell(self.tbl_arch_det, i, 6, self._fmt_money(Decimal(str(getattr(d, "importe_bruto", 0) or 0))))
+            self._set_cell(self.tbl_arch_det, i, 7, self._fmt_money(Decimal(str(getattr(d, "importe_cobertura", 0) or 0))))
             self._set_cell(self.tbl_arch_det, i, 8, str(getattr(d, "descuento", "") or ""))
         self.tbl_arch_det.setUpdatesEnabled(True)
 
@@ -1430,19 +1430,19 @@ class AuditoriaVisualDialog(QDialog):
 
         self.lb_a_cargo.setText(
             self._fmt_money(
-                Decimal(str(getattr(self.data.archivo, "a_cargo_entidad", 0) or 0))
+                Decimal(str(getattr(self.data.archivo, "importe_cobertura", 0) or 0))
             )
         )
 
         self.lb_imp_obs.setText(
             self._fmt_money(
-                Decimal(str(getattr(self.data.archivo, "importe_obs", 0) or 0))
+                Decimal(str(getattr(self.data.archivo, "importe_afiliado", 0) or 0))
             )
         )
 
         self.lb_imp_neto.setText(
             self._fmt_money(
-                Decimal(str(getattr(self.data.archivo, "importe_neto", 0) or 0))
+                Decimal(str(getattr(self.data.archivo, "importe_bruto", 0) or 0))
             )
         )
 

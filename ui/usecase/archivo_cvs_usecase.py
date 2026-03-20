@@ -223,8 +223,8 @@ class ArchivoCvsUseCase:
             hora_txt = _to_hhmmss(raw.get("hora") or raw.get("fecha"))
             totales_raw = raw.get("totales")
             importe_bruto = _fmt_num(totales_raw.get("importeBruto", 0) if isinstance(totales_raw, dict) else 0)
-            importe_cobertura = "0"
-            importe_afiliado = _fmt_num(totales_raw.get("importeCobertura", 0) if isinstance(totales_raw, dict) else 0)
+            importe_cobertura = _fmt_num(totales_raw.get("importeCobertura", 0) if isinstance(totales_raw, dict) else 0)
+            importe_afiliado = _fmt_num(totales_raw.get("importeAfiliado", 0) if isinstance(totales_raw, dict) else 0)
 
             receta = {
                 "Beneficiario": str(raw.get("beneficiarioId") or "").strip(),
@@ -236,6 +236,9 @@ class ArchivoCvsUseCase:
                 "Importe_Gral": importe_bruto,
                 "Importe_Pami": importe_cobertura,
                 "A_Cargo_Entidad": importe_afiliado,
+                "importe_bruto": importe_bruto,
+                "importe_cobertura": importe_cobertura,
+                "importe_afiliado": importe_afiliadon,
             }
             recetas_por_ref[ref] = receta
 
@@ -262,6 +265,8 @@ class ArchivoCvsUseCase:
                         "cantidad": str(it.get("cantidad") or 0),
                         "importe_gral": _fmt_num(it.get("importeBruto", 0)),
                         "importe_pami": _fmt_num(it.get("importeCobertura", 0)),
+                        "importe_bruto": _fmt_num(it.get("importeBruto", 0)),
+                        "importe_cobertura": _fmt_num(it.get("importeCobertura", 0)),
                         "desc": f"{descuento}%" if descuento not in (None, "") else None,
                     }
                 )
@@ -387,4 +392,3 @@ class ArchivoCvsUseCase:
             errores=errores,
             moved_prev_excluidos=moved_prev,
         )
-

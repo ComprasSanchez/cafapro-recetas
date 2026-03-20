@@ -14,8 +14,9 @@ SELECT
     a.orden_lote,
     r.nro_receta,
 
-    a.importe_obs,
-    a.a_cargo_entidad,
+    a.importe_bruto,
+    a.importe_cobertura,
+    a.importe_afiliado,
 
     d.motivo_debito_id,
     md.descripcion AS descripcion_debito,

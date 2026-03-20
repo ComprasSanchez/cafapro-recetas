@@ -53,7 +53,7 @@ class ExcluidosWindow(QDialog):
         # Table
         self.table = QTableWidget(0, 6)
         self.table.setHorizontalHeaderLabels([
-            "Referencia", "Receta", "Fecha", "Hora", "Importe Neto", "A cargo entidad"
+            "Referencia", "Receta", "Fecha", "Hora", "Total", "A cargo obs"
         ])
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -98,7 +98,12 @@ class ExcluidosWindow(QDialog):
         if dlg.exec() != dlg.DialogCode.Accepted:
             return
 
-        rid, numero = dlg.selected()
+        selected = dlg.selected()
+        if not selected:
+            return
+
+        rid = selected[0] if len(selected) > 0 else None
+        numero = selected[1] if len(selected) > 1 else ""
         if not rid:
             return
 
@@ -134,18 +139,18 @@ class ExcluidosWindow(QDialog):
             self._set(i, 2, str(getattr(r, "fecha", "") or ""))
             self._set(i, 3, str(getattr(r, "hora", "") or ""))
 
-            imp_obs = Decimal(str(getattr(r, "importe_obs", 0) or 0))
-            a_cargo = Decimal(str(getattr(r, "a_cargo_entidad", 0) or 0))
+            imp_bruto = Decimal(str(getattr(r, "importe_bruto", 0) or 0))
+            imp_cobertura = Decimal(str(getattr(r, "importe_cobertura", 0) or 0))
 
-            self._set(i, 4, self._fmt_ar(imp_obs), align_center=True)
-            self._set(i, 5, self._fmt_ar(a_cargo), align_center=True)
+            self._set(i, 4, self._fmt_ar(imp_bruto), align_center=True)
+            self._set(i, 5, self._fmt_ar(imp_cobertura), align_center=True)
 
         self.btn_copy.setEnabled(self.table.rowCount() > 0)
 
     def _copy_table_to_clipboard(self) -> None:
         # Formato: TAB separated (ideal para pegar en Excel/Sheets)
         # Encabezados pedidos (sin "Etiqueta")
-        headers = ["Nº Referencia", "Nº Receta", "Fecha", "Hora", "Neto"]
+        headers = ["Nº Referencia", "Nº Receta", "Fecha", "Hora", "Total"]
 
         lines: list[str] = []
         lines.append("\t".join(headers))

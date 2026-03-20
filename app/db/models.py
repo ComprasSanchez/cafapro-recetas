@@ -64,7 +64,7 @@ class ObraSocial(Base):
         nullable=False,
         server_default=sa.text("'imed'"),
     )
-    dias_vencimiento: Mapped[int | None] = mapped_column(sa.Integer, nullable=True, server_default=sa.text("60"))
+    dias_vencimiento: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
     codigo_financiador: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
     activo: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, server_default=sa.true())
     creado_en: Mapped[sa.DateTime] = mapped_column(sa.DateTime, nullable=False, server_default=sa.func.now())
@@ -217,19 +217,13 @@ class Archivo(Base):
 
     orden_lote: Mapped[int] = mapped_column(sa.Integer, nullable=False)
 
-    # Importe Gral (antes importe_neto) -> lo dejo como importe_neto para tu app,
-    # pero conceptualmente es el “gral”.
-    importe_neto: Mapped[sa.Numeric] = mapped_column(
+    importe_bruto: Mapped[sa.Numeric] = mapped_column(
         sa.Numeric(12, 2), nullable=False, server_default=sa.text("0")
     )
-
-    # ✅ “Importe Pami” -> importe_obs
-    importe_obs: Mapped[sa.Numeric] = mapped_column(
+    importe_cobertura: Mapped[sa.Numeric] = mapped_column(
         sa.Numeric(12, 2), nullable=False, server_default=sa.text("0")
     )
-
-    # A cargo entidad
-    a_cargo_entidad: Mapped[sa.Numeric] = mapped_column(
+    importe_afiliado: Mapped[sa.Numeric] = mapped_column(
         sa.Numeric(12, 2), nullable=False, server_default=sa.text("0")
     )
 
@@ -271,13 +265,10 @@ class ArchivoDetalle(Base):
 
     cantidad: Mapped[int] = mapped_column(sa.Integer, nullable=False, server_default=sa.text("0"))
 
-    # Importes
-    importe_neto: Mapped[sa.Numeric] = mapped_column(
+    importe_bruto: Mapped[sa.Numeric] = mapped_column(
         sa.Numeric(12, 2), nullable=False, server_default=sa.text("0")
     )
-
-    # ✅ “Importe Pami” -> importe_obs
-    importe_obs: Mapped[sa.Numeric] = mapped_column(
+    importe_cobertura: Mapped[sa.Numeric] = mapped_column(
         sa.Numeric(12, 2), nullable=False, server_default=sa.text("0")
     )
 

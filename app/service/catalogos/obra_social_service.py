@@ -111,7 +111,7 @@ class ObraSocialService:
         codigo: str,
         nombre: str,
         validador: str = "imed",
-        dias_vencimiento: int | str | None = 60,
+        dias_vencimiento: int | str | None = None,
         codigo_financiador: int | str | None = None,
     ) -> ObraSocial:
         codigo = codigo.strip()

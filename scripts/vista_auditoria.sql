@@ -95,7 +95,7 @@ SELECT
     COALESCE(re.existe_receta, FALSE) AS existe_receta,
 
     COALESCE(ta.importe_reconocido,0)::numeric(12,2) AS importe_reconocido,
-    COALESCE(ar.importe_obs,0)::numeric(12,2)        AS importe_oficial,
+    COALESCE(ar.importe_cobertura,0)::numeric(12,2)  AS importe_oficial,
 
     r.estado_receta_id,
     er.descripcion AS estado_receta,

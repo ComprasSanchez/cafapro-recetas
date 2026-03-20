@@ -78,7 +78,7 @@ class ResumenRecepcionWindow(QDialog):
 
         # ---- Tabla 1: Prestador + 3 totales
         self.tbl_prestadores = QTableWidget(0, 4)
-        self.tbl_prestadores.setHorizontalHeaderLabels(["Prestador", "Imp. bruto", "Imp. obra social", "A cargo entidad"])
+        self.tbl_prestadores.setHorizontalHeaderLabels(["Prestador", "Total", "A cargo OBS", "A cargo Afiliado"])
         self.tbl_prestadores.verticalHeader().setVisible(False)
         self.tbl_prestadores.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.tbl_prestadores.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -109,7 +109,7 @@ class ResumenRecepcionWindow(QDialog):
 
         # Tabla 3: Resumen numérico (tabla sí o sí)
         self.tbl_resumen = QTableWidget(0, 4)
-        self.tbl_resumen.setHorizontalHeaderLabels(["Cant. recetas", "Total general", "Total obs", "A cargo entidad"])
+        self.tbl_resumen.setHorizontalHeaderLabels(["Cant. recetas", "Total bruto", "Total cargo OBS", "Total a cargo Afiliado"])
         self.tbl_resumen.verticalHeader().setVisible(False)
         self.tbl_resumen.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tbl_resumen.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
@@ -208,9 +208,9 @@ class ResumenRecepcionWindow(QDialog):
         self.tbl_prestadores.setRowCount(len(rows))
         for i, it in enumerate(rows):
             self._set_cell(self.tbl_prestadores, i, 0, it.prestador, user_data=it.prestador_id)
-            self._set_cell(self.tbl_prestadores, i, 1, fmt_money_ar(it.total_general), align_right=True)
-            self._set_cell(self.tbl_prestadores, i, 2, fmt_money_ar(it.total_importe_obs), align_right=True)
-            self._set_cell(self.tbl_prestadores, i, 3, fmt_money_ar(it.total_a_cargo_entidad), align_right=True)
+            self._set_cell(self.tbl_prestadores, i, 1, fmt_money_ar(it.total_bruto), align_right=True)
+            self._set_cell(self.tbl_prestadores, i, 2, fmt_money_ar(it.total_cobertura), align_right=True)
+            self._set_cell(self.tbl_prestadores, i, 3, fmt_money_ar(it.total_afiliado), align_right=True)
 
         if rows:
             self.tbl_prestadores.selectRow(0)
@@ -266,9 +266,9 @@ class ResumenRecepcionWindow(QDialog):
 
         self.tbl_resumen.setRowCount(1)
         self._set_cell(self.tbl_resumen, 0, 0, str(res.cantidad_recetas))
-        self._set_cell(self.tbl_resumen, 0, 1, fmt_money_ar(res.total_general), align_right=True)
-        self._set_cell(self.tbl_resumen, 0, 2, fmt_money_ar(res.total_importe_obs), align_right=True)
-        self._set_cell(self.tbl_resumen, 0, 3, fmt_money_ar(res.total_a_cargo_entidad), align_right=True)
+        self._set_cell(self.tbl_resumen, 0, 1, fmt_money_ar(res.total_bruto), align_right=True)
+        self._set_cell(self.tbl_resumen, 0, 2, fmt_money_ar(res.total_cobertura), align_right=True)
+        self._set_cell(self.tbl_resumen, 0, 3, fmt_money_ar(res.total_afiliado), align_right=True)
 
     # ---------------- Helpers ----------------
     @staticmethod

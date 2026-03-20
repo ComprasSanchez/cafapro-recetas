@@ -6,8 +6,8 @@ from app.db.models import ObraSocial
 
 
 OBRAS_SOCIALES = [
-    {"codigo": "12", "nombre": "APROSS", "codigo_financiador": 41},
-    {"codigo": "80", "nombre": "PAMI", "codigo_financiador": 4007},
+    {"codigo": "12", "nombre": "APROSS", "codigo_financiador": 41, "dias_vencimiento": 60},
+    {"codigo": "80", "nombre": "PAMI", "codigo_financiador": 4007, "dias_vencimiento": 60},
 ]
 
 
@@ -26,7 +26,7 @@ def run(session) -> None:
         if obj:
             obj.nombre = nombre
             obj.validador = "imed"
-            obj.dias_vencimiento = 60
+            obj.dias_vencimiento = it.get("dias_vencimiento")
             obj.codigo_financiador = it.get("codigo_financiador")
             obj.activo = True
             session.add(obj)
@@ -36,7 +36,7 @@ def run(session) -> None:
                     codigo=codigo,
                     nombre=nombre,
                     validador="imed",
-                    dias_vencimiento=60,
+                    dias_vencimiento=it.get("dias_vencimiento"),
                     codigo_financiador=it.get("codigo_financiador"),
                     activo=True,
                 )

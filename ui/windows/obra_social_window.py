@@ -64,7 +64,6 @@ class ObrasSocialesWindow(QDialog):
         self.in_dias_venc.setMinimumHeight(28)
         self.in_dias_venc.setFixedWidth(110)
         self.in_dias_venc.setValidator(QIntValidator(0, 3650, self))
-        self.in_dias_venc.setText("60")
 
         self.in_codigo_fin = QLineEdit()
         self.in_codigo_fin.setPlaceholderText("Cod. financiador")
@@ -260,7 +259,7 @@ class ObrasSocialesWindow(QDialog):
 
         self.in_codigo.clear()
         self.in_nombre.clear()
-        self.in_dias_venc.setText("60")
+        self.in_dias_venc.clear()
         self.in_codigo_fin.clear()
         self.cb_validador.setCurrentText("imed")
         self.load_data()

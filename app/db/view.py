@@ -65,8 +65,9 @@ class VwArchivoRecetaDebitos(Base):
     orden_lote: Mapped[int] = mapped_column(sa.Integer)
     nro_receta: Mapped[str] = mapped_column(sa.String)
 
-    importe_obs: Mapped[sa.Numeric] = mapped_column(sa.Numeric(12, 2))
-    a_cargo_entidad: Mapped[sa.Numeric] = mapped_column(sa.Numeric(12, 2))
+    importe_bruto: Mapped[sa.Numeric] = mapped_column(sa.Numeric(12, 2))
+    importe_cobertura: Mapped[sa.Numeric] = mapped_column(sa.Numeric(12, 2))
+    importe_afiliado: Mapped[sa.Numeric] = mapped_column(sa.Numeric(12, 2))
 
     descripcion_debito: Mapped[str] = mapped_column(sa.String)
     detalle: Mapped[str | None] = mapped_column(sa.String, nullable=True)
@@ -85,8 +86,9 @@ class VwArchivosExcluidos(Base):
     fecha: Mapped[date | None] = mapped_column(sa.Date, primary_key=True)
     hora: Mapped[time | None] = mapped_column(sa.Time, primary_key=True)
 
-    importe_obs: Mapped[sa.Numeric] = mapped_column(sa.Numeric(12, 2))
-    a_cargo_entidad: Mapped[sa.Numeric] = mapped_column(sa.Numeric(12, 2))
+    importe_bruto: Mapped[sa.Numeric] = mapped_column(sa.Numeric(12, 2))
+    importe_cobertura: Mapped[sa.Numeric] = mapped_column(sa.Numeric(12, 2))
+    importe_afiliado: Mapped[sa.Numeric] = mapped_column(sa.Numeric(12, 2))
 
 
 class VwResumenRecepcionPrestador(Base):
@@ -103,9 +105,9 @@ class VwResumenRecepcionPrestador(Base):
 
     cantidad_recetas: Mapped[int] = mapped_column(sa.Integer)
 
-    total_general: Mapped[sa.Numeric] = mapped_column(sa.Numeric(12, 2))
-    total_importe_obs: Mapped[sa.Numeric] = mapped_column(sa.Numeric(12, 2))
-    total_a_cargo_entidad: Mapped[sa.Numeric] = mapped_column(sa.Numeric(12, 2))
+    total_bruto: Mapped[sa.Numeric] = mapped_column(sa.Numeric(12, 2))
+    total_cobertura: Mapped[sa.Numeric] = mapped_column(sa.Numeric(12, 2))
+    total_afiliado: Mapped[sa.Numeric] = mapped_column(sa.Numeric(12, 2))
 
 
 

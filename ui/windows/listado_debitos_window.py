@@ -128,8 +128,8 @@ class ListadoDebitosWindow(QDialog):
             "Orden lote",
             "N° receta",
             "Fecha Auditoria",
-            "Importe OBS",
-            "A cargo entidad",
+            "Total",
+            "A cargo OBS",
             "Débito",
             "Estado seguimiento",
             "Detalle",
@@ -267,8 +267,8 @@ class ListadoDebitosWindow(QDialog):
                 creado_txt = ""
             self._set_item(i, 3, creado_txt)
 
-            self._set_item(i, 4, self._fmt_money(getattr(r, "importe_obs", "-")))
-            self._set_item(i, 5, self._fmt_money(getattr(r, "a_cargo_entidad", "-")))
+            self._set_item(i, 4, self._fmt_money(getattr(r, "importe_bruto", "-")))
+            self._set_item(i, 5, self._fmt_money(getattr(r, "importe_cobertura", "-")))
             self._set_item(i, 6, str(getattr(r, "descripcion_debito", "") or "-"))
 
             # 7 Estado seguimiento (Combo)
@@ -526,8 +526,8 @@ class ListadoDebitosWindow(QDialog):
                         <th>Farmacia</th>
                         <th>Lote</th>
                         <th>Receta</th>
-                        <th class="right">Importe OBS</th>
-                        <th class="right">A cargo</th>
+                        <th class="right">Total</th>
+                        <th class="right">A cargo OBS</th>
                         <th>Débito</th>
                         <th>Detalle</th>
                         <th>Estado</th>
@@ -542,8 +542,8 @@ class ListadoDebitosWindow(QDialog):
                         <td>{r.prestador_nombre or ''}</td>
                         <td>{r.orden_lote or ''}</td>
                         <td>{r.nro_receta or ''}</td>
-                        <td class="right">{r.importe_obs or ''}</td>
-                        <td class="right">{r.a_cargo_entidad or ''}</td>
+                        <td class="right">{r.importe_bruto or ''}</td>
+                        <td class="right">{r.importe_cobertura or ''}</td>
                         <td>{r.descripcion_debito or ''}</td>
                         <td>{r.detalle or ''}</td>
                         <td>{r.estado_seguimiento or ''}</td>

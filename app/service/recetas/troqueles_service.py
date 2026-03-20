@@ -34,7 +34,7 @@ class TroquelesService:
         - R = API OK y NO coincide -> NO se crea
 
         Monto:
-        - SOLO si V: suma importe_obs del/los ArchivoDetalle cuyo cod_medic == code_alfabeta
+        - SOLO si V: suma importe_cobertura del/los ArchivoDetalle cuyo cod_medic == code_alfabeta
         """
         codigo_barra = (codigo_barra or "").strip()
         if not codigo_barra:
@@ -113,7 +113,7 @@ class TroquelesService:
     ) -> Tuple[Set[str], Dict[str, Decimal]]:
         """
         - cods_detalle: set de cod_medic no vacíos
-        - importe_por_cod: suma de importe_obs por cod_medic
+        - importe_por_cod: suma de importe_cobertura por cod_medic
         """
         dets = s.execute(
             select(ArchivoDetalle).where(ArchivoDetalle.archivo_id == int(archivo_id))
@@ -128,7 +128,7 @@ class TroquelesService:
                 continue
             cods.add(ca)
 
-            v = getattr(d, "importe_obs", None)
+            v = getattr(d, "importe_cobertura", None)
             v = Decimal(str(v)) if v is not None else Decimal("0")
             imp[ca] = imp.get(ca, Decimal("0")) + v
 
@@ -147,7 +147,7 @@ class TroquelesService:
 
     def _calc_monto(self, dto: Optional[MedicamentoDTO], importe_por_cod: Dict[str, Decimal]) -> Decimal:
         """
-        monto = importe_obs del ArchivoDetalle que matchea (code_alfabeta)
+        monto = importe_cobertura del ArchivoDetalle que matchea (code_alfabeta)
         (si no hay match, es 0; pero create() solo llega acá si es V)
         """
         if dto is None:

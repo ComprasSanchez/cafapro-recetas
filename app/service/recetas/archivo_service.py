@@ -134,14 +134,32 @@ class ArchivoService:
         if orden_lote is None:
             orden_lote = 0
 
-        importe_gral_raw = receta.get("Importe_Gral") or receta.get("Importe Gral") or receta.get("importe_gral")
-        importe_obs_raw = (
-                receta.get("Importe_Pami")
-                or receta.get("Importe Pami")
-                or receta.get("Importe_Obs")
-                or receta.get("importe_obs")
+        importe_bruto_raw = (
+            receta.get("importe_bruto")
+            or receta.get("Importe_Bruto")
+            or receta.get("Importe Bruto")
+            or receta.get("Importe_Pami")
+            or receta.get("Importe Pami")
         )
-        cargo_raw = receta.get("A_Cargo_Entidad") or receta.get("A Cargo Entidad") or receta.get("a_cargo_entidad")
+        importe_cobertura_raw = (
+            receta.get("importe_cobertura")
+            or receta.get("Importe_Cobertura")
+            or receta.get("Importe Cobertura")
+            or receta.get("A_Cargo_Entidad")
+            or receta.get("A Cargo Entidad")
+        )
+        importe_afiliado_input = (
+            receta.get("importe_afiliado")
+            or receta.get("Importe_Afiliado")
+            or receta.get("Importe Afiliado")
+        )
+
+        importe_bruto_dec = _dec(importe_bruto_raw)
+        importe_cobertura_dec = _dec(importe_cobertura_raw)
+        if importe_afiliado_input in (None, ""):
+            importe_afiliado_dec = importe_bruto_dec - importe_cobertura_dec
+        else:
+            importe_afiliado_dec = _dec(importe_afiliado_input)
 
         archivo = Archivo(
             recepcion_id=recepcion_id,  # puede ser None
@@ -151,9 +169,9 @@ class ArchivoService:
             nro_referencia=nro_referencia,
             nro_receta=str(nro_receta).strip() if nro_receta else None,
             orden_lote=int(orden_lote),
-            importe_neto=_dec(importe_gral_raw),
-            importe_obs=_dec(importe_obs_raw),
-            a_cargo_entidad=_dec(cargo_raw),
+            importe_bruto=importe_bruto_dec,
+            importe_cobertura=importe_cobertura_dec,
+            importe_afiliado=importe_afiliado_dec,
         )
         session.add(archivo)
         session.flush()  # ✅ necesario si cargás detalles por archivo_id
@@ -175,6 +193,8 @@ class ArchivoService:
 
             imp_gral_raw_d = d.get("importe_gral")
             imp_obs_raw_d = d.get("importe_pami")
+            imp_bruto_raw_d = d.get("importe_bruto") or imp_gral_raw_d
+            imp_cobertura_raw_d = d.get("importe_cobertura") or imp_obs_raw_d
             desc = (d.get("desc") or "").strip() or None
 
             # si "importe_pami" viene tipo "40%" y desc está vacío
@@ -198,8 +218,8 @@ class ArchivoService:
                     estado=estado,
                     nro_autorizacion=nro_aut,
                     cantidad=cantidad,
-                    importe_neto=_dec(imp_gral_raw_d),
-                    importe_obs=_dec(imp_obs_raw_d),
+                    importe_bruto=_dec(imp_bruto_raw_d),
+                    importe_cobertura=_dec(imp_cobertura_raw_d),
                     descuento=desc,
                 )
             )

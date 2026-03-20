@@ -13,17 +13,17 @@ from app.service.recepcion.recepcion_service import RecepcionService
 @dataclass(frozen=True)
 class ResumenRecepcionItem:
     cantidad_recetas: int
-    total_general: object
-    total_importe_obs: object
-    total_a_cargo_entidad: object
+    total_bruto: object
+    total_cobertura: object
+    total_afiliado: object
 
 @dataclass(frozen=True)
 class PrestadorResumenItem:
     prestador_id: int
     prestador: str
-    total_general: object
-    total_importe_obs: object
-    total_a_cargo_entidad: object
+    total_bruto: object
+    total_cobertura: object
+    total_afiliado: object
 
 
 
@@ -33,9 +33,9 @@ class ViewResumenRecepcionService(RecepcionService):
         row = s.execute(
             select(
                 VwResumenRecepcionPrestador.cantidad_recetas,
-                VwResumenRecepcionPrestador.total_general,
-                VwResumenRecepcionPrestador.total_importe_obs,
-                VwResumenRecepcionPrestador.total_a_cargo_entidad,
+                VwResumenRecepcionPrestador.total_bruto,
+                VwResumenRecepcionPrestador.total_cobertura,
+                VwResumenRecepcionPrestador.total_afiliado,
             ).where(VwResumenRecepcionPrestador.recepcion_id == int(recepcion_id))
         ).first()
 
@@ -44,9 +44,9 @@ class ViewResumenRecepcionService(RecepcionService):
 
         return ResumenRecepcionItem(
             cantidad_recetas=int(row[0] or 0),
-            total_general=row[1] or 0,
-            total_importe_obs=row[2] or 0,
-            total_a_cargo_entidad=row[3] or 0,
+            total_bruto=row[1] or 0,
+            total_cobertura=row[2] or 0,
+            total_afiliado=row[3] or 0,
         )
 
     @staticmethod
@@ -57,9 +57,9 @@ class ViewResumenRecepcionService(RecepcionService):
             select(
                 Prestador.prestador_id,
                 Prestador.nombre,
-                func.coalesce(func.sum(VwResumenRecepcionPrestador.total_general), 0).label("total_general"),
-                func.coalesce(func.sum(VwResumenRecepcionPrestador.total_importe_obs), 0).label("total_obs"),
-                func.coalesce(func.sum(VwResumenRecepcionPrestador.total_a_cargo_entidad), 0).label("total_cargo"),
+                func.coalesce(func.sum(VwResumenRecepcionPrestador.total_bruto), 0).label("total_bruto"),
+                func.coalesce(func.sum(VwResumenRecepcionPrestador.total_cobertura), 0).label("total_cobertura"),
+                func.coalesce(func.sum(VwResumenRecepcionPrestador.total_afiliado), 0).label("total_afiliado"),
             )
             .join(VwResumenRecepcionPrestador, VwResumenRecepcionPrestador.prestador_id == Prestador.prestador_id)
             .where(
@@ -76,9 +76,9 @@ class ViewResumenRecepcionService(RecepcionService):
                 PrestadorResumenItem(
                     prestador_id=pid,
                     prestador=nombre or "(sin nombre)",
-                    total_general=tg,
-                    total_importe_obs=tobs,
-                    total_a_cargo_entidad=tcargo,
+                    total_bruto=tg,
+                    total_cobertura=tobs,
+                    total_afiliado=tcargo,
                 )
             )
         return out

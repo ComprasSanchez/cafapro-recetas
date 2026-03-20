@@ -186,9 +186,9 @@ class ArchivoCvsTab(BaseTabWidget):
             "Beneficiario",
             "Fecha",
             "Hora",
-            "Importe Gral",
-            "Importe Obs",
-            "A Cargo Entidad",
+            "Total",
+            "A cargo OBS",
+            "A cargo Afiliado",
             "Orden Del Lote",
         ])
         self.tbl_recetas.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -216,7 +216,7 @@ class ArchivoCvsTab(BaseTabWidget):
         self.tbl_detalles.setColumnCount(9)
         self.tbl_detalles.setHorizontalHeaderLabels([
             "Cód. Medic.", "Nombre", "Present.", "Estado", "Nro. aut.",
-            "Cant.", "Importe Gral.", "Importe Obs", "Desc."
+            "Cant.", "Total", "A cargo OBS", "Desc."
         ])
         self.tbl_detalles.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tbl_detalles.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
