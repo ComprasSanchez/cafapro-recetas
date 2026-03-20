@@ -238,7 +238,7 @@ class ArchivoCvsUseCase:
                 "A_Cargo_Entidad": importe_afiliado,
                 "importe_bruto": importe_bruto,
                 "importe_cobertura": importe_cobertura,
-                "importe_afiliado": importe_afiliadon,
+                "importe_afiliado": importe_afiliado,
             }
             recetas_por_ref[ref] = receta
 

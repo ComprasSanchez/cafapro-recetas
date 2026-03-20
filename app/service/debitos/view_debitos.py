@@ -1,10 +1,10 @@
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date
+import re
 
 import sqlalchemy as sa
 import unicodedata
-from mpmath import re
 from sqlalchemy import select
 
 from app.db.models import Recetas
@@ -98,10 +98,12 @@ class ViewDebitos:
             receta_id = r.receta_id
 
             row = rows_by_receta.get(receta_id)
+            if row is None:
+                continue
 
-            obs = row.obs
-            prestador = row.prestador_nombre
-            nro_receta = row.nro_receta
+            obs = getattr(row, "obs", "")
+            prestador = getattr(row, "prestador_nombre", "")
+            nro_receta = getattr(row, "nro_receta", "")
 
             if r.ubicacion_frente:
                 dest = os.path.join(
@@ -151,6 +153,7 @@ class ViewDebitos:
             print("ERROR DOWNLOAD:", e)
             return False
 
+    @staticmethod
     def _sanitize(text: str | None) -> str:
 
         if not text:

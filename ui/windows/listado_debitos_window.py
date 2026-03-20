@@ -5,14 +5,14 @@ from pathlib import Path
 import re
 import unicodedata
 
-from PySide6.QtCore import Qt, QSignalBlocker, QMarginsF, QThreadPool
+from PySide6.QtCore import Qt, QSignalBlocker, QMarginsF, QThreadPool, QTimer
 from PySide6.QtGui import QTextDocument, QPageSize, QPageLayout, QPdfWriter
 from PySide6.QtPrintSupport import QPrinter, QPrintDialog, QPrintPreviewDialog
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout,
     QLabel, QComboBox, QPushButton, QMessageBox,
     QTableWidget, QTableWidgetItem, QAbstractItemView,
-    QHeaderView, QFrame, QSizePolicy, QWidget, QLineEdit, QFileDialog, QProgressDialog
+    QHeaderView, QFrame, QSizePolicy, QLineEdit, QFileDialog, QProgressDialog
 )
 
 from app.db.session import session_scope
@@ -54,6 +54,10 @@ class ListadoDebitosWindow(QDialog):
         self.filtrados = []
         self._wrong_rows_ctx = []
         self._wrong_folder_ctx: str | None = None
+        self._filter_timer = QTimer(self)
+        self._filter_timer.setSingleShot(True)
+        self._filter_timer.setInterval(250)
+        self._filter_timer.timeout.connect(self._apply_table_filter)
 
         self._build_ui()
         self._load_estados()
@@ -87,7 +91,7 @@ class ListadoDebitosWindow(QDialog):
         hc.setSpacing(10)
 
         self.lb_recepcion = QLabel("Recepción: —")
-        self.lb_recepcion.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
+        self.lb_recepcion.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
         hc.addWidget(self.lb_recepcion, 1)
 
         self.btn_pick = QPushButton("Elegir recepción…")
@@ -109,6 +113,12 @@ class ListadoDebitosWindow(QDialog):
         self.in_fecha.setMinimumHeight(32)
         hc.addWidget(self.in_fecha, 0)
 
+        self.btn_clear_filter = QPushButton("Limpiar fecha")
+        self.btn_clear_filter.setMinimumHeight(32)
+        self.btn_clear_filter.clicked.connect(self._clear_filter)
+        hc.addWidget(self.btn_clear_filter, 0)
+
+        self.in_fecha.textChanged.connect(self._on_filter_text_changed)
         self.in_fecha.editingFinished.connect(self._apply_table_filter)
 
         root.addWidget(header_card, 0)
@@ -164,6 +174,9 @@ class ListadoDebitosWindow(QDialog):
         # Footer
         # -------------------------
         footer = QHBoxLayout()
+
+        self.lb_count = QLabel("0 registros")
+        footer.addWidget(self.lb_count)
         footer.addStretch(1)
 
         self.btn_preview = QPushButton("Vista previa")
@@ -204,7 +217,12 @@ class ListadoDebitosWindow(QDialog):
         if dlg.exec() != dlg.DialogCode.Accepted:
             return
 
-        rid, numero = dlg.selected()
+        selected = dlg.selected()
+        if not selected:
+            return
+
+        rid = selected[0] if len(selected) > 0 else None
+        numero = selected[1] if len(selected) > 1 else ""
         if not rid:
             return
 
@@ -218,7 +236,10 @@ class ListadoDebitosWindow(QDialog):
         self.lb_recepcion.setText(f"Recepción: {value or '—'}")
 
     def _set_empty_state(self) -> None:
+        self._all_rows = []
+        self.filtrados = []
         self.tbl.setRowCount(0)
+        self._update_count_label(0)
 
         if self._recepcion_fija and self._recepcion_id:
             self._set_recepcion_label(self._recepcion_numero or str(self._recepcion_id))
@@ -240,72 +261,75 @@ class ListadoDebitosWindow(QDialog):
                 fecha_auditoria=None,
             )
 
-            self._all_rows = rows
-            self.filtrados = rows
-            self._render(rows)
+            self._all_rows = list(rows)
+            self._apply_table_filter()
 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudo cargar los débitos.\n\n{e}")
 
     def _render(self, rows) -> None:
-        self.tbl.setRowCount(len(rows))
+        selected_receta_id = self._selected_receta_id()
+        prev_scroll = self.tbl.verticalScrollBar().value()
 
-        for i, r in enumerate(rows):
-            self.tbl.setRowHeight(i, self.ROW_H)
+        self.tbl.setUpdatesEnabled(False)
+        try:
+            self.tbl.clearContents()
+            self.tbl.setRowCount(len(rows))
 
-            self._set_item(i, 0, str(getattr(r, "recepcion_numero", "") or ""))
-            self._set_item(i, 1, str(getattr(r, "orden_lote", "") or "-"))
-            self._set_item(i, 2, str(getattr(r, "nro_receta", "") or ""))
+            for i, r in enumerate(rows):
+                self.tbl.setRowHeight(i, self.ROW_H)
 
-            creado_en = getattr(r, "creado_en", None)
-            if creado_en:
-                try:
-                    creado_txt = creado_en.strftime("%d/%m/%Y")
-                except Exception:
-                    creado_txt = str(creado_en)
-            else:
-                creado_txt = ""
-            self._set_item(i, 3, creado_txt)
+                receta_id = int(getattr(r, "receta_id", 0) or 0)
 
-            self._set_item(i, 4, self._fmt_money(getattr(r, "importe_bruto", "-")))
-            self._set_item(i, 5, self._fmt_money(getattr(r, "importe_cobertura", "-")))
-            self._set_item(i, 6, str(getattr(r, "descripcion_debito", "") or "-"))
+                self._set_item(i, 0, str(getattr(r, "recepcion_numero", "") or ""))
+                self._set_item(i, 1, str(getattr(r, "orden_lote", "") or "-"))
+                self._set_item(i, 2, str(getattr(r, "nro_receta", "") or ""), user_data=receta_id)
 
-            # 7 Estado seguimiento (Combo)
-            receta_id = int(getattr(r, "receta_id", 0) or 0)
+                creado_en = getattr(r, "creado_en", None)
+                if creado_en:
+                    try:
+                        creado_txt = creado_en.strftime("%d/%m/%Y")
+                    except Exception:
+                        creado_txt = str(creado_en)
+                else:
+                    creado_txt = ""
+                self._set_item(i, 3, creado_txt)
 
-            cb = NoWheelComboBox()
-            cb.setMinimumHeight(self.COMBO_H)
-            cb.setMaximumHeight(self.COMBO_H)
-            cb.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-            cb.setProperty("receta_id", receta_id)
+                self._set_item(i, 4, self._fmt_money(getattr(r, "importe_bruto", "-")), align_right=True)
+                self._set_item(i, 5, self._fmt_money(getattr(r, "importe_cobertura", "-")), align_right=True)
+                self._set_item(i, 6, str(getattr(r, "descripcion_debito", "") or "-"))
 
-            with QSignalBlocker(cb):
-                cb.clear()
-                for estado_id, desc in self._estados:
-                    cb.addItem(desc, estado_id)
+                cb = NoWheelComboBox()
+                cb.setMinimumHeight(self.COMBO_H)
+                cb.setMaximumHeight(self.COMBO_H)
+                cb.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+                cb.setProperty("receta_id", receta_id)
 
-                cur = getattr(r, "estado_seguimiento_id", None)
-                if cur is not None:
-                    idx = cb.findData(int(cur))
-                    if idx >= 0:
-                        cb.setCurrentIndex(idx)
+                with QSignalBlocker(cb):
+                    cb.clear()
+                    for estado_id, desc in self._estados:
+                        cb.addItem(desc, estado_id)
 
-            cb.setToolTip(cb.currentText())
-            cb.currentTextChanged.connect(cb.setToolTip)
-            cb.currentIndexChanged.connect(self._on_estado_changed)
+                    cur = getattr(r, "estado_seguimiento_id", None)
+                    cur_id = int(cur) if cur is not None else None
+                    if cur_id is not None:
+                        idx = cb.findData(cur_id)
+                        if idx >= 0:
+                            cb.setCurrentIndex(idx)
 
-            cell = QWidget()
-            cell_l = QHBoxLayout(cell)
-            cell_l.setContentsMargins(0, 0, 0, 0)
-            cell_l.setSpacing(0)
-            cb.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+                cb.setProperty("estado_prev_id", cb.currentData())
+                cb.setToolTip(cb.currentText())
+                cb.currentTextChanged.connect(cb.setToolTip)
+                cb.currentIndexChanged.connect(self._on_estado_changed)
 
-            cell_l.addWidget(cb)
+                self.tbl.setCellWidget(i, 7, cb)
+                self._set_item(i, 8, str(getattr(r, "detalle", "") or ""))
+        finally:
+            self.tbl.setUpdatesEnabled(True)
 
-            self.tbl.setCellWidget(i, 7, cell)
-
-            self._set_item(i, 8, str(getattr(r, "detalle", "") or ""))
+        self._restore_selection(selected_receta_id)
+        self.tbl.verticalScrollBar().setValue(prev_scroll)
+        self._update_count_label(len(rows))
 
     def _on_estado_changed(self) -> None:
         cb = self.sender()
@@ -314,25 +338,86 @@ class ListadoDebitosWindow(QDialog):
 
         receta_id = cb.property("receta_id")
         new_estado_id = cb.currentData()
+        prev_estado_id = cb.property("estado_prev_id")
 
         if not receta_id:
             return
+
+        if prev_estado_id == new_estado_id:
+            return
+
+        cb.setEnabled(False)
 
         try:
             RecetaService.update_estado_seguimiento(
                 int(receta_id),
                 int(new_estado_id) if new_estado_id is not None else None
             )
-            self._reload()
+            cb.setProperty("estado_prev_id", new_estado_id)
+            self._patch_row_estado(int(receta_id), new_estado_id, cb.currentText())
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudo actualizar el estado.\n\n{e}")
-            self._reload()
+            with QSignalBlocker(cb):
+                idx = cb.findData(prev_estado_id)
+                if idx >= 0:
+                    cb.setCurrentIndex(idx)
+                elif cb.count() > 0:
+                    cb.setCurrentIndex(0)
+        finally:
+            cb.setEnabled(True)
 
     # ---------------- utils ----------------
-    def _set_item(self, row: int, col: int, text: str) -> None:
+    def _set_item(
+        self,
+        row: int,
+        col: int,
+        text: str,
+        *,
+        align_right: bool = False,
+        user_data: int | None = None,
+    ) -> None:
         it = QTableWidgetItem(text)
-        it.setFlags(it.flags() & ~Qt.ItemIsEditable)
+        it.setFlags(it.flags() & ~Qt.ItemFlag.ItemIsEditable)
+        if align_right:
+            it.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        if user_data is not None:
+            it.setData(Qt.ItemDataRole.UserRole, int(user_data))
         self.tbl.setItem(row, col, it)
+
+    def _selected_receta_id(self) -> int | None:
+        row = self.tbl.currentRow()
+        if row < 0:
+            return None
+        it = self.tbl.item(row, 2)
+        if not it:
+            return None
+        rid = it.data(Qt.ItemDataRole.UserRole)
+        return int(rid) if rid is not None else None
+
+    def _restore_selection(self, receta_id: int | None) -> None:
+        if receta_id is None:
+            return
+        for i in range(self.tbl.rowCount()):
+            it = self.tbl.item(i, 2)
+            if not it:
+                continue
+            rid = it.data(Qt.ItemDataRole.UserRole)
+            if rid is not None and int(rid) == int(receta_id):
+                self.tbl.selectRow(i)
+                break
+
+    def _patch_row_estado(self, receta_id: int, estado_id: int | None, estado_desc: str) -> None:
+        for r in self._all_rows:
+            if int(getattr(r, "receta_id", 0) or 0) == receta_id:
+                setattr(r, "estado_seguimiento_id", estado_id)
+                setattr(r, "estado_seguimiento", estado_desc)
+        for r in self.filtrados:
+            if int(getattr(r, "receta_id", 0) or 0) == receta_id:
+                setattr(r, "estado_seguimiento_id", estado_id)
+                setattr(r, "estado_seguimiento", estado_desc)
+
+    def _update_count_label(self, n: int) -> None:
+        self.lb_count.setText(f"{n} registros")
 
     @staticmethod
     def _fmt_money(v) -> str:
@@ -344,34 +429,42 @@ class ListadoDebitosWindow(QDialog):
             return str(v)
 
     def _apply_table_filter(self) -> None:
+        self.filtrados = self._filtered_rows()
+        self._render(self.filtrados)
 
+    def _on_filter_text_changed(self, _value: str) -> None:
+        self._filter_timer.start()
+
+    def _clear_filter(self) -> None:
+        if self.in_fecha.text().strip():
+            self.in_fecha.clear()
+        else:
+            self._apply_table_filter()
+
+    def _filtered_rows(self):
         if not self._all_rows:
-            self.filtrados = []
-            self._render([])
-            return
+            return []
 
         fecha_txt = self.in_fecha.text().strip()
-        fecha_limpia = fecha_txt.replace("/", "")
-
-        if not fecha_limpia or len(fecha_limpia) != 8:
-            self.filtrados = self._all_rows
-            self._render(self._all_rows)
-            return
+        if not fecha_txt or "_" in fecha_txt:
+            return list(self._all_rows)
 
         try:
             fecha_filtro = datetime.strptime(fecha_txt, "%d/%m/%Y").date()
         except ValueError:
-            self.filtrados = self._all_rows
-            self._render(self._all_rows)
-            return
+            return list(self._all_rows)
 
-        self.filtrados = [
-            r for r in self._all_rows
-            if getattr(r, "creado_en", None)
-               and r.creado_en.date() == fecha_filtro
-        ]
-
-        self._render(self.filtrados)
+        out = []
+        for r in self._all_rows:
+            creado_en = getattr(r, "creado_en", None)
+            if not creado_en:
+                continue
+            try:
+                if creado_en.date() == fecha_filtro:
+                    out.append(r)
+            except Exception:
+                continue
+        return out
 
     def _generate_html(self, rows):
         ahora = datetime.now().strftime("%d/%m/%Y %H:%M")
@@ -511,15 +604,16 @@ class ListadoDebitosWindow(QDialog):
 
                     <!-- 🔥 Definimos ancho real de columnas -->
                     <colgroup>
-                        <col style="width:18%">
+                        <col style="width:16%">
+                        <col style="width:7%">
+                        <col style="width:9%">
                         <col style="width:8%">
-                        <col style="width:10%">
-                        <col style="width:10%">
-                        <col style="width:10%">
-                        <col style="width:18%">
-                        <col style="width:12%">
+                        <col style="width:8%">
+                        <col style="width:14%">
+                        <col style="width:15%">
+                        <col style="width:8%">
                         <col style="width:7%">
-                        <col style="width:7%">
+                        <col style="width:8%">
                     </colgroup>
 
                     <tr>
@@ -639,7 +733,7 @@ class ListadoDebitosWindow(QDialog):
 
         self.progress = QProgressDialog(
             "Descargando imágenes...",
-            None,
+            "",
             0,
             0,
             self
