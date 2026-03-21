@@ -73,6 +73,8 @@ class AuditoriaVisualDialog(QDialog):
         # cache de previews (incluye lado por seguridad)
         self._preview_cache: dict[str, bytes] = {}
         self.MAX_PREVIEW_CACHE = 200
+        self._updating_motivos = False
+        self._motivo_dialog_open = False
 
         self.setWindowTitle("Auditoría Visual")
         self.setModal(True)
@@ -321,6 +323,7 @@ class AuditoriaVisualDialog(QDialog):
 
         self.list_motivos = QListWidget()
         self.list_motivos.itemChanged.connect(self._on_motivo_item_changed)
+        self.list_motivos.itemDoubleClicked.connect(self._on_motivo_item_activated)
         self.list_motivos.setSpacing(1)
         self.list_motivos.setUniformItemSizes(True)
         self.list_motivos.setStyleSheet("""
@@ -747,6 +750,9 @@ class AuditoriaVisualDialog(QDialog):
 
 
     def _on_motivo_item_changed(self, item: QListWidgetItem):
+        if self._updating_motivos:
+            return
+
         motivo_id = item.data(Qt.ItemDataRole.UserRole)
         if not motivo_id:
             return
@@ -755,22 +761,70 @@ class AuditoriaVisualDialog(QDialog):
 
         if item.checkState() != Qt.CheckState.Checked:
             self.state.debitos.pop(motivo_id, None)
+            self._set_motivo_item_text(item, None)
+            return
+
+        self._edit_motivo_detail(item, motivo_id, uncheck_on_cancel=True)
+
+    def _on_motivo_item_activated(self, item: QListWidgetItem) -> None:
+        if not item or item.checkState() != Qt.CheckState.Checked:
+            return
+
+        motivo_id = item.data(Qt.ItemDataRole.UserRole)
+        if not motivo_id:
+            return
+
+        self._edit_motivo_detail(item, int(motivo_id), uncheck_on_cancel=False)
+
+    def _edit_motivo_detail(self, item: QListWidgetItem, motivo_id: int, *, uncheck_on_cancel: bool) -> None:
+        if self._motivo_dialog_open:
             return
 
         prev = self.state.debitos.get(motivo_id) or ""
-        detalle, ok = QInputDialog.getText(
-            self,
-            "Detalle del débito",
-            "Detalle (opcional):",
-            text=prev,
-        )
+
+        self._motivo_dialog_open = True
+        try:
+            detalle, ok = QInputDialog.getText(
+                self,
+                "Detalle del débito",
+                "Detalle (opcional):",
+                text=prev,
+            )
+        finally:
+            self._motivo_dialog_open = False
 
         if not ok:
-            item.setCheckState(Qt.CheckState.Unchecked)
-            self.state.debitos.pop(motivo_id, None)
+            if uncheck_on_cancel:
+                self._updating_motivos = True
+                try:
+                    item.setCheckState(Qt.CheckState.Unchecked)
+                finally:
+                    self._updating_motivos = False
+                self.state.debitos.pop(motivo_id, None)
+                self._set_motivo_item_text(item, None)
             return
 
-        self.state.debitos[motivo_id] = (detalle.strip() or None)
+        detalle_final = detalle.strip() or None
+        self.state.debitos[motivo_id] = detalle_final
+        self._set_motivo_item_text(item, detalle_final)
+
+    @staticmethod
+    def _motivo_base_desc(item: QListWidgetItem) -> str:
+        desc = item.data(Qt.ItemDataRole.UserRole + 1)
+        if desc is None:
+            txt = item.text() or ""
+            i = txt.find("  (")
+            return txt[:i] if i >= 0 else txt
+        return str(desc)
+
+    def _set_motivo_item_text(self, item: QListWidgetItem, detalle: str | None) -> None:
+        base = self._motivo_base_desc(item)
+        text = f"{base}  ({detalle})" if detalle else base
+        self._updating_motivos = True
+        try:
+            item.setText(text)
+        finally:
+            self._updating_motivos = False
 
     # -------------------------
     # Vendedor
@@ -1388,6 +1442,7 @@ class AuditoriaVisualDialog(QDialog):
 
             item = QListWidgetItem(text)
             item.setData(Qt.ItemDataRole.UserRole, motivo_id)
+            item.setData(Qt.ItemDataRole.UserRole + 1, descripcion)
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
 
             item.setCheckState(
