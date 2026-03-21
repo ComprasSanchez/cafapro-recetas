@@ -132,11 +132,12 @@ class ListadoDebitosWindow(QDialog):
         tc.setContentsMargins(12, 12, 12, 12)
         tc.setSpacing(8)
 
-        self.tbl = QTableWidget(0, 9)
+        self.tbl = QTableWidget(0, 10)
         self.tbl.setHorizontalHeaderLabels([
             "N° Recepción",
             "Orden lote",
             "N° receta",
+            "N° referencia",
             "Fecha Auditoria",
             "Total",
             "A cargo OBS",
@@ -162,10 +163,10 @@ class ListadoDebitosWindow(QDialog):
         header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
 
         # columnas largas
-        header.setSectionResizeMode(6, QHeaderView.ResizeMode.Stretch)      # Débito
-        header.setSectionResizeMode(8, QHeaderView.ResizeMode.Stretch)      # Detalle
-        header.setSectionResizeMode(7, QHeaderView.ResizeMode.Interactive)  # Estado
-        self.tbl.setColumnWidth(7, 260)
+        header.setSectionResizeMode(7, QHeaderView.ResizeMode.Stretch)      # Débito
+        header.setSectionResizeMode(9, QHeaderView.ResizeMode.Stretch)      # Detalle
+        header.setSectionResizeMode(8, QHeaderView.ResizeMode.Interactive)  # Estado
+        self.tbl.setColumnWidth(8, 260)
 
         tc.addWidget(self.tbl, 1)
         root.addWidget(table_card, 1)
@@ -284,6 +285,7 @@ class ListadoDebitosWindow(QDialog):
                 self._set_item(i, 0, str(getattr(r, "recepcion_numero", "") or ""))
                 self._set_item(i, 1, str(getattr(r, "orden_lote", "") or "-"))
                 self._set_item(i, 2, str(getattr(r, "nro_receta", "") or ""), user_data=receta_id)
+                self._set_item(i, 3, str(getattr(r, "nro_referencia", "") or ""))
 
                 creado_en = getattr(r, "creado_en", None)
                 if creado_en:
@@ -293,11 +295,11 @@ class ListadoDebitosWindow(QDialog):
                         creado_txt = str(creado_en)
                 else:
                     creado_txt = ""
-                self._set_item(i, 3, creado_txt)
+                self._set_item(i, 4, creado_txt)
 
-                self._set_item(i, 4, self._fmt_money(getattr(r, "importe_bruto", "-")), align_right=True)
-                self._set_item(i, 5, self._fmt_money(getattr(r, "importe_cobertura", "-")), align_right=True)
-                self._set_item(i, 6, str(getattr(r, "descripcion_debito", "") or "-"))
+                self._set_item(i, 5, self._fmt_money(getattr(r, "importe_bruto", "-")), align_right=True)
+                self._set_item(i, 6, self._fmt_money(getattr(r, "importe_cobertura", "-")), align_right=True)
+                self._set_item(i, 7, str(getattr(r, "descripcion_debito", "") or "-"))
 
                 cb = NoWheelComboBox()
                 cb.setMinimumHeight(self.COMBO_H)
@@ -322,8 +324,8 @@ class ListadoDebitosWindow(QDialog):
                 cb.currentTextChanged.connect(cb.setToolTip)
                 cb.currentIndexChanged.connect(self._on_estado_changed)
 
-                self.tbl.setCellWidget(i, 7, cb)
-                self._set_item(i, 8, str(getattr(r, "detalle", "") or ""))
+                self.tbl.setCellWidget(i, 8, cb)
+                self._set_item(i, 9, str(getattr(r, "detalle", "") or ""))
         finally:
             self.tbl.setUpdatesEnabled(True)
 
@@ -604,22 +606,24 @@ class ListadoDebitosWindow(QDialog):
 
                     <!-- 🔥 Definimos ancho real de columnas -->
                     <colgroup>
-                        <col style="width:16%">
-                        <col style="width:7%">
-                        <col style="width:9%">
-                        <col style="width:8%">
-                        <col style="width:8%">
                         <col style="width:14%">
-                        <col style="width:15%">
+                        <col style="width:6%">
                         <col style="width:8%">
+                        <col style="width:10%">
+                        <col style="width:8%">
+                        <col style="width:8%">
+                        <col style="width:13%">
+                        <col style="width:12%">
+                        <col style="width:8%">
+                        <col style="width:6%">
                         <col style="width:7%">
-                        <col style="width:8%">
                     </colgroup>
 
                     <tr>
                         <th>Farmacia</th>
                         <th>Lote</th>
                         <th>Receta</th>
+                        <th>Referencia</th>
                         <th class="right">Total</th>
                         <th class="right">A cargo OBS</th>
                         <th>Débito</th>
@@ -636,6 +640,7 @@ class ListadoDebitosWindow(QDialog):
                         <td>{r.prestador_nombre or ''}</td>
                         <td>{r.orden_lote or ''}</td>
                         <td>{r.nro_receta or ''}</td>
+                        <td>{getattr(r, 'nro_referencia', '') or ''}</td>
                         <td class="right">{r.importe_bruto or ''}</td>
                         <td class="right">{r.importe_cobertura or ''}</td>
                         <td>{r.descripcion_debito or ''}</td>

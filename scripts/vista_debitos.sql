@@ -13,6 +13,7 @@ SELECT
     a.hora,
     a.orden_lote,
     r.nro_receta,
+    a.nro_referencia,
 
     a.importe_bruto,
     a.importe_cobertura,

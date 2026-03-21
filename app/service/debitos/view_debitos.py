@@ -104,11 +104,12 @@ class ViewDebitos:
             obs = getattr(row, "obs", "")
             prestador = getattr(row, "prestador_nombre", "")
             nro_receta = getattr(row, "nro_receta", "")
+            nro_referencia = getattr(row, "nro_referencia", "")
 
             if r.ubicacion_frente:
                 dest = os.path.join(
                     folder,
-                    f"{obs}_{prestador}_{nro_receta}_frente.jpg"
+                    f"{obs}_{prestador}_{nro_receta}_{nro_referencia}_frente.jpg"
                 )
 
                 tasks.append((r.ubicacion_frente, dest))
@@ -116,7 +117,7 @@ class ViewDebitos:
             if r.ubicacion_dorso:
                 dest = os.path.join(
                     folder,
-                    f"{obs}_{prestador}_{nro_receta}_dorso.jpg"
+                    f"{obs}_{prestador}_{nro_receta}_{nro_referencia}_dorso.jpg"
                 )
 
                 tasks.append((r.ubicacion_dorso, dest))

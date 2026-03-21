@@ -64,6 +64,7 @@ class VwArchivoRecetaDebitos(Base):
 
     orden_lote: Mapped[int] = mapped_column(sa.Integer)
     nro_receta: Mapped[str] = mapped_column(sa.String)
+    nro_referencia: Mapped[str | None] = mapped_column(sa.String, nullable=True)
 
     importe_bruto: Mapped[sa.Numeric] = mapped_column(sa.Numeric(12, 2))
     importe_cobertura: Mapped[sa.Numeric] = mapped_column(sa.Numeric(12, 2))
