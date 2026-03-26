@@ -10,7 +10,7 @@ import os
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from sqlalchemy import select, update, or_, and_, tuple_
+from sqlalchemy import select, or_, and_
 from sqlalchemy.orm import Session
 
 from core.process_tif import TiffProcessor, ScanOut
@@ -88,6 +88,24 @@ class _UploadResult:
     back_key: Optional[str]
 
 
+@dataclass(frozen=True)
+class _DetalleContext:
+    cods_detalle: Set[str]
+    cant_por_cod: Dict[str, int]
+    importe_por_cod: Dict[str, Decimal]
+
+
+@dataclass(frozen=True)
+class _TroquelEval:
+    codebar: str
+    cantidad_scan: int
+    estado: EstadoTroquelEnum
+    code_alfabeta: int
+    droga_concat: Optional[str]
+    presentacion: Optional[str]
+    monto: Decimal
+
+
 class TiffService:
     def __init__(
         self,
@@ -114,6 +132,13 @@ class TiffService:
     @staticmethod
     def _norm_str(x) -> str:
         return str(x).strip() if x is not None else ""
+
+    @classmethod
+    def _ref_candidates(cls, token: str) -> List[str]:
+        raw = cls._norm_str(token)
+        if not raw:
+            return []
+        return [raw]
 
     @staticmethod
     def _exists_processed_base_in_recepcion(s: Session, recepcion_id: int, base_name: str) -> bool:
@@ -151,23 +176,33 @@ class TiffService:
     def _base_from_tif_path(full_path: str) -> str:
         return Path(full_path).stem
 
-    @staticmethod
+    @classmethod
     def _match_all_refs(
+        cls,
         s: Session,
         recepcion_id: int,
         refs: List[str],
         *,
         only_referencia: bool = False,
     ) -> _MatchResult:
-        refs_set: Set[str] = {str(r).strip() for r in refs if r and str(r).strip()}
+        refs_set: Set[str] = {cls._norm_str(r) for r in refs if cls._norm_str(r)}
         if not refs_set:
             return _MatchResult(ref_to_archivo={}, duplicated_refs=set(), missing_refs=set())
 
-        where_match = Archivo.nro_referencia.in_(list(refs_set))
+        by_candidate: Dict[str, Set[str]] = {}
+        for ref in refs_set:
+            for cand in cls._ref_candidates(ref):
+                by_candidate.setdefault(cand, set()).add(ref)
+
+        candidate_values = list(by_candidate.keys())
+        if not candidate_values:
+            return _MatchResult(ref_to_archivo={}, duplicated_refs=set(), missing_refs=refs_set)
+
+        where_match = Archivo.nro_referencia.in_(candidate_values)
         if not only_referencia:
             where_match = or_(
                 where_match,
-                Archivo.nro_receta.in_(list(refs_set)),
+                Archivo.nro_receta.in_(candidate_values),
             )
 
         rows = (
@@ -183,15 +218,21 @@ class TiffService:
             .all()
         )
 
-        by_token: Dict[str, List[Archivo]] = {}
+        by_token: Dict[str, Dict[int, Archivo]] = {}
         for a in rows:
-            nro_ref = (getattr(a, "nro_referencia", "") or "").strip()
-            nro_rec = (getattr(a, "nro_receta", "") or "").strip()
+            tokens_to_check = [getattr(a, "nro_referencia", None)]
+            if not only_referencia:
+                tokens_to_check.append(getattr(a, "nro_receta", None))
 
-            if nro_ref and nro_ref in refs_set:
-                by_token.setdefault(nro_ref, []).append(a)
-            if not only_referencia and nro_rec and nro_rec in refs_set:
-                by_token.setdefault(nro_rec, []).append(a)
+            for db_token in tokens_to_check:
+                db_candidates = cls._ref_candidates(cls._norm_str(db_token))
+                for cand in db_candidates:
+                    matched_refs = by_candidate.get(cand, set())
+                    if not matched_refs:
+                        continue
+                    for ref in matched_refs:
+                        bucket = by_token.setdefault(ref, {})
+                        bucket[int(a.archivo_id)] = a
 
         duplicated = {tok for tok, arr in by_token.items() if len(arr) > 1}
         missing = {tok for tok in refs_set if tok not in by_token}
@@ -202,7 +243,7 @@ class TiffService:
                 ref_to_archivo[tok] = None
             else:
                 arr = by_token.get(tok)
-                ref_to_archivo[tok] = arr[0] if arr else None
+                ref_to_archivo[tok] = next(iter(arr.values())) if arr else None
 
         return _MatchResult(ref_to_archivo=ref_to_archivo, duplicated_refs=duplicated, missing_refs=missing)
 
@@ -226,6 +267,192 @@ class TiffService:
     def _build_s3_keys(*, prestador_imed: str, yyyy: str, mm: str, base_name: str) -> tuple[str, str]:
         base = f"{prestador_imed}/{yyyy}/{mm}"
         return (f"{base}/{base_name}_f.jpg", f"{base}/{base_name}_d.jpg")
+
+    @classmethod
+    def _codebar_candidates(cls, codebar: str) -> List[str]:
+        raw = cls._norm_str(codebar)
+        if not raw:
+            return []
+        return [raw]
+
+    def _warm_medicamento_cache(
+        self,
+        med_cache: Dict[str, Optional[MedicamentoDTO]],
+        codebars: Set[str],
+    ) -> None:
+        missing = [cb for cb in codebars if cb and cb not in med_cache]
+        if not missing:
+            return
+
+        variants_by_codebar: Dict[str, List[str]] = {
+            cb: self._codebar_candidates(cb)
+            for cb in missing
+        }
+
+        to_fetch: Set[str] = set()
+        for variants in variants_by_codebar.values():
+            for v in variants:
+                if v not in med_cache:
+                    to_fetch.add(v)
+
+        if to_fetch:
+            batch_result = self._client.get_many_by_codebars(list(to_fetch))
+            for cb, dto in batch_result.items():
+                med_cache[cb] = dto
+
+        for original, variants in variants_by_codebar.items():
+            chosen: Optional[MedicamentoDTO] = None
+            for v in variants:
+                dto = med_cache.get(v)
+                if dto is not None:
+                    chosen = dto
+                    break
+            med_cache[original] = chosen
+
+    @classmethod
+    def _build_detalle_context(cls, dets: List[ArchivoDetalle]) -> _DetalleContext:
+        cods_detalle: Set[str] = set()
+        cant_por_cod: Dict[str, int] = {}
+        importe_por_cod: Dict[str, Decimal] = {}
+
+        for d in dets:
+            ca = cls._norm_str(getattr(d, "cod_medic", None))
+            if not ca:
+                continue
+
+            cods_detalle.add(ca)
+
+            cant_por_cod[ca] = cant_por_cod.get(ca, 0) + int(getattr(d, "cantidad", 0) or 0)
+
+            imp_cob = getattr(d, "importe_bruto", 0)
+            imp_dec = Decimal(str(imp_cob or 0))
+            importe_por_cod[ca] = importe_por_cod.get(ca, Decimal("0")) + imp_dec
+
+        return _DetalleContext(
+            cods_detalle=cods_detalle,
+            cant_por_cod=cant_por_cod,
+            importe_por_cod=importe_por_cod,
+        )
+
+    @classmethod
+    def _evaluate_troqueles(
+        cls,
+        scan_troqueles: List[str],
+        detalle: _DetalleContext,
+        med_cache: Dict[str, Optional[MedicamentoDTO]],
+    ) -> List[_TroquelEval]:
+        counts: Dict[str, int] = dict(
+            Counter(
+                cls._norm_str(c)
+                for c in (scan_troqueles or [])
+                if cls._norm_str(c)
+            )
+        )
+
+        evals: List[_TroquelEval] = []
+
+        for codebar, qty_scan in counts.items():
+            dto = med_cache.get(codebar)
+
+            if dto is None:
+                evals.append(
+                    _TroquelEval(
+                        codebar=codebar,
+                        cantidad_scan=int(qty_scan),
+                        estado=EstadoTroquelEnum.A,
+                        code_alfabeta=0,
+                        droga_concat=None,
+                        presentacion=None,
+                        monto=Decimal("0"),
+                    )
+                )
+                continue
+
+            code_alfabeta = int(dto.code_alfabeta or 0)
+            ca = cls._norm_str(dto.code_alfabeta)
+            match_detalle = bool(ca) and (ca in detalle.cods_detalle)
+
+            if not match_detalle:
+                estado = EstadoTroquelEnum.R
+                monto = Decimal("0")
+            else:
+                qty_det = int(detalle.cant_por_cod.get(ca, 0))
+                estado = EstadoTroquelEnum.V if qty_det == int(qty_scan) else EstadoTroquelEnum.R
+                monto = detalle.importe_por_cod.get(ca, Decimal("0"))
+
+            evals.append(
+                _TroquelEval(
+                    codebar=codebar,
+                    cantidad_scan=int(qty_scan),
+                    estado=estado,
+                    code_alfabeta=code_alfabeta,
+                    droga_concat=dto.drogas_concat,
+                    presentacion=dto.presentacion,
+                    monto=monto,
+                )
+            )
+
+        return evals
+
+    @classmethod
+    def _evaluate_revision_troqueles(
+        cls,
+        scan_troqueles: List[str],
+        med_cache: Dict[str, Optional[MedicamentoDTO]],
+    ) -> List[_TroquelEval]:
+        counts: Dict[str, int] = dict(
+            Counter(
+                cls._norm_str(c)
+                for c in (scan_troqueles or [])
+                if cls._norm_str(c)
+            )
+        )
+
+        evals: List[_TroquelEval] = []
+        for codebar, qty_scan in counts.items():
+            dto = med_cache.get(codebar)
+
+            if dto is None:
+                evals.append(
+                    _TroquelEval(
+                        codebar=codebar,
+                        cantidad_scan=int(qty_scan),
+                        estado=EstadoTroquelEnum.A,
+                        code_alfabeta=0,
+                        droga_concat=None,
+                        presentacion=None,
+                        monto=Decimal("0"),
+                    )
+                )
+                continue
+
+            evals.append(
+                _TroquelEval(
+                    codebar=codebar,
+                    cantidad_scan=int(qty_scan),
+                    estado=EstadoTroquelEnum.A,
+                    code_alfabeta=int(dto.code_alfabeta or 0),
+                    droga_concat=dto.drogas_concat,
+                    presentacion=dto.presentacion,
+                    monto=Decimal("0"),
+                )
+            )
+
+        return evals
+
+    @staticmethod
+    def _to_render_states(evals: List[_TroquelEval]) -> Dict[str, Literal["V", "A", "R"]]:
+        out: Dict[str, Literal["V", "A", "R"]] = {}
+
+        for e in evals:
+            if e.estado == EstadoTroquelEnum.V:
+                out[e.codebar] = "V"
+            elif e.estado == EstadoTroquelEnum.A:
+                out[e.codebar] = "A"
+            else:
+                out[e.codebar] = "R"
+
+        return out
 
     # -------------------------
     # Paralelos
@@ -256,6 +483,7 @@ class TiffService:
             archivo_by_id: Dict[int, Archivo],
             prestador_imed: str,
             estado_render_by_work: Dict[int, Dict[str, Literal["V", "A", "R"]]],
+            headers_render_by_work_id: Dict[int, Set[str]],
             resumen: ProcesarResumen,
     ) -> List[_UploadResult]:
 
@@ -284,10 +512,39 @@ class TiffService:
 
             estado = estado_render_by_work.get(w.archivo_id, {})
 
+            allowed_headers = {
+                self._norm_str(v)
+                for v in headers_render_by_work_id.get(id(w), set())
+                if self._norm_str(v)
+            }
+
+            if allowed_headers:
+                render_headers = [
+                    self._norm_str(v)
+                    for v in (w.scan.headers or [])
+                    if self._norm_str(v) in allowed_headers
+                ]
+                render_header_dets = [
+                    d
+                    for d in (w.scan.header_detections or [])
+                    if self._norm_str(d["value"]) in allowed_headers
+                ]
+            else:
+                render_headers = []
+                render_header_dets = []
+
+            scan_render = ScanOut(
+                base_name=w.scan.base_name,
+                headers=render_headers,
+                troqueles=w.scan.troqueles,
+                header_detections=render_header_dets,
+                troquel_detections=w.scan.troquel_detections,
+            )
+
             # 🔥 render
             files = self._tif.render_bytes(
                 tiff_path=w.it.full_path,
-                scan=w.scan,
+                scan=scan_render,
                 pages=None,
                 estado_por_codebar=estado,
             )
@@ -428,6 +685,7 @@ class TiffService:
             work: List[_WorkItem] = []
             archivo_ids: List[int] = []
             revision_items: List[_ScannedItem] = []
+            headers_render_by_work_id: Dict[int, Set[str]] = {}
 
             for x in scanned:
                 refs = [self._norm_str(r) for r in (x.scan.headers or []) if self._norm_str(r)]
@@ -477,7 +735,17 @@ class TiffService:
                 if nro_ref:
                     seen_refs.add(nro_ref)
 
-                work.append(_WorkItem(it=x.it, scan=x.scan, archivo_id=int(archivo.archivo_id)))
+                matched_refs_for_archivo: Set[str] = set()
+                for ref in refs:
+                    a = match.ref_to_archivo.get(ref)
+                    if a is None:
+                        continue
+                    if int(a.archivo_id) == int(archivo.archivo_id):
+                        matched_refs_for_archivo.add(ref)
+
+                w_item = _WorkItem(it=x.it, scan=x.scan, archivo_id=int(archivo.archivo_id))
+                work.append(w_item)
+                headers_render_by_work_id[id(w_item)] = matched_refs_for_archivo
                 archivo_ids.append(int(archivo.archivo_id))
 
             if not work and not revision_items:
@@ -495,7 +763,18 @@ class TiffService:
 
             # 2.6) precomputar estados + troqueles + vencido (SIN render ni S3 todavía)
             estado_render_by_archivo_id: Dict[int, Dict[str, Literal["V","A","R"]]] = {}
-            dto_cache_local = med_cache  # mismo cache por corrida
+            troquel_evals_by_archivo_id: Dict[int, List[_TroquelEval]] = {}
+            troquel_evals_by_work_id: Dict[int, List[_TroquelEval]] = {}
+
+            revision_work: List[_WorkItem] = []
+            for x in revision_items:
+                w_item = _WorkItem(
+                    it=x.it,
+                    scan=x.scan,
+                    archivo_id=0,
+                )
+                revision_work.append(w_item)
+                headers_render_by_work_id[id(w_item)] = set()
 
             all_codebars: set[str] = set()
 
@@ -505,15 +784,13 @@ class TiffService:
                     if cb:
                         all_codebars.add(cb)
 
-            missing_codebars = [
-                cb for cb in all_codebars
-                if cb not in med_cache
-            ]
+            for w in revision_work:
+                for cb in (w.scan.troqueles or []):
+                    cb = self._norm_str(cb)
+                    if cb:
+                        all_codebars.add(cb)
 
-            if missing_codebars:
-                batch_result = self._client.get_many_by_codebars(missing_codebars)
-                for cb, dto in batch_result.items():
-                    med_cache[cb] = dto
+            self._warm_medicamento_cache(med_cache, all_codebars)
 
             # además juntamos data para persistencia después del upload
             recetas_to_add: List[Recetas] = []
@@ -534,52 +811,24 @@ class TiffService:
                     archivo.vencido = esta_vencido
 
                 dets = detalles_by_archivo.get(w.archivo_id, [])
-                importe_por_cod: Dict[str, float] = {}
-                cods_detalle: Set[str] = set()
-                cant_por_cod: Dict[str, int] = {}
+                detalle_ctx = self._build_detalle_context(dets)
 
-                for d in dets:
-                    ca = self._norm_str(getattr(d, "cod_medic", None))
-                    if not ca:
-                        continue
-                    cods_detalle.add(ca)
-                    imp_cob = getattr(d, "importe_cobertura", 0)
-                    importe_por_cod[ca] = importe_por_cod.get(ca, 0.0) + float(imp_cob or 0)
-                    cant_por_cod[ca] = cant_por_cod.get(ca, 0) + int(getattr(d, "cantidad", 0) or 0)
-
-                counts: Dict[str, int] = dict(Counter(self._norm_str(c) for c in (w.scan.troqueles or []) if self._norm_str(c)))
-
-                estado_render_por_codebar: Dict[str, Literal["V","A","R"]] = {}
-                # los estados DB / dto / monto los vamos a recalcular al persistir (cuando ya tengamos receta_id).
-                # pero DTO lo cacheamos acá, así no hacemos HTTP 2 veces.
-                if counts:
-                    for codebar, qty_scan in counts.items():
-                        dto = med_cache.get(codebar)
-
-                        if dto is None:
-                            estado_render_por_codebar[codebar] = "A"
-                            continue
-
-                        ca = str(dto.code_alfabeta or "").strip()
-                        match_detalle = bool(ca) and (ca in cods_detalle)
-                        if not match_detalle:
-                            estado_render_por_codebar[codebar] = "R"
-                            continue
-
-                        # render siempre V si está en detalle (tu regla)
-                        estado_render_por_codebar[codebar] = "V"
-
-                estado_render_by_archivo_id[w.archivo_id] = estado_render_por_codebar
-
-            revision_work: List[_WorkItem] = []
-            for x in revision_items:
-                revision_work.append(
-                    _WorkItem(
-                        it=x.it,
-                        scan=x.scan,
-                        archivo_id=0,
-                    )
+                evals = self._evaluate_troqueles(
+                    scan_troqueles=(w.scan.troqueles or []),
+                    detalle=detalle_ctx,
+                    med_cache=med_cache,
                 )
+
+                troquel_evals_by_archivo_id[w.archivo_id] = evals
+                troquel_evals_by_work_id[id(w)] = evals
+                estado_render_by_archivo_id[w.archivo_id] = self._to_render_states(evals)
+
+            for w in revision_work:
+                evals = self._evaluate_revision_troqueles(
+                    scan_troqueles=(w.scan.troqueles or []),
+                    med_cache=med_cache,
+                )
+                troquel_evals_by_work_id[id(w)] = evals
 
             # 2.7) render+upload en paralelo (usa scan + estado_render)
             uploaded = self._parallel_render_upload(
@@ -587,6 +836,7 @@ class TiffService:
                 archivo_by_id=archivo_by_id,
                 prestador_imed=prestador_imed,
                 estado_render_by_work=estado_render_by_archivo_id,
+                headers_render_by_work_id=headers_render_by_work_id,
                 resumen=resumen,
             )
 
@@ -605,6 +855,7 @@ class TiffService:
 
             # crear recetas en memoria
             receta_by_archivo_id: Dict[int, Recetas] = {}
+            receta_by_work_id: Dict[int, Recetas] = {}
             for u in valid_uploaded:
 
                 if u.work.archivo_id == 0:
@@ -624,6 +875,7 @@ class TiffService:
                     )
 
                     recetas_to_add.append(receta)
+                    receta_by_work_id[id(u.work)] = receta
                     continue
 
                 archivo = archivo_by_id[u.work.archivo_id]
@@ -643,6 +895,7 @@ class TiffService:
                 )
                 recetas_to_add.append(receta)
                 receta_by_archivo_id[u.work.archivo_id] = receta
+                receta_by_work_id[id(u.work)] = receta
 
             s.add_all(recetas_to_add)
             s.flush()  # 1 flush por tanda
@@ -654,6 +907,24 @@ class TiffService:
                 w = u.work
 
                 if w.archivo_id == 0:
+                    receta = receta_by_work_id.get(id(w))
+                    if receta is None:
+                        continue
+
+                    evals = troquel_evals_by_work_id.get(id(w), [])
+                    for e in evals:
+                        troqueles_to_add.append(
+                            Troqueles(
+                                receta_id=receta.receta_id,
+                                codigo_barra=e.codebar,
+                                droga=e.droga_concat,
+                                presentacion=e.presentacion,
+                                code_alfabeta=e.code_alfabeta,
+                                monto=e.monto,
+                                cantidad=e.cantidad_scan,
+                                estado=EstadoTroquelEnum.A,
+                            )
+                        )
                     continue
 
                 archivo = archivo_by_id[w.archivo_id]
@@ -667,62 +938,20 @@ class TiffService:
                 if esta_vencido:
                     recetas_vencidas_ids.append(int(receta.receta_id))
 
-                # troqueles (recalcular estado DB + monto con detalle)
-                dets = detalles_by_archivo.get(w.archivo_id, [])
-                importe_por_cod: Dict[str, float] = {}
-                cods_detalle: Set[str] = set()
-                cant_por_cod: Dict[str, int] = {}
-
-                for d in dets:
-                    ca = self._norm_str(getattr(d, "cod_medic", None))
-                    if not ca:
-                        continue
-                    cods_detalle.add(ca)
-                    imp_cob = getattr(d, "importe_cobertura", 0)
-                    importe_por_cod[ca] = importe_por_cod.get(ca, 0.0) + float(imp_cob or 0)
-                    cant_por_cod[ca] = cant_por_cod.get(ca, 0) + int(getattr(d, "cantidad", 0) or 0)
-
-                counts: Dict[str, int] = dict(Counter(self._norm_str(c) for c in (w.scan.troqueles or []) if self._norm_str(c)))
-
-                if counts:
-                    for codebar, qty_scan in counts.items():
-                        dto = med_cache.get(codebar)
-
-                        if dto is None:
-                            estado_db = EstadoTroquelEnum.A
-                            code_alfabeta = 0
-                            droga_concat = None
-                            presentacion = None
-                        else:
-                            code_alfabeta = int(dto.code_alfabeta or 0)
-                            droga_concat = dto.drogas_concat
-                            presentacion = dto.presentacion
-
-                            ca = str(dto.code_alfabeta or "").strip()
-                            match_detalle = bool(ca) and (ca in cods_detalle)
-
-                            if not match_detalle:
-                                estado_db = EstadoTroquelEnum.R
-                            else:
-                                qty_det = int(cant_por_cod.get(ca, 0))
-                                estado_db = EstadoTroquelEnum.V if qty_det == int(qty_scan) else EstadoTroquelEnum.R
-
-                        monto = 0.0
-                        if code_alfabeta and str(code_alfabeta) in cods_detalle:
-                            monto = float(importe_por_cod.get(str(code_alfabeta), 0.0))
-
-                        troqueles_to_add.append(
-                            Troqueles(
-                                receta_id=receta.receta_id,
-                                codigo_barra=codebar,
-                                droga=droga_concat,
-                                presentacion=presentacion,
-                                code_alfabeta=code_alfabeta,
-                                monto=Decimal(monto),
-                                cantidad=int(qty_scan),
-                                estado=estado_db,
-                            )
+                evals = troquel_evals_by_work_id.get(id(w), troquel_evals_by_archivo_id.get(w.archivo_id, []))
+                for e in evals:
+                    troqueles_to_add.append(
+                        Troqueles(
+                            receta_id=receta.receta_id,
+                            codigo_barra=e.codebar,
+                            droga=e.droga_concat,
+                            presentacion=e.presentacion,
+                            code_alfabeta=e.code_alfabeta,
+                            monto=e.monto,
+                            cantidad=e.cantidad_scan,
+                            estado=e.estado,
                         )
+                    )
 
             if asoc_to_add:
                 s.add_all(asoc_to_add)

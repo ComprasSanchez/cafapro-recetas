@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import os
-import re
 import warnings
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional, Tuple, TypedDict, Literal
+from typing import Any, Callable, Dict, List, Optional, Tuple, TypedDict, Literal
 
 import cv2
 import easyocr
@@ -76,7 +75,7 @@ class TiffZBarMaskedScanner:
         ok, pages = cv2.imreadmulti(tiff_path, flags=cv2.IMREAD_COLOR)
 
         if ok and pages:
-            return pages
+            return list(pages)
 
         pages = []
         img = Image.open(tiff_path)
@@ -146,70 +145,49 @@ class TiffZBarMaskedScanner:
         headers = []
         dets = []
 
-        H, W = page_bgr.shape[:2]
+        H, _W = page_bgr.shape[:2]
 
         roi = page_bgr[int(H * 0.05):int(H * 0.28), :]
 
         gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
         gray = cv2.GaussianBlur(gray, (3, 3), 0)
 
-        # intento rápido con ZBAR
-        hits = zbar_decode(
-            gray,
-            symbols=[ZBarSymbol.CODE128, ZBarSymbol.CODE39]
-        )
-
-        if hits:
-
-            for b in hits:
-                value = b.data.decode("utf-8")
-
-                x, y, w, h = b.rect
-
-                headers.append(value)
-
-                dets.append({
-                    "page_idx": page_idx,
-                    "type": b.type,
-                    "value": value,
-                    "bbox": (x, y + int(H * 0.05), w, h),
-                    "source": "zbar"
-                })
-
-            return headers, dets
-
         # --------------------
-        # OCR fallback
+        # OCR only (headers)
         # --------------------
 
         results = EASY_OCR_READER.readtext(
             gray,
-            detail=0,
+            detail=1,
             paragraph=False,
             allowlist="0123456789"
         )
 
-        numbers = []
-
-        for text in results:
-            numbers.extend(re.findall(r"\d+", text))
-
-        ean = None
-        imed = ""
-
-        for n in numbers:
-
-            if len(n) == 13 and not ean:
-                ean = n
+        for item in results:
+            row: Any = item
+            if not isinstance(row, (list, tuple)) or len(row) < 2:
                 continue
 
-            imed += n
+            bbox_pts = row[0]
+            text = row[1]
+            raw_txt = self._norm_ocr_text(text)
+            if not raw_txt or not raw_txt.isdigit():
+                continue
 
-        if ean:
-            headers.append(ean)
+            rect = self._ocr_bbox_to_rect(bbox_pts)
+            if rect is None:
+                continue
 
-        if len(imed) >= 20:
-            headers.append(imed[:20])
+            x, y, w, hh = rect
+            bbox = (x, y + int(H * 0.05), w, hh)
+            headers.append(raw_txt)
+            dets.append({
+                "page_idx": page_idx,
+                "type": "OCR",
+                "value": raw_txt,
+                "bbox": bbox,
+                "source": "ocr",
+            })
 
         return headers, dets
 
@@ -229,32 +207,81 @@ class TiffZBarMaskedScanner:
 
         gray = cv2.cvtColor(page_bgr, cv2.COLOR_BGR2GRAY)
 
-        hits = zbar_decode(
-            gray,
-            symbols=[ZBarSymbol.EAN13]
-        )
+        symbols = [ZBarSymbol.EAN13]
+        upca = getattr(ZBarSymbol, "UPCA", None)
+        if upca is not None:
+            symbols.append(upca)
+
+        hits = zbar_decode(gray, symbols=symbols)
+
+        seen: set[tuple[str, int, int]] = set()
+        bucket = 16
 
         for b in hits:
-
-            value = b.data.decode("utf-8")
-
-            if not (value.isdigit() and len(value) == 13):
+            try:
+                value = b.data.decode("utf-8").strip()
+            except Exception:
                 continue
 
-            x,y,w,h = b.rect
+            value = "".join(ch for ch in value if ch.isdigit())
+
+            if not (value.isdigit() and len(value) in (12, 13)):
+                continue
+
+            x, y, w, hh = b.rect
+            cx = int((int(x) + int(w) / 2) // bucket)
+            cy = int((int(y) + int(hh) / 2) // bucket)
+            key = (value, cx, cy)
+
+            if key in seen:
+                continue
+            seen.add(key)
 
             troqueles.append(value)
 
             dets.append({
                 "page_idx": page_idx,
-                "type": "EAN13",
+                "type": str(getattr(b, "type", "EAN13")),
                 "value": value,
-                "bbox": (x,y,w,h),
+                "bbox": (int(x), int(y), int(w), int(hh)),
                 "source": "zbar",
-                "masked": False
+                "masked": False,
             })
 
         return troqueles, dets
+
+    @staticmethod
+    def _ocr_bbox_to_rect(bbox_pts) -> Optional[BBox]:
+        if not bbox_pts:
+            return None
+
+        xs: List[int] = []
+        ys: List[int] = []
+
+        for p in bbox_pts:
+            if not p or len(p) < 2:
+                continue
+            try:
+                xs.append(int(float(p[0])))
+                ys.append(int(float(p[1])))
+            except Exception:
+                continue
+
+        if not xs or not ys:
+            return None
+
+        x = min(xs)
+        y = min(ys)
+        w = max(1, max(xs) - x)
+        h = max(1, max(ys) - y)
+        return x, y, w, h
+
+    @staticmethod
+    def _norm_ocr_text(text: Any) -> str:
+        raw = f"{text}".strip()
+        if not raw:
+            return ""
+        return "".join(ch for ch in raw if not ch.isspace())
 
 
 # ============================================================
@@ -312,17 +339,13 @@ class TiffScanRenderer:
                     continue
 
                 x,y,w,h = d["bbox"]
-
-                cv2.rectangle(canvas,(x,y),(x+w,y+h),self.C_HEADER,2)
-
-                cv2.putText(
+                self._draw_center_line(
                     canvas,
-                    d["value"],
-                    (x,y-10),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.6,
+                    (x, y, w, h),
                     self.C_HEADER,
-                    2
+                    min_thickness=1,
+                    scale=0.05,
+                    y_factor=-0.55,
                 )
 
             # TROQUELES
@@ -339,18 +362,7 @@ class TiffScanRenderer:
                 estado = get_estado(val)
 
                 color = self.C_V if estado == "V" else (self.C_R if estado == "R" else self.C_A)
-
-                cv2.rectangle(canvas,(x,y),(x+w,y+h),color,2)
-
-                cv2.putText(
-                    canvas,
-                    f"{val} [{estado}]",
-                    (x,y-10),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.6,
-                    color,
-                    2
-                )
+                self._draw_center_line(canvas, (x, y, w, h), color, min_thickness=1, scale=0.08)
 
             ok, buf = cv2.imencode(".jpg", canvas, [int(cv2.IMWRITE_JPEG_QUALITY), self.jpg_quality])
 
@@ -363,6 +375,32 @@ class TiffScanRenderer:
                 out["back_bytes"] = buf.tobytes()
 
         return out
+
+    @staticmethod
+    def _draw_center_line(
+        canvas: np.ndarray,
+        bbox: BBox,
+        color: Tuple[int, int, int],
+        *,
+        min_thickness: int = 2,
+        scale: float = 0.12,
+        y_factor: float = 0.5,
+    ) -> None:
+        h_img, w_img = canvas.shape[:2]
+
+        x, y, w, h = bbox
+        if w <= 0 or h <= 0:
+            return
+
+        x1 = max(0, min(w_img - 1, int(x)))
+        x2 = max(0, min(w_img - 1, int(x + w)))
+        if x2 <= x1:
+            x2 = min(w_img - 1, x1 + 1)
+
+        y_mid = max(0, min(h_img - 1, int(y + (h * float(y_factor)))))
+        thickness = max(int(min_thickness), int(round(h * float(scale))))
+
+        cv2.line(canvas, (x1, y_mid), (x2, y_mid), color, thickness)
 
 
 # ============================================================

@@ -279,7 +279,7 @@ class AuditoriaVisualDialog(QDialog):
         self.tbl_arch_det = QTableWidget()
         self.tbl_arch_det.setColumnCount(9)
         self.tbl_arch_det.setHorizontalHeaderLabels([
-            "CodMedic", "Nombre", "Presentación", "Estado", "Nro Aut", "Cant.", "Imp Neto", "Imp OBS", "Desc"
+            "Codigo de Barra","CodMedic", "Nombre", "Presentación", "Estado", "Nro Aut", "Cant.", "Imp Neto", "Imp OBS", "Desc"
         ])
         self._setup_table(self.tbl_arch_det)
         right_l.addWidget(self.tbl_arch_det, 1)
@@ -611,15 +611,16 @@ class AuditoriaVisualDialog(QDialog):
         self.tbl_arch_det.setUpdatesEnabled(False)
         self.tbl_arch_det.setRowCount(len(rows))
         for i, d in enumerate(rows):
-            self._set_cell(self.tbl_arch_det, i, 0, str(getattr(d, "cod_medic", "") or ""))
-            self._set_cell(self.tbl_arch_det, i, 1, str(getattr(d, "nombre", "") or ""))
-            self._set_cell(self.tbl_arch_det, i, 2, str(getattr(d, "presentacion", "") or ""))
-            self._set_cell(self.tbl_arch_det, i, 3, str(getattr(d, "estado", "") or ""))
-            self._set_cell(self.tbl_arch_det, i, 4, str(getattr(d, "nro_autorizacion", "") or ""))
-            self._set_cell(self.tbl_arch_det, i, 5, str(getattr(d, "cantidad", "") or ""))
-            self._set_cell(self.tbl_arch_det, i, 6, self._fmt_money(Decimal(str(getattr(d, "importe_bruto", 0) or 0))))
-            self._set_cell(self.tbl_arch_det, i, 7, self._fmt_money(Decimal(str(getattr(d, "importe_cobertura", 0) or 0))))
-            self._set_cell(self.tbl_arch_det, i, 8, str(getattr(d, "descuento", "") or ""))
+            self._set_cell(self.tbl_arch_det, i, 0, str(getattr(d, "codigo_barra", "") or ""))
+            self._set_cell(self.tbl_arch_det, i, 1, str(getattr(d, "cod_medic", "") or ""))
+            self._set_cell(self.tbl_arch_det, i, 2, str(getattr(d, "nombre", "") or ""))
+            self._set_cell(self.tbl_arch_det, i, 3, str(getattr(d, "presentacion", "") or ""))
+            self._set_cell(self.tbl_arch_det, i, 4, str(getattr(d, "estado", "") or ""))
+            self._set_cell(self.tbl_arch_det, i, 5, str(getattr(d, "nro_autorizacion", "") or ""))
+            self._set_cell(self.tbl_arch_det, i, 6, str(getattr(d, "cantidad", "") or ""))
+            self._set_cell(self.tbl_arch_det, i, 7, self._fmt_money(Decimal(str(getattr(d, "importe_bruto", 0) or 0))))
+            self._set_cell(self.tbl_arch_det, i, 8, self._fmt_money(Decimal(str(getattr(d, "importe_cobertura", 0) or 0))))
+            self._set_cell(self.tbl_arch_det, i, 9, str(getattr(d, "descuento", "") or ""))
         self.tbl_arch_det.setUpdatesEnabled(True)
 
     # -------------------------
