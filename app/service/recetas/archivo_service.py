@@ -22,6 +22,32 @@ def _dec(v: Any) -> Decimal:
     except Exception:
         return Decimal("0")
 
+
+def _pct(v: Any) -> Decimal:
+    if v is None:
+        return Decimal("0")
+
+    s = str(v).strip()
+    if not s:
+        return Decimal("0")
+
+    if s.endswith("%"):
+        s = s[:-1].strip()
+
+    if "," in s:
+        s = s.replace(".", "").replace(",", ".")
+
+    try:
+        out = Decimal(s)
+    except Exception:
+        return Decimal("0")
+
+    if out < 0:
+        return Decimal("0")
+    if out > 100:
+        return Decimal("100")
+    return out
+
 def parse_date_any(v) -> date | None:
     if v is None or v == "":
         return None
@@ -193,14 +219,24 @@ class ArchivoService:
 
             imp_gral_raw_d = d.get("importe_gral")
             imp_obs_raw_d = d.get("importe_pami")
-            imp_bruto_raw_d = d.get("importe_bruto") or imp_gral_raw_d
-            imp_cobertura_raw_d = d.get("importe_cobertura") or imp_obs_raw_d
+            imp_bruto_raw_d = d.get("importe_bruto")
+            imp_cobertura_raw_d = d.get("importe_cobertura")
             desc = (d.get("desc") or "").strip() or None
 
             # si "importe_pami" viene tipo "40%" y desc está vacío
             if isinstance(imp_obs_raw_d, str) and "%" in imp_obs_raw_d and not desc:
                 desc = imp_obs_raw_d.strip()
                 imp_obs_raw_d = "0"
+
+            if imp_bruto_raw_d in (None, "") and imp_cobertura_raw_d in (None, ""):
+                # IMED CSV: bruto = importe_pami; cobertura = descuento aplicado sobre importe_pami
+                imp_pami_dec = _dec(imp_obs_raw_d)
+                pct_desc = _pct(desc)
+                imp_bruto_dec = imp_pami_dec
+                imp_cobertura_dec = imp_pami_dec * (pct_desc / Decimal("100"))
+            else:
+                imp_bruto_dec = _dec(imp_bruto_raw_d if imp_bruto_raw_d not in (None, "") else imp_gral_raw_d)
+                imp_cobertura_dec = _dec(imp_cobertura_raw_d if imp_cobertura_raw_d not in (None, "") else imp_obs_raw_d)
 
             # cantidad robusta
             try:
@@ -218,8 +254,8 @@ class ArchivoService:
                     estado=estado,
                     nro_autorizacion=nro_aut,
                     cantidad=cantidad,
-                    importe_bruto=_dec(imp_bruto_raw_d),
-                    importe_cobertura=_dec(imp_cobertura_raw_d),
+                    importe_bruto=imp_bruto_dec,
+                    importe_cobertura=imp_cobertura_dec,
                     descuento=desc,
                 )
             )
