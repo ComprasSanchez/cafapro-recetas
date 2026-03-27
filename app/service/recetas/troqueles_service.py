@@ -128,7 +128,7 @@ class TroquelesService:
                 continue
             cods.add(ca)
 
-            v = getattr(d, "importe_cobertura", None)
+            v = getattr(d, "importe_bruto", None)
             v = Decimal(str(v)) if v is not None else Decimal("0")
             imp[ca] = imp.get(ca, Decimal("0")) + v
 
