@@ -91,6 +91,9 @@ class CargaRecepcionTab(BaseTabWidget):
         self.btn_dias_descargados.setEnabled(enabled)
         self.de_fecha.setEnabled(enabled)
 
+    def _show_job_error(self, err: str) -> None:
+        QMessageBox.critical(self, "Error del proceso", err)
+
     # --------------------------
     # Header
     # --------------------------
@@ -267,7 +270,7 @@ class CargaRecepcionTab(BaseTabWidget):
             recepcion_id=rid,
             title="Cargando recepción…",
             on_result=self._apply_recepcion,
-            on_error=lambda err: QMessageBox.critical(self, "Error (worker)", err),
+            on_error=self._show_job_error,
         )
 
     def _on_new_recepcion(self):
@@ -282,7 +285,7 @@ class CargaRecepcionTab(BaseTabWidget):
             )
             return
 
-        QMessageBox.information(self, "OK", "Recepción creada. Ahora seleccionála con 'Elegir recepción…'.")
+        QMessageBox.information(self, "Listo", "Recepción creada. Ahora seleccionála con 'Elegir recepción…'.")
 
     def _apply_recepcion(self, out: LoadRecepcionOut) -> None:
         self._recepcion_id = out.recepcion_id
@@ -316,7 +319,7 @@ class CargaRecepcionTab(BaseTabWidget):
             QMessageBox.warning(self, "Atención", "Primero seleccioná una recepción.")
             return
         if not self.imed or not self.obs:
-            QMessageBox.warning(self, "Atención", "La recepción seleccionada no tiene IMED/Obra Social.")
+            QMessageBox.warning(self, "Atención", "La recepción seleccionada no tiene IMED/obra social.")
             return
 
         date_str = self.de_fecha.date().toString("dd/MM/yyyy")
@@ -384,10 +387,10 @@ class CargaRecepcionTab(BaseTabWidget):
         resumen = out.resumen
 
         msg = (
-            f"OK: {resumen.ok}\n"
-            f"Sin match: {resumen.sin_match}\n"
-            f"Duplicados (nro_referencia en múltiples Archivo): {resumen.duplicados}\n"
-            f"Ya asociados: {resumen.ya_asociado}"
+            f"Procesadas: {resumen.ok}\n"
+            f"Sin coincidencia: {resumen.sin_match}\n"
+            f"Duplicadas (nro_referencia en múltiples archivos): {resumen.duplicados}\n"
+            f"Ya asociadas: {resumen.ya_asociado}"
         )
         if getattr(resumen, "errores", None):
             errs = resumen.errores or []
@@ -396,7 +399,7 @@ class CargaRecepcionTab(BaseTabWidget):
                 if len(errs) > 10:
                     msg += f"\n... y {len(errs) - 10} más"
 
-        QMessageBox.information(self, "Procesar", msg)
+        QMessageBox.information(self, "Resultado del procesamiento", msg)
 
     def _on_open_debitos(self) -> None:
         if not self._recepcion_id:
@@ -453,7 +456,7 @@ class CargaRecepcionTab(BaseTabWidget):
             self,
             "Cerrar recepción",
             f"¿Querés cerrar la recepción #{self.in_numero.text()}?\n"
-            "Se cambiará su estado a CERRADO.",
+            "Se cambiará su estado a CERRADA.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if ans != QMessageBox.StandardButton.Yes:
@@ -464,13 +467,13 @@ class CargaRecepcionTab(BaseTabWidget):
             recepcion_id=self._recepcion_id,
             title="Cerrando recepción…",
             on_result=self._on_recepcion_cerrada,
-            on_error=lambda err: QMessageBox.critical(self, "Error (worker)", err),
+            on_error=self._show_job_error,
         )
 
     def _on_recepcion_cerrada(self, out) -> None:
         rid = getattr(out, "recepcion_id", None) or self._recepcion_id
         self.footer_set(info=f"Recepción {rid} cerrada")
-        QMessageBox.information(self, "OK", f"Recepción {rid} cerrada (estado=2).")
+        QMessageBox.information(self, "Listo", f"Recepción {rid} cerrada correctamente.")
 
         # opcional: deshabilitar acciones al cerrar
         self.btn_cargar.setEnabled(False)

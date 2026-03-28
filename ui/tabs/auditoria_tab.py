@@ -934,7 +934,7 @@ class AuditoriaTab(BaseTabWidget):
         nro_receta = dlg.numero_receta()
 
         if not nro_receta:
-            QMessageBox.warning(self, "Atención", "Debe ingresar un número de receta.")
+            QMessageBox.warning(self, "Atención", "Debés ingresar un número de receta.")
             return
 
         resp = QMessageBox.question(
@@ -968,7 +968,7 @@ class AuditoriaTab(BaseTabWidget):
         nro_receta = dlg.numero_receta()
 
         if not nro_receta:
-            QMessageBox.warning(self, "Atención", "Debe ingresar un número de receta.")
+            QMessageBox.warning(self, "Atención", "Debés ingresar un número de receta.")
             return
 
         resp = QMessageBox.question(
@@ -996,7 +996,7 @@ class AuditoriaTab(BaseTabWidget):
             self,
             "Eliminar receta",
             (
-                f"¿Seguro que desea eliminar la receta?\n\n"
+                f"¿Seguro que querés eliminar la receta?\n\n"
                 "Esta acción eliminará también las imágenes del sistema "
                 "y no se puede deshacer."
             ),
@@ -1019,7 +1019,7 @@ class AuditoriaTab(BaseTabWidget):
         resp = QMessageBox.warning(
             self,
             "Desasociar receta",
-            "¿Seguro que desea desasociar la receta?\n\n"
+            "¿Seguro que querés desasociar la receta?\n\n"
             "Se restaurará el historial anterior.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
@@ -1080,15 +1080,15 @@ class AuditoriaTab(BaseTabWidget):
         self._set_item(i, self.COL_REF, ref)
         self._set_item(i, self.COL_LOTE, lote)
 
-        self._set_item(i, self.COL_RECETA_OK, "SI" if r.existe_receta else "NO", align=Qt.AlignCenter)
-        self._set_item(i, self.COL_ARCHIVO_OK, "SI" if r.existe_archivo else "NO", align=Qt.AlignCenter)
+        self._set_item(i, self.COL_RECETA_OK, "Sí" if r.existe_receta else "No", align=Qt.AlignCenter)
+        self._set_item(i, self.COL_ARCHIVO_OK, "Sí" if r.existe_archivo else "No", align=Qt.AlignCenter)
 
         self._set_item(i, self.COL_RECON, f"{r.importe_reconocido:.2f}", align=Qt.AlignRight)
         self._set_item(i, self.COL_OFI, f"{r.importe_oficial:.2f}", align=Qt.AlignRight)
 
         self._set_item(i, self.COL_ESTADO, r.estado_receta)
 
-        deb = "SI" if (r.auditada and r.flag_debitos) else ("NO" if r.auditada else "-")
+        deb = "Sí" if (r.auditada and r.flag_debitos) else ("No" if r.auditada else "-")
         self._set_item(i, self.COL_DEBITOS, deb, align=Qt.AlignCenter)
 
         self._apply_row_colors(i, r)

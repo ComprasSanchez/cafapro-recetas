@@ -17,39 +17,39 @@ def build_header_actions(main_window, current_user) -> dict[str, list[HeaderActi
         "Recepción": [
             HeaderAction(
                 key="recepcion_window",
-                text="Listado Recepcion",
+                text="Listado de recepciones",
                 kind="window",
                 window_factory=lambda: RecepcionesWindow(main_window, creado_por_usuario_id=current_user.usuario_id),
             ),
             HeaderAction(
                 key="carga_recepcion_tab",
-                text="Carga Recepcion",
+                text="Carga de recepción",
                 kind="tab",
                 tab_key="carga-recepcion-handler",
             ),
             HeaderAction(
                 key="listado_debitos_window",
-                text="Listado Debitos",
+                text="Listado de débitos",
                 kind="window",
                 window_factory=lambda: ListadoDebitosWindow(main_window),
             ),
             HeaderAction(
                 key="exluidos_window",
-                text="Exluidos",
+                text="Excluidos",
                 kind="window",
                 window_factory=lambda: ExcluidosWindow(main_window)
             ),
             HeaderAction(
                 key="resumen_recepcion_window",
-                text="Resumen Recepcion",
+                text="Resumen de recepción",
                 kind="window",
                 window_factory=lambda: ResumenRecepcionWindow(main_window),
             )
         ],
-        "Periodo": [
+        "Período": [
             HeaderAction(
                 key="periodo_window",
-                text="Listado Periodos",
+                text="Listado de períodos",
                 kind="window",
                 window_factory=lambda: PeriodosWindow(main_window),
             )
@@ -62,10 +62,10 @@ def build_header_actions(main_window, current_user) -> dict[str, list[HeaderActi
                 window_factory=lambda: UsuariosWindow(main_window),
             )
         ],
-        "Auditoria": [
+        "Auditoría": [
             HeaderAction(
                 key="tab_auditoria",
-                text="Auditoria",
+                text="Auditoría",
                 kind="tab",
                 tab_key="auditoria",
             )
@@ -73,7 +73,7 @@ def build_header_actions(main_window, current_user) -> dict[str, list[HeaderActi
         "Archivo": [
             HeaderAction(
                 key="archivo_cvs_tab",
-                text="Carga CVS",
+                text="Carga de CSV",
                 kind="tab",
                 tab_key="archivo-cvs",
             )
@@ -105,7 +105,7 @@ def build_header_actions(main_window, current_user) -> dict[str, list[HeaderActi
             ),
             HeaderAction(
                 key="Motivos Debitos",
-                text="Motivos Debitos",
+                text="Motivos de débitos",
                 kind="window",
                 window_factory=lambda: MotivosDebitosWindow(main_window),
             )

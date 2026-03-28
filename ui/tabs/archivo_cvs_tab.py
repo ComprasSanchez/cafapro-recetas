@@ -156,7 +156,7 @@ class ArchivoCvsTab(BaseTabWidget):
         self.btn_subir = QPushButton("Subir")
         self.btn_subir.setFixedSize(90, 26)
 
-        self.btn_dias_descargados = QPushButton("Días Descargados")
+        self.btn_dias_descargados = QPushButton("Días descargados")
         self.btn_dias_descargados.setFixedSize(120, 26)
 
         right_box = QWidget()
@@ -492,7 +492,7 @@ class ArchivoCvsTab(BaseTabWidget):
 
     def _on_subir(self):
         if not self._recepcion_id:
-            QMessageBox.warning(self, "Atención", "Seleccione la recepción.")
+            QMessageBox.warning(self, "Atención", "Seleccioná la recepción.")
             return
 
         if not self._recetas_por_ref:
@@ -544,7 +544,7 @@ class ArchivoCvsTab(BaseTabWidget):
             f"Listo.\n\n"
             f"Insertadas: {out.inserted}\n"
             f"Salteadas (ya existían): {out.skipped}\n"
-            f"Con error: {out.failed}"
+            f"Con errores: {out.failed}"
         )
 
         if out.errores:

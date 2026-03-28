@@ -99,7 +99,7 @@ class ListadoDebitosWindow(QDialog):
         self.btn_pick.clicked.connect(self._pick_recepcion)
         hc.addWidget(self.btn_pick, 0)
 
-        self.btn_reload = QPushButton("Refrescar")
+        self.btn_reload = QPushButton("Recargar")
         self.btn_reload.setProperty("variant", "primary")
         self.btn_reload.setMinimumHeight(32)
         self.btn_reload.setEnabled(False)
@@ -138,7 +138,7 @@ class ListadoDebitosWindow(QDialog):
             "Orden lote",
             "N° receta",
             "N° referencia",
-            "Fecha Auditoria",
+            "Fecha auditoría",
             "Total",
             "A cargo OBS",
             "Débito",
@@ -196,7 +196,7 @@ class ListadoDebitosWindow(QDialog):
         btn_close.setMinimumHeight(32)
         btn_close.clicked.connect(self.close)
 
-        self.btn_download = QPushButton("Descargar + PDF Mal Entregados")
+        self.btn_download = QPushButton("Descargar imágenes + PDF de mal entregados")
         self.btn_download.setMinimumHeight(32)
         self.btn_download.clicked.connect(self._download_wrong_debitos)
 
@@ -266,7 +266,7 @@ class ListadoDebitosWindow(QDialog):
             self._apply_table_filter()
 
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"No se pudo cargar los débitos.\n\n{e}")
+            QMessageBox.critical(self, "Error", f"No se pudieron cargar los débitos.\n\n{e}")
 
     def _render(self, rows) -> None:
         selected_receta_id = self._selected_receta_id()
@@ -727,7 +727,7 @@ class ListadoDebitosWindow(QDialog):
 
         folder = QFileDialog.getExistingDirectory(
             self,
-            "Seleccionar carpeta"
+            "Seleccionar carpeta de destino"
         )
 
         if not folder:
@@ -781,7 +781,7 @@ class ListadoDebitosWindow(QDialog):
 
         QMessageBox.information(
             self,
-            "Mal entregados",
+            "Descarga finalizada",
             msg,
         )
 

@@ -33,10 +33,10 @@ class TabsManager(QTabWidget):
 
     def _create_tab(self, key: str):
         if key == "carga-recepcion-handler":
-            return CargaRecepcionTab(creado_por_usuario_id=self.current_user.usuario_id, parent=self), "Carga Recepcion"
+            return CargaRecepcionTab(creado_por_usuario_id=self.current_user.usuario_id, parent=self), "Carga de recepción"
         if key == "archivo-cvs":
-            return ArchivoCvsTab(self), "Archivo CVS"
+            return ArchivoCvsTab(self), "Archivo CSV"
         if key == "auditoria":
-            return AuditoriaTab(self, creado_por_usuario_id=self.current_user.usuario_id), "Auditoria"
+            return AuditoriaTab(self, creado_por_usuario_id=self.current_user.usuario_id), "Auditoría"
 
         raise KeyError(f"Tab no registrada: {key}")

@@ -272,14 +272,14 @@ class AuditoriaVisualDialog(QDialog):
         right_l.setContentsMargins(12, 12, 12, 12)
         right_l.setSpacing(8)
 
-        lb_a = QLabel("Archivo detalle")
+        lb_a = QLabel("Detalle de archivo")
         lb_a.setProperty("role", "subtitle")
         right_l.addWidget(lb_a, 0)
 
         self.tbl_arch_det = QTableWidget()
         self.tbl_arch_det.setColumnCount(9)
         self.tbl_arch_det.setHorizontalHeaderLabels([
-            "Codigo de Barra","CodMedic", "Nombre", "Presentación", "Estado", "Nro Aut", "Cant.", "Imp Neto", "Imp OBS", "Desc"
+            "Código de barra", "Código Medic.", "Nombre", "Presentación", "Estado", "N° Aut.", "Cant.", "Imp. neto", "Imp. O.S.", "Desc."
         ])
         self._setup_table(self.tbl_arch_det)
         right_l.addWidget(self.tbl_arch_det, 1)
@@ -415,8 +415,8 @@ class AuditoriaVisualDialog(QDialog):
         lay.setContentsMargins(12, 12, 12, 12)
         lay.setSpacing(10)
 
-        self.card_a_cargo, self.lb_a_cargo = self._mk_resumen_card("A cargo OBS")
-        self.card_pvp_pami, self.lb_imp_obs = self._mk_resumen_card("A cargo Afiliado")
+        self.card_a_cargo, self.lb_a_cargo = self._mk_resumen_card("A cargo O.S.")
+        self.card_pvp_pami, self.lb_imp_obs = self._mk_resumen_card("A cargo afiliado")
         self.card_pvp, self.lb_imp_neto = self._mk_resumen_card("Total")
 
         lay.addWidget(self.card_pvp, 1)
@@ -743,7 +743,7 @@ class AuditoriaVisualDialog(QDialog):
 
     def _ui_error_preview(self, lado: str, err_text: str) -> None:
         lines = [l.strip() for l in (err_text or "").splitlines() if l.strip()]
-        nice = lines[-1] if lines else "Error cargando imagen."
+        nice = lines[-1] if lines else "Error al cargar la imagen."
 
         viewer = self.img_frente if lado == "F" else self.img_dorso
         viewer.set_pixmap(None)
@@ -864,7 +864,7 @@ class AuditoriaVisualDialog(QDialog):
 
         receta_id = int(getattr(self.data.receta, "receta_id", 0) or 0)
         if not receta_id:
-            QMessageBox.critical(self, "Error", "No se pudo determinar receta_id.")
+            QMessageBox.critical(self, "Error", "No se pudo determinar la receta.")
             return
 
         # -------- PARSE FECHAS --------
@@ -1059,7 +1059,7 @@ class AuditoriaVisualDialog(QDialog):
 
         troquel_id = int(it0.data(Qt.ItemDataRole.UserRole) or 0)
         if not troquel_id:
-            QMessageBox.warning(self, "Error", "No se pudo determinar troquel_id.")
+            QMessageBox.warning(self, "Error", "No se pudo determinar el troquel.")
             return
 
         codigo = (
@@ -1102,7 +1102,7 @@ class AuditoriaVisualDialog(QDialog):
 
         archivo_id = int(getattr(self.data.archivo, "archivo_id", 0) or 0)
         if not archivo_id:
-            QMessageBox.warning(self, "Error", "No se pudo determinar archivo_id.")
+            QMessageBox.warning(self, "Error", "No se pudo determinar el archivo.")
             return
 
         dlg = HistorialDialog(archivo_id_actual=archivo_id, parent=self)
@@ -1594,7 +1594,7 @@ class AuditoriaVisualDialog(QDialog):
         troquel_id = int(it0.data(Qt.ItemDataRole.UserRole) or 0)
 
         if not troquel_id:
-            QMessageBox.warning(self, "Error", "No se pudo determinar troquel_id.")
+            QMessageBox.warning(self, "Error", "No se pudo determinar el troquel.")
             return
 
         if estado == str(EstadoTroquelEnum.R):
