@@ -7,8 +7,7 @@ from PySide6.QtWidgets import (
     QHeaderView, QLineEdit
 )
 
-from app.db.session import session_scope
-from app.service.catalogos.vendedores_service import VendedoresService
+from ui.usecase.catalogos_windows_usecase import CatalogosWindowsUseCase
 
 
 class VendedoresWindow(QDialog):
@@ -156,8 +155,7 @@ class VendedoresWindow(QDialog):
     # ---------------- data ----------------
     def load_data(self) -> None:
         try:
-            with session_scope() as s:
-                rows = VendedoresService.list(s, solo_activos=False)  # ✅ trae todo
+            rows = CatalogosWindowsUseCase.list_vendedores(solo_activos=False)
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudieron cargar vendedores:\n{e}")
             return
@@ -193,8 +191,10 @@ class VendedoresWindow(QDialog):
         descripcion = self.in_descripcion.text().strip()
 
         try:
-            with session_scope() as s:
-                VendedoresService.create(s, codigo=codigo, descripcion=descripcion)
+            CatalogosWindowsUseCase.create_vendedor(
+                codigo=codigo,
+                descripcion=descripcion,
+            )
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
             return
@@ -213,13 +213,11 @@ class VendedoresWindow(QDialog):
         descripcion = self.in_descripcion.text().strip()
 
         try:
-            with session_scope() as s:
-                VendedoresService.update(
-                    s,
-                    vendedor_id=int(vendedor_id),
-                    codigo=codigo,
-                    descripcion=descripcion,
-                )
+            CatalogosWindowsUseCase.update_vendedor(
+                vendedor_id=int(vendedor_id),
+                codigo=codigo,
+                descripcion=descripcion,
+            )
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
             return
@@ -243,11 +241,10 @@ class VendedoresWindow(QDialog):
             return
 
         try:
-            with session_scope() as s:
-                if activo:
-                    VendedoresService.delete_logico(s, int(vendedor_id))
-                else:
-                    VendedoresService.restore(s, int(vendedor_id))
+            CatalogosWindowsUseCase.set_vendedor_activo(
+                vendedor_id=int(vendedor_id),
+                activo=not bool(activo),
+            )
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
             return

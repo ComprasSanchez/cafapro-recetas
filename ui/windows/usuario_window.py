@@ -7,9 +7,8 @@ from PySide6.QtWidgets import (
     QFrame, QHeaderView
 )
 
-from app.db.session import session_scope
-from app.service.catalogos.usuario_service import UsuariosService
 from ui.dialogs.usuario_create_dialog import UsuarioCreateDialog
+from ui.usecase.catalogos_windows_usecase import CatalogosWindowsUseCase
 
 
 class UsuariosWindow(QDialog):
@@ -100,8 +99,7 @@ class UsuariosWindow(QDialog):
 
     def load_data(self) -> None:
         try:
-            with session_scope() as s:
-                users = UsuariosService.list(s)
+            users = CatalogosWindowsUseCase.list_usuarios()
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudieron cargar usuarios:\n{e}")
             return
@@ -157,8 +155,7 @@ class UsuariosWindow(QDialog):
             return
 
         try:
-            with session_scope() as s:
-                UsuariosService.delete(s, uid)
+            CatalogosWindowsUseCase.delete_usuario(usuario_id=uid)
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
             return

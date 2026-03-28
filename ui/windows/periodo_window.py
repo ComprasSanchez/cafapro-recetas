@@ -9,8 +9,7 @@ from PySide6.QtWidgets import (
     QComboBox, QFrame, QHeaderView
 )
 
-from app.db.session import session_scope
-from app.service.catalogos.periodo_service import PeriodoService
+from ui.usecase.catalogos_windows_usecase import CatalogosWindowsUseCase
 
 
 MESES = [
@@ -155,8 +154,7 @@ class PeriodosWindow(QDialog):
     # ---------------- data ----------------
     def load_data(self) -> None:
         try:
-            with session_scope() as s:
-                periodos = PeriodoService.list(s, solo_activos=False)  # ✅ trae todo
+            periodos = CatalogosWindowsUseCase.list_periodos(solo_activos=False)
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudieron cargar períodos:\n{e}")
             return
@@ -200,8 +198,11 @@ class PeriodosWindow(QDialog):
         quincena = int(self.cb_quincena.currentData())
 
         try:
-            with session_scope() as s:
-                PeriodoService.create(s, anio=anio, mes=mes, quincena=quincena)
+            CatalogosWindowsUseCase.create_periodo(
+                anio=anio,
+                mes=mes,
+                quincena=quincena,
+            )
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
             return
@@ -231,11 +232,10 @@ class PeriodosWindow(QDialog):
             return
 
         try:
-            with session_scope() as s:
-                if activo:
-                    PeriodoService.delete_logico(s, pid)
-                else:
-                    PeriodoService.restore(s, pid)
+            CatalogosWindowsUseCase.set_periodo_activo(
+                periodo_id=int(pid),
+                activo=not bool(activo),
+            )
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
             return

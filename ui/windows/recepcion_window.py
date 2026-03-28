@@ -9,9 +9,8 @@ from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QMessageBox, QFrame, QHeaderView
 )
 
-from app.db.session import session_scope
-from app.service.recepcion.recepcion_service import RecepcionService
 from ui.dialogs.recepcion_create_dialog import RecepcionCreateDialog
+from ui.usecase.recepciones_windows_usecase import RecepcionesWindowsUseCase
 
 
 class RecepcionesWindow(QDialog):
@@ -130,8 +129,7 @@ class RecepcionesWindow(QDialog):
 
     def load_data(self):
         try:
-            with session_scope() as s:
-                rows = RecepcionService.list(s)
+            rows = RecepcionesWindowsUseCase.list_recepciones(include_closed=True)
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudieron cargar recepciones:\n{e}")
             return
@@ -188,8 +186,7 @@ class RecepcionesWindow(QDialog):
             return
 
         try:
-            with session_scope() as s:
-                RecepcionService.delete(s, rid)
+            RecepcionesWindowsUseCase.delete_recepcion(recepcion_id=rid)
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
             return

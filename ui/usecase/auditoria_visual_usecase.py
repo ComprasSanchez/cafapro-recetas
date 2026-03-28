@@ -6,6 +6,7 @@ from datetime import date
 from app.db.session import session_scope
 from app.service.auditoria.auditoria_visual_service import AuditoriaVisualService
 from app.service.catalogos.vendedores_service import VendedoresService
+from app.service.debitos.debitos_service import DebitoInput
 from app.service.recetas.recetas_service import RecetaService
 from app.service.recetas.troqueles_service import TroquelesService
 from app.service.debitos.debitos_service import DebitosService
@@ -56,15 +57,23 @@ class AuditoriaVisualUseCase:
         fecha_emision: date | None,
         fecha_venta: date,
         usuario_id: int,
-        debitos_inputs,
+        debitos_inputs: list[tuple[int, str | None]],
     ):
+
+        debitos = [
+            DebitoInput(
+                motivo_debito_id=int(motivo_id),
+                detalle=detalle,
+            )
+            for motivo_id, detalle in (debitos_inputs or [])
+        ]
 
         with session_scope() as s:
 
             DebitosService.replace_for_receta(
                 s,
                 receta_id=receta_id,
-                items=debitos_inputs,
+                items=debitos,
             )
 
             RecetaService.update_auditoria(

@@ -7,8 +7,7 @@ from PySide6.QtWidgets import (
     QHeaderView, QLineEdit
 )
 
-from app.db.session import session_scope
-from app.service.catalogos.prestador_service import PrestadorService
+from ui.usecase.catalogos_windows_usecase import CatalogosWindowsUseCase
 
 
 class PrestadoresWindow(QDialog):
@@ -166,8 +165,7 @@ class PrestadoresWindow(QDialog):
     # ---------------- data ----------------
     def load_data(self) -> None:
         try:
-            with session_scope() as s:
-                rows = PrestadorService.list(s, solo_activos=False)  # ✅ trae todo
+            rows = CatalogosWindowsUseCase.list_prestadores(solo_activos=False)
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudieron cargar prestadores:\n{e}")
             return
@@ -207,8 +205,11 @@ class PrestadoresWindow(QDialog):
         imed = self.in_imed.text().strip()
 
         try:
-            with session_scope() as s:
-                PrestadorService.create(s, codigo=codigo, nombre=nombre, imed=imed)
+            CatalogosWindowsUseCase.create_prestador(
+                codigo=codigo,
+                nombre=nombre,
+                imed=imed,
+            )
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
             return
@@ -229,14 +230,12 @@ class PrestadoresWindow(QDialog):
         imed = self.in_imed.text().strip()
 
         try:
-            with session_scope() as s:
-                PrestadorService.update(
-                    s,
-                    prestador_id=int(prestador_id),
-                    codigo=codigo,
-                    nombre=nombre,
-                    imed=imed,  # ✅ acá se actualiza el IMED
-                )
+            CatalogosWindowsUseCase.update_prestador(
+                prestador_id=int(prestador_id),
+                codigo=codigo,
+                nombre=nombre,
+                imed=imed,
+            )
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
             return
@@ -260,11 +259,10 @@ class PrestadoresWindow(QDialog):
             return
 
         try:
-            with session_scope() as s:
-                if activo:
-                    PrestadorService.delete_logico(s, int(prestador_id))
-                else:
-                    PrestadorService.restore(s, int(prestador_id))
+            CatalogosWindowsUseCase.set_prestador_activo(
+                prestador_id=int(prestador_id),
+                activo=not bool(activo),
+            )
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
             return

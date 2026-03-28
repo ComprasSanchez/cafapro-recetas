@@ -7,9 +7,7 @@ from PySide6.QtWidgets import (
     QHeaderView, QLineEdit, QComboBox
 )
 
-from app.db.session import session_scope
-from app.service.catalogos.obra_social_service import ObraSocialService
-from app.service.catalogos.plan_service import PlanService
+from ui.usecase.catalogos_windows_usecase import CatalogosWindowsUseCase
 
 
 class PlanWindow(QDialog):
@@ -130,8 +128,7 @@ class PlanWindow(QDialog):
     def _load_obras_sociales(self) -> None:
         self.cb_obra.clear()
         try:
-            with session_scope() as s:
-                obras = ObraSocialService.list(s, solo_activas=True)
+            obras = CatalogosWindowsUseCase.list_obras_sociales(solo_activas=True)
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudieron cargar obras sociales:\n{e}")
             return
@@ -143,8 +140,7 @@ class PlanWindow(QDialog):
 
     def load_data(self) -> None:
         try:
-            with session_scope() as s:
-                plans = PlanService.list(s, solo_activos=False)
+            plans = CatalogosWindowsUseCase.list_planes(solo_activos=False)
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudieron cargar planes:\n{e}")
             return
@@ -240,13 +236,11 @@ class PlanWindow(QDialog):
             return
 
         try:
-            with session_scope() as s:
-                PlanService.create(
-                    s,
-                    obra_social_id=int(obra_social_id),
-                    codigo=codigo,
-                    nombre=nombre,
-                )
+            CatalogosWindowsUseCase.create_plan(
+                obra_social_id=int(obra_social_id),
+                codigo=codigo,
+                nombre=nombre,
+            )
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
             return
@@ -270,14 +264,12 @@ class PlanWindow(QDialog):
             return
 
         try:
-            with session_scope() as s:
-                PlanService.update(
-                    s,
-                    plan_id=int(plan_id),
-                    obra_social_id=int(obra_social_id),
-                    codigo=codigo,
-                    nombre=nombre,
-                )
+            CatalogosWindowsUseCase.update_plan(
+                plan_id=int(plan_id),
+                obra_social_id=int(obra_social_id),
+                codigo=codigo,
+                nombre=nombre,
+            )
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
             return
@@ -305,11 +297,10 @@ class PlanWindow(QDialog):
             return
 
         try:
-            with session_scope() as s:
-                if activo:
-                    PlanService.delete_logico(s, int(plan_id))
-                else:
-                    PlanService.restore(s, int(plan_id))
+            CatalogosWindowsUseCase.set_plan_activo(
+                plan_id=int(plan_id),
+                activo=not bool(activo),
+            )
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
             return

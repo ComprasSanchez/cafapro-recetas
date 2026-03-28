@@ -9,9 +9,8 @@ from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QMessageBox, QHeaderView
 )
 
-from app.db.session import session_scope
-from app.service.auditoria.excluidos_service import ExcluidosService
 from ui.dialogs.recepcion_pick_dialog import RecepcionPickDialog
+from ui.usecase.recepciones_windows_usecase import RecepcionesWindowsUseCase
 
 
 class ExcluidosWindow(QDialog):
@@ -122,8 +121,9 @@ class ExcluidosWindow(QDialog):
             return
 
         try:
-            with session_scope() as s:
-                rows = ExcluidosService.list_by_recepcion(s, self._recepcion_id)
+            rows = RecepcionesWindowsUseCase.list_excluidos_by_recepcion(
+                recepcion_id=self._recepcion_id,
+            )
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudo cargar excluidos:\n{e}")
             return

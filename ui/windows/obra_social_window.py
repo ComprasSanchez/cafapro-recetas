@@ -8,8 +8,7 @@ from PySide6.QtWidgets import (
     QHeaderView, QLineEdit, QComboBox
 )
 
-from app.db.session import session_scope
-from app.service.catalogos.obra_social_service import ObraSocialService
+from ui.usecase.catalogos_windows_usecase import CatalogosWindowsUseCase
 
 
 class ObrasSocialesWindow(QDialog):
@@ -192,8 +191,7 @@ class ObrasSocialesWindow(QDialog):
     # ---------------- data ----------------
     def load_data(self) -> None:
         try:
-            with session_scope() as s:
-                rows = ObraSocialService.list(s, solo_activas=False)  # ✅ trae todo
+            rows = CatalogosWindowsUseCase.list_obras_sociales(solo_activas=False)
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudieron cargar obras sociales:\n{e}")
             return
@@ -244,15 +242,13 @@ class ObrasSocialesWindow(QDialog):
         codigo_fin = self.in_codigo_fin.text().strip()
 
         try:
-            with session_scope() as s:
-                ObraSocialService.create(
-                    s,
-                    codigo=codigo,
-                    nombre=nombre,
-                    validador=validador,
-                    dias_vencimiento=dias_venc or None,
-                    codigo_financiador=codigo_fin or None,
-                )
+            CatalogosWindowsUseCase.create_obra_social(
+                codigo=codigo,
+                nombre=nombre,
+                validador=validador,
+                dias_vencimiento=dias_venc or None,
+                codigo_financiador=codigo_fin or None,
+            )
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
             return
@@ -277,16 +273,14 @@ class ObrasSocialesWindow(QDialog):
         codigo_fin = self.in_codigo_fin.text().strip()
 
         try:
-            with session_scope() as s:
-                ObraSocialService.update(
-                    s,
-                    obra_social_id=obra_social_id,
-                    codigo=codigo,
-                    nombre=nombre,
-                    validador=validador,
-                    dias_vencimiento=dias_venc or None,
-                    codigo_financiador=codigo_fin or None,
-                )
+            CatalogosWindowsUseCase.update_obra_social(
+                obra_social_id=obra_social_id,
+                codigo=codigo,
+                nombre=nombre,
+                validador=validador,
+                dias_vencimiento=dias_venc or None,
+                codigo_financiador=codigo_fin or None,
+            )
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
             return
@@ -314,11 +308,10 @@ class ObrasSocialesWindow(QDialog):
             return
 
         try:
-            with session_scope() as s:
-                if activo:
-                    ObraSocialService.delete_logico(s, obra_social_id)
-                else:
-                    ObraSocialService.restore(s, obra_social_id)
+            CatalogosWindowsUseCase.set_obra_social_activa(
+                obra_social_id=obra_social_id,
+                activo=not bool(activo),
+            )
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
             return

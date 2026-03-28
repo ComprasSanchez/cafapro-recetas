@@ -11,10 +11,7 @@ from PySide6.QtWidgets import (
     QHeaderView, QAbstractItemView, QCompleter, QLineEdit
 )
 
-from app.db.session import session_scope
-from app.service.catalogos.periodo_service import PeriodoService
-from app.service.recepcion.recepcion_service import RecepcionService  # el nuevo
-from app.service.recepcion.view_resumen_recepcion_service import ViewResumenRecepcionService  # el nuevo
+from ui.usecase.recepciones_windows_usecase import RecepcionesWindowsUseCase
 
 def fmt_fecha_ymd(v) -> str:
     if not v:
@@ -134,8 +131,7 @@ class ResumenRecepcionWindow(QDialog):
         except Exception:
             pass
 
-        with session_scope() as s:
-            periodos = PeriodoService.list(s)
+        periodos = RecepcionesWindowsUseCase.list_periodos()
 
         self.cmb_periodo.blockSignals(True)
         self.cmb_periodo.clear()
@@ -202,8 +198,9 @@ class ResumenRecepcionWindow(QDialog):
             self._clear_table(self.tbl_prestadores)
             return
 
-        with session_scope() as s:
-            rows = ViewResumenRecepcionService.list_prestadores_resumen(s, periodo_id=int(self._periodo_id))
+        rows = RecepcionesWindowsUseCase.list_prestadores_resumen(
+            periodo_id=int(self._periodo_id),
+        )
 
         self.tbl_prestadores.setRowCount(len(rows))
         for i, it in enumerate(rows):
@@ -229,10 +226,10 @@ class ResumenRecepcionWindow(QDialog):
         self._clear_table(self.tbl_recepciones)
         self._clear_table(self.tbl_resumen)
 
-        with session_scope() as s:
-            receps = RecepcionService.list_recepciones(
-                s, periodo_id=int(self._periodo_id), prestador_id=int(self._prestador_id)
-            )
+        receps = RecepcionesWindowsUseCase.list_recepciones_resumen(
+            periodo_id=int(self._periodo_id),
+            prestador_id=int(self._prestador_id),
+        )
 
         self.tbl_recepciones.setRowCount(len(receps))
         for i, r in enumerate(receps):
@@ -256,8 +253,9 @@ class ResumenRecepcionWindow(QDialog):
 
         self._recepcion_id = int(recepcion_id)
 
-        with session_scope() as s:
-            res = ViewResumenRecepcionService.get_resumen_recepcion(s, recepcion_id=self._recepcion_id)
+        res = RecepcionesWindowsUseCase.get_resumen_recepcion(
+            recepcion_id=self._recepcion_id,
+        )
 
         self._clear_table(self.tbl_resumen)
 

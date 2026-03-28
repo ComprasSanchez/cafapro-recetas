@@ -12,8 +12,6 @@ from PySide6.QtWidgets import (
     QWidget, QInputDialog, QLineEdit, QMenu, QListWidget, QListWidgetItem, QToolButton, QStyle
 )
 
-from app.service.auditoria.auditoria_visual_service import AuditoriaVisualData
-from app.service.debitos.debitos_service import DebitoInput
 from ui.dialogs.estado_seguimeinto_pick_dialog import EstadoSeguimientoPickDialog
 from ui.dialogs.historial_dialog import HistorialDialog
 from ui.label.image_view_label import ImageViewer
@@ -56,7 +54,7 @@ class AuditoriaVisualDialog(QDialog):
         self._last_preview_path: dict[str, str | None] = {"F": None, "D": None}
 
         self.creado_por_usuario_id = creado_por_usuario_id
-        self.data: AuditoriaVisualData | None = None
+        self.data = None
         self.state = AuditoriaState()
 
         # navegación
@@ -87,7 +85,7 @@ class AuditoriaVisualDialog(QDialog):
             | Qt.WindowCloseButtonHint
         )
 
-        self._data_cache: dict[int, AuditoriaVisualData] = {}
+        self._data_cache: dict[int, object] = {}
 
         self._loading_overlay = QLabel("Cargando…", self)
         self._loading_overlay.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -510,7 +508,7 @@ class AuditoriaVisualDialog(QDialog):
     # ---------------------------------------------------------
     # Navega a una posición de la lista de asociaciones.
     # - limpia estado visual
-    # - usa cache si el registro ya fue cargado
+    # - usa caché si el registro ya fue cargado
     # - si no, dispara carga async
     # - inicia preload de registros siguientes
     # ---------------------------------------------------------
@@ -905,7 +903,7 @@ class AuditoriaVisualDialog(QDialog):
 
         # -------- CONSTRUCCIÓN DÉBITOS --------
         debitos_inputs = [
-            DebitoInput(motivo_debito_id=mid, detalle=det)
+            (mid, det)
             for mid, det in self.state.debitos.items()
         ]
 
@@ -1513,7 +1511,7 @@ class AuditoriaVisualDialog(QDialog):
     # Precarga previews de frente/dorso en background
     # y los guarda en cache de imágenes.
     # ---------------------------------------------------------
-    def _preload_images_for_data(self, data: AuditoriaVisualData):
+    def _preload_images_for_data(self, data):
 
         if not data:
             return

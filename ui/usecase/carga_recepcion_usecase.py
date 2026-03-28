@@ -7,7 +7,7 @@ from app.db.session import session_scope
 from app.infra.storage import s3_storage
 from app.service.recepcion.recepcion_service import RecepcionService
 from app.service.recetas.archivo_service import ArchivoService
-from app.service.recetas.tif_service import ProcesarItemIn, TiffService
+from app.service.recetas.tif_service import ProcesarItemIn as TiffProcesarItemIn, TiffService
 from app.service.recetas.historial_receta_service import HistorialRecetaService
 from core.image_handler import ImageHandler
 
@@ -26,6 +26,12 @@ class LoadRecepcionOut:
 @dataclass(frozen=True)
 class ListImagesOut:
     rows: list[dict]
+
+
+@dataclass(frozen=True)
+class ProcesarCargaIn:
+    file_name: str
+    full_path: str
 
 
 @dataclass(frozen=True)
@@ -78,9 +84,14 @@ class CargaRecepcionUseCase:
         return ListImagesOut(rows=rows)
 
     @staticmethod
-    def procesar(*, recepcion_id: int, usuario_id: int, items: list[ProcesarItemIn], ctx=None) -> ProcesarOut:
+    def procesar(*, recepcion_id: int, usuario_id: int, items: list[ProcesarCargaIn], ctx=None) -> ProcesarOut:
         if ctx:
             ctx.emit_progress(5, "Procesando TIFFs…")
+
+        input_items = [
+            TiffProcesarItemIn(file_name=x.file_name, full_path=x.full_path)
+            for x in (items or [])
+        ]
 
         with session_scope() as s:
             svc = TiffService(storage=s3_storage)
@@ -88,7 +99,7 @@ class CargaRecepcionUseCase:
                 s=s,
                 recepcion_id=recepcion_id,
                 usuario_id=usuario_id,
-                items=items,
+                items=input_items,
             )
 
             s.flush()

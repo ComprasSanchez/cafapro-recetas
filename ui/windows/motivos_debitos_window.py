@@ -8,8 +8,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView, QMessageBox, QMenu
 )
 
-from app.db.session import session_scope
-from app.service.debitos.motivos_debito_service import MotivosDebitosService
+from ui.usecase.motivos_debitos_usecase import MotivosDebitosUseCase
 
 
 class MotivosDebitosWindow(QDialog):
@@ -87,13 +86,10 @@ class MotivosDebitosWindow(QDialog):
             return
 
         try:
-            with session_scope() as s:
-                with session_scope() as s:
-                    MotivosDebitosService.create(
-                        s,
-                        descripcion=desc,
-                        lado=lado,
-                    )
+            MotivosDebitosUseCase.create_motivo(
+                descripcion=desc,
+                lado=lado,
+            )
 
             self.in_descripcion.clear()
             self._load_data()
@@ -103,8 +99,7 @@ class MotivosDebitosWindow(QDialog):
 
     # ---------------- LOAD ----------------
     def _load_data(self):
-        with session_scope() as s:
-            rows = MotivosDebitosService.list(s)
+        rows = MotivosDebitosUseCase.list_motivos()
 
         self.tbl.setRowCount(len(rows))
 
@@ -127,8 +122,7 @@ class MotivosDebitosWindow(QDialog):
     # ---------------- TOGGLE BAJA LÓGICA ----------------
     def _toggle(self, motivo_id: int):
         try:
-            with session_scope() as s:
-                MotivosDebitosService.toggle_activo(s, motivo_id)
+            MotivosDebitosUseCase.toggle_activo(motivo_id=motivo_id)
             self._load_data()
 
         except Exception as e:

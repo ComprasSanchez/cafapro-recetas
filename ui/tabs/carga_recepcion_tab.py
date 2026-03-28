@@ -9,7 +9,6 @@ from PySide6.QtWidgets import (
     QTableWidgetItem, QTableWidget, QAbstractItemView
 )
 
-from app.service.recetas.tif_service import ProcesarItemIn
 from config.config_manager import ConfigManager
 from ui.dialogs.dias_descargado_dialog import DiasDescargadosDialog
 from ui.dialogs.recepcion_create_dialog import RecepcionCreateDialog
@@ -21,6 +20,7 @@ from ui.usecase.carga_recepcion_usecase import (
     LoadRecepcionOut,
     ListImagesOut,
     ProcesarOut,
+    ProcesarCargaIn,
 )
 from ui.windows.excluidos_window import ExcluidosWindow
 from ui.windows.listado_debitos_window import ListadoDebitosWindow
@@ -361,12 +361,12 @@ class CargaRecepcionTab(BaseTabWidget):
             QMessageBox.warning(self, "Atención", "No hay imágenes cargadas para procesar.")
             return
 
-        items: list[ProcesarItemIn] = []
+        items: list[ProcesarCargaIn] = []
         for r in range(self.tbl_imgs.rowCount()):
             file_name = self.tbl_imgs.item(r, 0).text().strip() if self.tbl_imgs.item(r, 0) else ""
             full_path = self.tbl_imgs.item(r, 3).text().strip() if self.tbl_imgs.item(r, 3) else ""
             if file_name and full_path:
-                items.append(ProcesarItemIn(file_name=file_name, full_path=full_path))
+                items.append(ProcesarCargaIn(file_name=file_name, full_path=full_path))
 
         if not items:
             QMessageBox.warning(self, "Atención", "No hay rutas válidas para procesar.")
