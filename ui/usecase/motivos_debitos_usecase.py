@@ -1,25 +1,20 @@
 from __future__ import annotations
 
-from app.db.session import session_scope
-from app.service.debitos.motivos_debito_service import MotivosDebitosService
+from app.application.debitos_application import DebitosApplication
 
 
 class MotivosDebitosUseCase:
     @staticmethod
     def list_motivos() -> list:
-        with session_scope() as s:
-            return MotivosDebitosService.list(s)
+        return DebitosApplication.list_motivos()
 
     @staticmethod
     def create_motivo(*, descripcion: str, lado: str) -> None:
-        with session_scope() as s:
-            MotivosDebitosService.create(
-                s,
-                descripcion=descripcion,
-                lado=lado,
-            )
+        DebitosApplication.create_motivo(
+            descripcion=descripcion,
+            lado=lado,
+        )
 
     @staticmethod
     def toggle_activo(*, motivo_id: int) -> None:
-        with session_scope() as s:
-            MotivosDebitosService.toggle_activo(s, int(motivo_id))
+        DebitosApplication.toggle_motivo_activo(motivo_id=int(motivo_id))
