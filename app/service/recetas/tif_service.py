@@ -1,18 +1,13 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
-from decimal import Decimal
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Set, Literal, Iterable
-from collections import Counter
+from datetime import datetime
+from typing import Dict, List, Optional, Set, Literal, Iterable
 import os
-
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from sqlalchemy.orm import Session
 
 from app.adapters.sqlalchemy.tif_repository import TifRepository
-from core.process_tif import TiffProcessor, ScanOut
+from core.process_tif import TiffProcessor
 from app.db.models import (
     Archivo,
     ArchivoDetalle,
@@ -25,6 +20,20 @@ from app.db.models import (
 from app.infra.s3_storage import S3Storage
 from app.service.integraciones.medicamento_client import MedicamentoClient
 from app.dto.medicamentos_dto import MedicamentoDTO
+from app.service.recetas.tif_logic import (
+    archivo_ts,
+    base_from_tif_path,
+    build_detalle_context,
+    esta_vencido,
+    evaluate_revision_troqueles,
+    evaluate_troqueles,
+    is_valesalud,
+    match_all_refs,
+    norm_str,
+    to_render_states,
+    warm_medicamento_cache,
+)
+from app.service.recetas.tif_parallel import parallel_render_upload, parallel_scan
 from app.service.recetas.tif_types import (
     ProcesarItemIn,
     ProcesarResumen,
@@ -70,14 +79,7 @@ class TiffService:
     # -------------------------
     @staticmethod
     def _norm_str(x) -> str:
-        return str(x).strip() if x is not None else ""
-
-    @classmethod
-    def _ref_candidates(cls, token: str) -> List[str]:
-        raw = cls._norm_str(token)
-        if not raw:
-            return []
-        return [raw]
+        return norm_str(x)
 
     @staticmethod
     def _exists_processed_base_in_recepcion(s: Session, recepcion_id: int, base_name: str) -> bool:
@@ -89,305 +91,82 @@ class TiffService:
 
     @staticmethod
     def _archivo_ts(a: Archivo) -> datetime:
-        return datetime.fromisoformat(f"{a.fecha} {a.hora}")
+        return archivo_ts(a)
 
     @staticmethod
     def _esta_vencido(archivo_ts: datetime, fecha_presentacion: datetime, dias_vencimiento: int | None) -> bool:
-        if dias_vencimiento is None:
-            return False
-        cutoff = fecha_presentacion - timedelta(days=int(dias_vencimiento))
-        return archivo_ts < cutoff
+        return esta_vencido(archivo_ts, fecha_presentacion, dias_vencimiento)
 
     @staticmethod
     def _base_from_tif_path(full_path: str) -> str:
-        return Path(full_path).stem
+        return base_from_tif_path(full_path)
 
-    @classmethod
+    @staticmethod
     def _match_all_refs(
-        cls,
         s: Session,
         recepcion_id: int,
         refs: List[str],
         *,
         only_referencia: bool = False,
     ) -> _MatchResult:
-        refs_set: Set[str] = {cls._norm_str(r) for r in refs if cls._norm_str(r)}
-        if not refs_set:
-            return _MatchResult(ref_to_archivo={}, duplicated_refs=set(), missing_refs=set())
-
-        by_candidate: Dict[str, Set[str]] = {}
-        for ref in refs_set:
-            for cand in cls._ref_candidates(ref):
-                by_candidate.setdefault(cand, set()).add(ref)
-
-        candidate_values = list(by_candidate.keys())
-        if not candidate_values:
-            return _MatchResult(ref_to_archivo={}, duplicated_refs=set(), missing_refs=refs_set)
-
-        rows = TifRepository.list_archivos_for_match(
+        return match_all_refs(
             s,
             recepcion_id=int(recepcion_id),
-            candidate_values=candidate_values,
+            refs=refs,
             only_referencia=only_referencia,
         )
-
-        by_token: Dict[str, Dict[int, Archivo]] = {}
-        for a in rows:
-            tokens_to_check = [getattr(a, "nro_referencia", None)]
-            if not only_referencia:
-                tokens_to_check.append(getattr(a, "nro_receta", None))
-
-            for db_token in tokens_to_check:
-                db_candidates = cls._ref_candidates(cls._norm_str(db_token))
-                for cand in db_candidates:
-                    matched_refs = by_candidate.get(cand, set())
-                    if not matched_refs:
-                        continue
-                    for ref in matched_refs:
-                        bucket = by_token.setdefault(ref, {})
-                        bucket[int(a.archivo_id)] = a
-
-        duplicated = {tok for tok, arr in by_token.items() if len(arr) > 1}
-        missing = {tok for tok in refs_set if tok not in by_token}
-
-        ref_to_archivo: Dict[str, Optional[Archivo]] = {}
-        for tok in refs_set:
-            if tok in duplicated:
-                ref_to_archivo[tok] = None
-            else:
-                arr = by_token.get(tok)
-                ref_to_archivo[tok] = next(iter(arr.values())) if arr else None
-
-        return _MatchResult(ref_to_archivo=ref_to_archivo, duplicated_refs=duplicated, missing_refs=missing)
-
-    @staticmethod
-    def _year_month_from_basename_or_fallback(base_name: str, archivo: Archivo, tif_path: str) -> tuple[str, str]:
-        part = base_name.split("_", 1)[1] if "_" in base_name else base_name
-        if len(part) >= 6 and part[:6].isdigit():
-            yyyy = part[:4]
-            mm = part[4:6]
-            if len(yyyy) == 4 and 1 <= int(mm) <= 12:
-                return yyyy, mm
-        try:
-            fecha_txt = str(archivo.fecha)
-            yyyy, mm, _dd = fecha_txt.split("-", 2)
-            return yyyy, mm
-        except Exception:
-            ts = datetime.fromtimestamp(os.path.getmtime(tif_path))
-            return f"{ts.year:04d}", f"{ts.month:02d}"
-
-    @staticmethod
-    def _build_s3_keys(*, prestador_imed: str, yyyy: str, mm: str, base_name: str) -> tuple[str, str]:
-        base = f"{prestador_imed}/{yyyy}/{mm}"
-        return (f"{base}/{base_name}_f.jpg", f"{base}/{base_name}_d.jpg")
-
-    @classmethod
-    def _codebar_candidates(cls, codebar: str) -> List[str]:
-        raw = cls._norm_str(codebar)
-        if not raw:
-            return []
-        return [raw]
 
     def _warm_medicamento_cache(
         self,
         med_cache: Dict[str, Optional[MedicamentoDTO]],
         codebars: Set[str],
     ) -> None:
-        missing = [cb for cb in codebars if cb and cb not in med_cache]
-        if not missing:
-            return
-
-        variants_by_codebar: Dict[str, List[str]] = {
-            cb: self._codebar_candidates(cb)
-            for cb in missing
-        }
-
-        to_fetch: Set[str] = set()
-        for variants in variants_by_codebar.values():
-            for v in variants:
-                if v not in med_cache:
-                    to_fetch.add(v)
-
-        if to_fetch:
-            batch_result = self._client.get_many_by_codebars(list(to_fetch))
-            for cb, dto in batch_result.items():
-                med_cache[cb] = dto
-
-        for original, variants in variants_by_codebar.items():
-            chosen: Optional[MedicamentoDTO] = None
-            for v in variants:
-                dto = med_cache.get(v)
-                if dto is not None:
-                    chosen = dto
-                    break
-            med_cache[original] = chosen
-
-    @classmethod
-    def _build_detalle_context(cls, dets: List[ArchivoDetalle]) -> _DetalleContext:
-        cods_detalle: Set[str] = set()
-        cant_por_cod: Dict[str, int] = {}
-        importe_por_cod: Dict[str, Decimal] = {}
-
-        for d in dets:
-            ca = cls._norm_str(getattr(d, "cod_medic", None))
-            if not ca:
-                continue
-
-            cods_detalle.add(ca)
-
-            cant_por_cod[ca] = cant_por_cod.get(ca, 0) + int(getattr(d, "cantidad", 0) or 0)
-
-            imp_cob = getattr(d, "importe_bruto", 0)
-            imp_dec = Decimal(str(imp_cob or 0))
-            importe_por_cod[ca] = importe_por_cod.get(ca, Decimal("0")) + imp_dec
-
-        return _DetalleContext(
-            cods_detalle=cods_detalle,
-            cant_por_cod=cant_por_cod,
-            importe_por_cod=importe_por_cod,
+        warm_medicamento_cache(
+            self._client,
+            med_cache,
+            codebars,
         )
 
-    @classmethod
+    @staticmethod
+    def _build_detalle_context(dets: List[ArchivoDetalle]) -> _DetalleContext:
+        return build_detalle_context(dets)
+
+    @staticmethod
     def _evaluate_troqueles(
-        cls,
         scan_troqueles: List[str],
         detalle: _DetalleContext,
         med_cache: Dict[str, Optional[MedicamentoDTO]],
     ) -> List[_TroquelEval]:
-        counts: Dict[str, int] = dict(
-            Counter(
-                cls._norm_str(c)
-                for c in (scan_troqueles or [])
-                if cls._norm_str(c)
-            )
+        return evaluate_troqueles(
+            scan_troqueles=scan_troqueles,
+            detalle=detalle,
+            med_cache=med_cache,
         )
 
-        evals: List[_TroquelEval] = []
-
-        for codebar, qty_scan in counts.items():
-            dto = med_cache.get(codebar)
-
-            if dto is None:
-                evals.append(
-                    _TroquelEval(
-                        codebar=codebar,
-                        cantidad_scan=int(qty_scan),
-                        estado=EstadoTroquelEnum.A,
-                        code_alfabeta=0,
-                        droga_concat=None,
-                        presentacion=None,
-                        monto=Decimal("0"),
-                    )
-                )
-                continue
-
-            code_alfabeta = int(dto.code_alfabeta or 0)
-            ca = cls._norm_str(dto.code_alfabeta)
-            match_detalle = bool(ca) and (ca in detalle.cods_detalle)
-
-            if not match_detalle:
-                estado = EstadoTroquelEnum.R
-                monto = Decimal("0")
-            else:
-                qty_det = int(detalle.cant_por_cod.get(ca, 0))
-                estado = EstadoTroquelEnum.V if qty_det == int(qty_scan) else EstadoTroquelEnum.R
-                monto = detalle.importe_por_cod.get(ca, Decimal("0"))
-
-            evals.append(
-                _TroquelEval(
-                    codebar=codebar,
-                    cantidad_scan=int(qty_scan),
-                    estado=estado,
-                    code_alfabeta=code_alfabeta,
-                    droga_concat=dto.drogas_concat,
-                    presentacion=dto.presentacion,
-                    monto=monto,
-                )
-            )
-
-        return evals
-
-    @classmethod
+    @staticmethod
     def _evaluate_revision_troqueles(
-        cls,
         scan_troqueles: List[str],
         med_cache: Dict[str, Optional[MedicamentoDTO]],
     ) -> List[_TroquelEval]:
-        counts: Dict[str, int] = dict(
-            Counter(
-                cls._norm_str(c)
-                for c in (scan_troqueles or [])
-                if cls._norm_str(c)
-            )
+        return evaluate_revision_troqueles(
+            scan_troqueles=scan_troqueles,
+            med_cache=med_cache,
         )
-
-        evals: List[_TroquelEval] = []
-        for codebar, qty_scan in counts.items():
-            dto = med_cache.get(codebar)
-
-            if dto is None:
-                evals.append(
-                    _TroquelEval(
-                        codebar=codebar,
-                        cantidad_scan=int(qty_scan),
-                        estado=EstadoTroquelEnum.A,
-                        code_alfabeta=0,
-                        droga_concat=None,
-                        presentacion=None,
-                        monto=Decimal("0"),
-                    )
-                )
-                continue
-
-            evals.append(
-                _TroquelEval(
-                    codebar=codebar,
-                    cantidad_scan=int(qty_scan),
-                    estado=EstadoTroquelEnum.A,
-                    code_alfabeta=int(dto.code_alfabeta or 0),
-                    droga_concat=dto.drogas_concat,
-                    presentacion=dto.presentacion,
-                    monto=Decimal("0"),
-                )
-            )
-
-        return evals
 
     @staticmethod
     def _to_render_states(evals: List[_TroquelEval]) -> Dict[str, Literal["V", "A", "R"]]:
-        out: Dict[str, Literal["V", "A", "R"]] = {}
-
-        for e in evals:
-            if e.estado == EstadoTroquelEnum.V:
-                out[e.codebar] = "V"
-            elif e.estado == EstadoTroquelEnum.A:
-                out[e.codebar] = "A"
-            else:
-                out[e.codebar] = "R"
-
-        return out
+        return to_render_states(evals)
 
     # -------------------------
     # Paralelos
     # -------------------------
     def _parallel_scan(self, items: List[ProcesarItemIn], resumen: ProcesarResumen) -> List[_ScannedItem]:
-        out: List[_ScannedItem] = []
-
-        def job(it: ProcesarItemIn) -> Tuple[ProcesarItemIn, ScanOut]:
-            scan = self._tif.scan(it.full_path)  # carga pages internamente
-            return it, scan
-
-        with ThreadPoolExecutor(max_workers=self._scan_workers) as ex:
-            futs = [ex.submit(job, it) for it in items]
-            for fut in as_completed(futs):
-                try:
-                    it, scan = fut.result()
-                    out.append(_ScannedItem(it=it, scan=scan))
-                except Exception as e:
-                    # no tenemos it acá si explotó antes; lo dejamos genérico
-                    resumen.errores.append(f"scan error: {e}")
-
-        return out
+        return parallel_scan(
+            tif=self._tif,
+            items=items,
+            scan_workers=self._scan_workers,
+            resumen=resumen,
+        )
 
     def _parallel_render_upload(
             self,
@@ -399,95 +178,17 @@ class TiffService:
             headers_render_by_work_id: Dict[int, Set[str]],
             resumen: ProcesarResumen,
     ) -> List[_UploadResult]:
-
-        results: List[_UploadResult] = []
-
-        def job(w: _WorkItem) -> _UploadResult:
-            archivo = archivo_by_id.get(w.archivo_id)
-
-            base_name = self._base_from_tif_path(w.it.full_path)
-
-            if archivo:
-                yyyy, mm = self._year_month_from_basename_or_fallback(
-                    base_name, archivo, w.it.full_path
-                )
-            else:
-                ts = datetime.fromtimestamp(os.path.getmtime(w.it.full_path))
-                yyyy = f"{ts.year:04d}"
-                mm = f"{ts.month:02d}"
-
-            front_key, back_key = self._build_s3_keys(
-                prestador_imed=prestador_imed,
-                yyyy=yyyy,
-                mm=mm,
-                base_name=base_name,
-            )
-
-            estado = estado_render_by_work.get(w.archivo_id, {})
-
-            allowed_headers = {
-                self._norm_str(v)
-                for v in headers_render_by_work_id.get(id(w), set())
-                if self._norm_str(v)
-            }
-
-            if allowed_headers:
-                render_headers = [
-                    self._norm_str(v)
-                    for v in (w.scan.headers or [])
-                    if self._norm_str(v) in allowed_headers
-                ]
-                render_header_dets = [
-                    d
-                    for d in (w.scan.header_detections or [])
-                    if self._norm_str(d["value"]) in allowed_headers
-                ]
-            else:
-                render_headers = []
-                render_header_dets = []
-
-            scan_render = ScanOut(
-                base_name=w.scan.base_name,
-                headers=render_headers,
-                troqueles=w.scan.troqueles,
-                header_detections=render_header_dets,
-                troquel_detections=w.scan.troquel_detections,
-            )
-
-            # 🔥 render
-            files = self._tif.render_bytes(
-                tiff_path=w.it.full_path,
-                scan=scan_render,
-                pages=None,
-                estado_por_codebar=estado,
-            )
-
-            fb = files.get("front_bytes")
-            bb = files.get("back_bytes")
-
-            # 🔥 upload inmediato
-            if fb:
-                self._storage.put_jpg(front_key, fb)
-            if bb:
-                self._storage.put_jpg(back_key, bb)
-
-            return _UploadResult(
-                work=w,
-                front_key=front_key if fb else None,
-                back_key=back_key if bb else None,
-            )
-
-        # 🔥 Un solo executor para render+upload
-        with ThreadPoolExecutor(max_workers=self._upload_workers) as ex:
-            futs = [ex.submit(job, w) for w in work_items]
-
-            for fut in as_completed(futs):
-                try:
-                    results.append(fut.result())
-                except Exception as e:
-                    resumen.errores.append(f"render/upload error: {e}")
-
-        return results
+        return parallel_render_upload(
+            storage=self._storage,
+            tif=self._tif,
+            work_items=work_items,
+            archivo_by_id=archivo_by_id,
+            prestador_imed=prestador_imed,
+            estado_render_by_work=estado_render_by_work,
+            headers_render_by_work_id=headers_render_by_work_id,
+            upload_workers=self._upload_workers,
+            resumen=resumen,
+        )
 
     @staticmethod
     def _archivo_ya_asociado(s: Session, recepcion_id: int, archivo_id: int) -> bool:
@@ -499,7 +200,7 @@ class TiffService:
 
     @staticmethod
     def _is_valesalud(obra_social_nombre: str | None) -> bool:
-        return "valesalud" in (obra_social_nombre or "").strip().lower()
+        return is_valesalud(obra_social_nombre)
 
     # -------------------------
     # MAIN (por tandas)
