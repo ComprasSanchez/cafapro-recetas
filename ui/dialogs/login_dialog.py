@@ -7,8 +7,7 @@ from PySide6.QtWidgets import (
     QMessageBox
 )
 
-from app.db.session import session_scope
-from app.service.integraciones.auth_service import AuthService, AuthError
+from ui.usecase.login_usecase import LoginUseCase, AuthError
 
 
 class LoginDialog(QDialog):
@@ -58,8 +57,7 @@ class LoginDialog(QDialog):
         password = self.in_pass.text()
 
         try:
-            with session_scope() as s:
-                self.user = AuthService.authenticate(s, username, password)
+            self.user = LoginUseCase.authenticate(username=username, password=password)
 
             self.accept()  # login OK
 

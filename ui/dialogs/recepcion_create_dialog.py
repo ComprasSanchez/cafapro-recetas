@@ -7,12 +7,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit, QDateTimeEdit, QLineEdit
 )
 
-from app.db.session import session_scope
-from app.service.catalogos.obra_social_service import ObraSocialService
-from app.service.catalogos.periodo_service import PeriodoService
-from app.service.catalogos.prestador_service import PrestadorService
-from app.service.recepcion.recepcion_service import RecepcionService
-from app.service.recepcion.estado_recepcion_service import EstadoRecepcionService
+from ui.usecase.recepcion_dialog_usecase import RecepcionDialogUseCase
 
 
 class RecepcionCreateDialog(QDialog):
@@ -81,11 +76,7 @@ class RecepcionCreateDialog(QDialog):
 
     def _load_combos(self):
         try:
-            with session_scope() as s:
-                obras = ObraSocialService.list(s, solo_activas=True)
-                periodos = PeriodoService.list(s, solo_activos=True)
-                prestadores = PrestadorService.list(s, solo_activos=True)
-                estados = EstadoRecepcionService.list(s)  # ✅ desde DB
+            obras, periodos, prestadores, estados = RecepcionDialogUseCase.load_create_catalogs()
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudieron cargar datos:\n{e}")
             return
@@ -126,25 +117,22 @@ class RecepcionCreateDialog(QDialog):
         obs = self.tx_obs.toPlainText().strip() or None
 
         try:
-            with session_scope() as s:
+            rec = RecepcionDialogUseCase.create_recepcion(
+                obra_social_id=int(obra_id),
+                periodo_id=int(periodo_id),
+                prestador_id=int(prestador_id),
+                estado_recepcion_id=int(estado_recepcion_id),
+                fecha_presentacion=fecha,
+                observaciones=obs,
+                creado_por_usuario_id=self.creado_por_usuario_id,
+            )
 
-                rec = RecepcionService.create(
-                    s,
-                    obra_social_id=int(obra_id),
-                    periodo_id=int(periodo_id),
-                    prestador_id=int(prestador_id),
-                    estado_recepcion_id=int(estado_recepcion_id),
-                    fecha_presentacion=fecha,
-                    observaciones=obs,
-                    creado_por_usuario_id=self.creado_por_usuario_id,
-                )
+            self.created_recepcion_id = int(rec.recepcion_id)
 
-                self.created_recepcion_id = int(rec.recepcion_id)
-
-                try:
-                    self.in_numero.setText(str(rec.numero))
-                except Exception:
-                    pass
+            try:
+                self.in_numero.setText(str(rec.numero))
+            except Exception:
+                pass
 
             self.accept()
 

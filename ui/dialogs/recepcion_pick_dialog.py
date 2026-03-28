@@ -7,8 +7,7 @@ from PySide6.QtWidgets import (
     QLineEdit, QComboBox, QCheckBox
 )
 
-from app.db.session import session_scope
-from app.service.recepcion.recepcion_service import RecepcionService
+from ui.usecase.recepcion_dialog_usecase import RecepcionDialogUseCase
 
 
 class RecepcionPickDialog(QDialog):
@@ -141,11 +140,9 @@ class RecepcionPickDialog(QDialog):
     def _reload(self):
 
         try:
-            with session_scope() as s:
-                self._rows = RecepcionService.list(
-                    s,
-                    all=self.chk_closed.isChecked()
-                )
+            self._rows = RecepcionDialogUseCase.list_recepciones(
+                include_closed=self.chk_closed.isChecked(),
+            )
 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudieron cargar recepciones:\n{e}")

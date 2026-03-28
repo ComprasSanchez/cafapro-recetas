@@ -6,9 +6,7 @@ from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView, QLabel
 )
 
-from app.db.session import session_scope
-from app.db.models import Vendedores
-from app.service.catalogos.vendedores_service import VendedoresService
+from ui.usecase.auditoria_visual_usecase import AuditoriaVisualUseCase, VendedorPickItemOut
 
 
 
@@ -19,7 +17,7 @@ class VendedorPickDialog(QDialog):
         self.setModal(True)
 
         self._selected_id: int | None = None
-        self._rows: list[Vendedores] = []
+        self._rows: list[VendedorPickItemOut] = []
 
         root = QVBoxLayout(self)
         root.setContentsMargins(10, 10, 10, 10)
@@ -71,8 +69,7 @@ class VendedorPickDialog(QDialog):
         return self._selected_id
 
     def _load(self) -> None:
-        with session_scope() as s:
-            self._rows = VendedoresService.list(s, solo_activos=True)
+        self._rows = AuditoriaVisualUseCase.list_vendedores_activos()
         self._render(self._rows)
 
     def _apply_filter(self) -> None:
@@ -88,7 +85,7 @@ class VendedorPickDialog(QDialog):
         ]
         self._render(filtered)
 
-    def _render(self, rows: list[Vendedores]) -> None:
+    def _render(self, rows: list[VendedorPickItemOut]) -> None:
         self.tbl.setRowCount(len(rows))
         for i, r in enumerate(rows):
             it0 = QTableWidgetItem(str(getattr(r, "codigo", "") or ""))

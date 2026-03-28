@@ -12,10 +12,8 @@ from PySide6.QtWidgets import (
     QHeaderView, QAbstractItemView, QMessageBox
 )
 
-from app.db.session import session_scope
 from ui.label.image_view_label import ImageViewer
 from ui.usecase.auditoria_usecase import AuditoriaUseCase
-from app.service.recetas.historial_receta_service import HistorialRecetaService
 from ui.utils.worker import Worker
 
 
@@ -183,16 +181,15 @@ class HistorialDialog(QDialog):
 
     def _load(self):
         try:
-            with session_scope() as s:
-                self._current = HistorialRecetaService.load_current_snapshot(
-                    s, archivo_id=self._archivo_id_actual
-                )
+            self._current = AuditoriaUseCase.load_historial_snapshot(
+                archivo_id=self._archivo_id_actual,
+            )
 
-                rows = HistorialRecetaService.list_historial(
-                    s, archivo_id=self._archivo_id_actual
-                )
+            rows = AuditoriaUseCase.load_historial_rows(
+                archivo_id=self._archivo_id_actual,
+            )
 
-                self._hist_rows = [HistRow(**r) for r in rows]
+            self._hist_rows = [HistRow(**r) for r in rows]
 
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
@@ -259,15 +256,7 @@ class HistorialDialog(QDialog):
             f"Estado: {r.estado_receta or '-'}"
         )
 
-        with session_scope() as s:
-
-            debs = HistorialRecetaService.list_debitos_for_receta(
-                s, receta_id=r.receta_id
-            )
-
-            imgs = HistorialRecetaService.get_imagenes_por_receta(
-                s, receta_id=r.receta_id
-            )
+        debs, imgs = AuditoriaUseCase.load_historial_detail(receta_id=r.receta_id)
 
         # 🔹 Render débitos
         self.tbl_debitos.setRowCount(len(debs))

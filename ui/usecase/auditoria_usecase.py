@@ -11,6 +11,7 @@ from app.config.settings import settings
 from app.db.session import session_scope
 from app.service.recepcion.recepcion_service import RecepcionService
 from app.service.recetas.asociacion_service import AsociacionService
+from app.service.recetas.historial_receta_service import HistorialRecetaService
 from app.service.recetas.estado_receta_service import EstadoRecetaService
 from app.service.recetas.recetas_service import RecetaService
 from app.service.auditoria.view_auditoria import ViewAuditoriaService
@@ -324,6 +325,37 @@ class AuditoriaUseCase:
                 s,
                 receta_id=receta_id,
             )
+
+    @staticmethod
+    def load_historial_snapshot(*, archivo_id: int):
+        with session_scope() as s:
+            return HistorialRecetaService.load_current_snapshot(
+                s,
+                archivo_id=archivo_id,
+            )
+
+    @staticmethod
+    def load_historial_rows(*, archivo_id: int) -> list[dict]:
+        with session_scope() as s:
+            return HistorialRecetaService.list_historial(
+                s,
+                archivo_id=archivo_id,
+            )
+
+    @staticmethod
+    def load_historial_detail(*, receta_id: int) -> tuple[list[dict], dict]:
+        with session_scope() as s:
+            debs = HistorialRecetaService.list_debitos_for_receta(
+                s,
+                receta_id=receta_id,
+            )
+
+            imgs = HistorialRecetaService.get_imagenes_por_receta(
+                s,
+                receta_id=receta_id,
+            )
+
+        return debs, imgs
 
 
 

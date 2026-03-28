@@ -1,14 +1,29 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date
-
-from PySide6.QtWidgets import QMessageBox
 
 from app.db.session import session_scope
 from app.service.auditoria.auditoria_visual_service import AuditoriaVisualService
+from app.service.catalogos.vendedores_service import VendedoresService
 from app.service.recetas.recetas_service import RecetaService
+from app.service.recetas.troqueles_service import TroquelesService
 from app.service.debitos.debitos_service import DebitosService
 from app.exceptions.domain_errors import AuditoriaValidationError
+
+
+@dataclass(frozen=True)
+class VendedorInfoOut:
+    vendedor_id: int
+    descripcion: str
+    codigo: str
+
+
+@dataclass(frozen=True)
+class VendedorPickItemOut:
+    vendedor_id: int
+    codigo: str
+    descripcion: str
 
 
 class AuditoriaVisualUseCase:
@@ -92,4 +107,58 @@ class AuditoriaVisualUseCase:
         if debitos and not vendedor_id:
             raise AuditoriaValidationError(
                 "Si seleccionás débitos tenés que cargar un vendedor."
+            )
+
+    @staticmethod
+    def get_vendedor_info(*, vendedor_id: int) -> VendedorInfoOut | None:
+        with session_scope() as s:
+            vendedor = VendedoresService.get(s, vendedor_id=int(vendedor_id))
+
+        if not vendedor:
+            return None
+
+        return VendedorInfoOut(
+            vendedor_id=int(vendedor.vendedor_id),
+            descripcion=str(getattr(vendedor, "descripcion", "") or ""),
+            codigo=str(getattr(vendedor, "codigo", "") or ""),
+        )
+
+    @staticmethod
+    def delete_troquel(*, troquel_id: int) -> None:
+        with session_scope() as s:
+            TroquelesService.delete(s, troquel_id=int(troquel_id))
+
+    @staticmethod
+    def list_vendedores_activos() -> list[VendedorPickItemOut]:
+        with session_scope() as s:
+            rows = VendedoresService.list(s, solo_activos=True)
+
+        return [
+            VendedorPickItemOut(
+                vendedor_id=int(r.vendedor_id),
+                codigo=str(r.codigo or ""),
+                descripcion=str(r.descripcion or ""),
+            )
+            for r in rows
+        ]
+
+    @staticmethod
+    def create_troquel(*, asociacion_id: int, codigo_barra: str, cantidad: int) -> int:
+        svc = TroquelesService()
+        with session_scope() as s:
+            troquel = svc.create(
+                s,
+                asociacion_id=int(asociacion_id),
+                codigo_barra=str(codigo_barra or "").strip(),
+                cantidad=int(cantidad),
+            )
+            return int(troquel.troquel_id)
+
+    @staticmethod
+    def update_troquel(*, troquel_id: int, cantidad: int) -> None:
+        with session_scope() as s:
+            TroquelesService.update(
+                s,
+                troquel_id=int(troquel_id),
+                cantidad=int(cantidad),
             )

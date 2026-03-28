@@ -104,6 +104,21 @@ class ArchivoService:
         return session.execute(stmt).first() is not None
 
     @staticmethod
+    def list_existing_refs(session: Session, refs: list[str]) -> set[str]:
+        if not refs:
+            return set()
+
+        rows = session.execute(
+            select(Archivo.nro_referencia).where(Archivo.nro_referencia.in_(refs))
+        ).scalars().all()
+
+        return {
+            str(x).strip()
+            for x in rows
+            if x not in (None, "")
+        }
+
+    @staticmethod
     def create_from_imed(
             session,
             receta: dict,

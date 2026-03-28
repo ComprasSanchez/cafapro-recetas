@@ -101,6 +101,15 @@ class TroquelesService:
         troq.estado = EstadoTroquelEnum.V
         s.flush()
 
+    @staticmethod
+    def delete(s: Session, troquel_id: int) -> None:
+        troq = s.get(Troqueles, int(troquel_id))
+        if not troq:
+            raise ValueError(f"Troquel {troquel_id} no existe")
+
+        s.delete(troq)
+        s.flush()
+
     # -------------------------
     # Helpers
     # -------------------------

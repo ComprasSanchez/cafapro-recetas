@@ -12,8 +12,6 @@ from PySide6.QtWidgets import (
     QWidget, QInputDialog, QLineEdit, QMenu, QListWidget, QListWidgetItem, QToolButton, QStyle
 )
 
-from app.db.models import EstadoTroquelEnum
-from app.db.session import session_scope
 from app.service.auditoria.auditoria_visual_service import AuditoriaVisualData
 from app.service.debitos.debitos_service import DebitoInput
 from ui.dialogs.estado_seguimeinto_pick_dialog import EstadoSeguimientoPickDialog
@@ -30,6 +28,10 @@ from ui.usecase.auditoria_usecase import AuditoriaUseCase
 
 
 class AuditoriaVisualDialog(QDialog):
+    ESTADO_TROQUEL_VERDE = "V"
+    ESTADO_TROQUEL_AMARILLO = "A"
+    ESTADO_TROQUEL_ROJO = "R"
+
     # ---------------------------------------------------------
     # Dialog principal de auditoría visual.
     # Maneja:
@@ -573,6 +575,7 @@ class AuditoriaVisualDialog(QDialog):
         self.tbl_troqueles.setRowCount(len(rows))
         for i, t in enumerate(rows):
             estado = getattr(t, "estado", "")
+            estado_code = str(getattr(estado, "value", estado) or "")
 
             self._set_cell(self.tbl_troqueles, i, 0, str(getattr(t, "codigo_barra", "") or ""))
             self._set_cell(self.tbl_troqueles, i, 1, str(getattr(t, "presentacion", "") or ""))
@@ -581,7 +584,7 @@ class AuditoriaVisualDialog(QDialog):
             self._set_cell(self.tbl_troqueles, i, 3, str(getattr(t, "droga", "") or ""))
             self._set_cell(self.tbl_troqueles, i, 4, str(getattr(t, "code_alfabeta", "") or ""))
             self._set_cell(self.tbl_troqueles, i, 5, self._fmt_money(Decimal(str(getattr(t, "monto", 0) or 0))))
-            self._set_cell(self.tbl_troqueles, i, 6, str(estado))
+            self._set_cell(self.tbl_troqueles, i, 6, estado_code)
 
             troq_id = int(getattr(t, "troquel_id", 0) or 0)
             it0 = self.tbl_troqueles.item(i, 0)
@@ -589,11 +592,11 @@ class AuditoriaVisualDialog(QDialog):
                 it0.setData(Qt.ItemDataRole.UserRole, troq_id)
 
             color = None
-            if estado == EstadoTroquelEnum.V:
+            if estado_code == self.ESTADO_TROQUEL_VERDE:
                 color = QColor(17, 151, 59)
-            elif estado == EstadoTroquelEnum.A:
+            elif estado_code == self.ESTADO_TROQUEL_AMARILLO:
                 color = QColor(228, 245, 44)
-            elif estado == EstadoTroquelEnum.R:
+            elif estado_code == self.ESTADO_TROQUEL_ROJO:
                 color = QColor(165, 32, 25)
             if color is not None:
                 brush = QBrush(color)
@@ -840,19 +843,17 @@ class AuditoriaVisualDialog(QDialog):
             return
 
         try:
-            with session_scope() as s:
-                from app.db.models import Vendedores
-                v = s.get(Vendedores, int(vid))
+            vendedor = AuditoriaVisualUseCase.get_vendedor_info(vendedor_id=int(vid))
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudo cargar el vendedor:\n{e}")
             return
 
-        if not v:
+        if not vendedor:
             return
 
-        self.state.vendedor_id = int(v.vendedor_id)
-        self.lb_vendedor.setText(str(getattr(v, "descripcion", "") or "—"))
-        self.lb_vendedor.setToolTip(f"Código: {getattr(v, 'codigo', '')}")
+        self.state.vendedor_id = int(vendedor.vendedor_id)
+        self.lb_vendedor.setText(str(vendedor.descripcion or "—"))
+        self.lb_vendedor.setToolTip(f"Código: {vendedor.codigo}")
 
     # ---------------------------------------------------------
     # Valida datos ingresados y guarda la auditoría.
@@ -1013,7 +1014,7 @@ class AuditoriaVisualDialog(QDialog):
             estado_item = tbl.item(row, 6)
             estado = estado_item.text() if estado_item else ""
 
-            if estado in (str(EstadoTroquelEnum.A), str(EstadoTroquelEnum.R)):
+            if estado in (self.ESTADO_TROQUEL_AMARILLO, self.ESTADO_TROQUEL_ROJO):
                 act_delete = menu.addAction("Eliminar troquel")
 
         chosen = menu.exec(tbl.viewport().mapToGlobal(pos))
@@ -1597,7 +1598,7 @@ class AuditoriaVisualDialog(QDialog):
             QMessageBox.warning(self, "Error", "No se pudo determinar el troquel.")
             return
 
-        if estado == str(EstadoTroquelEnum.R):
+        if estado == self.ESTADO_TROQUEL_ROJO:
             ok = QMessageBox.warning(
                 self,
                 "Eliminar troquel rechazado",
@@ -1623,15 +1624,7 @@ class AuditoriaVisualDialog(QDialog):
             return
 
         try:
-
-            with session_scope() as s:
-
-                from app.db.models import Troqueles
-
-                troquel = s.get(Troqueles, troquel_id)
-
-                if troquel:
-                    s.delete(troquel)
+            AuditoriaVisualUseCase.delete_troquel(troquel_id=troquel_id)
 
             # 🔥 invalidar cache
             if self.asociacion_id:

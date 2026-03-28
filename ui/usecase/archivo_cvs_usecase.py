@@ -4,9 +4,6 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import select
-
-from app.db.models import Archivo
 from app.db.session import session_scope
 from app.service.integraciones.validators_client import ValidatorsClient
 from app.service.recetas.archivo_service import ArchivoService
@@ -325,14 +322,7 @@ class ArchivoCvsUseCase:
             #    (scope global por nro_referencia como venías haciendo)
             # ---------------------------------------------------------
             refs = [ref for _, ref, _ in items]
-            existing_refs = set(
-                str(x).strip()
-                for x in s.execute(
-                    select(Archivo.nro_referencia)
-                    .where(Archivo.nro_referencia.in_(refs))
-                ).scalars().all()
-                if x not in (None, "")
-            )
+            existing_refs = ArchivoService.list_existing_refs(s, refs)
 
             CHUNK = 500
             PROGRESS_EVERY = 50

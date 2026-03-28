@@ -5,9 +5,7 @@ from PySide6.QtWidgets import (
     QLabel, QLineEdit, QComboBox, QPushButton, QMessageBox
 )
 
-from app.db.session import session_scope
-from app.service.catalogos.rol_service import RolesService
-from app.service.catalogos.usuario_service import UsuariosService
+from ui.usecase.usuario_dialog_usecase import UsuarioDialogUseCase
 
 
 class UsuarioCreateDialog(QDialog):
@@ -71,8 +69,7 @@ class UsuarioCreateDialog(QDialog):
     def _load_roles(self):
         self.cb_rol.clear()
         try:
-            with session_scope() as s:
-                roles = RolesService.list(s)
+            roles = UsuarioDialogUseCase.list_roles()
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudieron cargar roles:\n{e}")
             self.cb_rol.addItem("Error cargando roles", None)
@@ -111,13 +108,11 @@ class UsuarioCreateDialog(QDialog):
             return
 
         try:
-            with session_scope() as s:
-                UsuariosService.create(
-                    s,
-                    username=username,
-                    password=p1,
-                    rol_id=int(rol_id),
-                )
+            UsuarioDialogUseCase.create_user(
+                username=username,
+                password=p1,
+                rol_id=int(rol_id),
+            )
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
             return

@@ -9,8 +9,7 @@ from PySide6.QtWidgets import (
     QLabel, QLineEdit, QSpinBox, QPushButton, QMessageBox
 )
 
-from app.db.session import session_scope
-from app.service.recetas.troqueles_service import TroquelesService
+from ui.usecase.auditoria_visual_usecase import AuditoriaVisualUseCase
 
 
 @dataclass(frozen=True)
@@ -117,16 +116,28 @@ class TroquelDialog(QDialog):
             )
             return
 
-        svc = TroquelesService()
-
         try:
-            with session_scope() as s:
-                if self._mode == "create":
-                    t = svc.create(s, asociacion_id=int(self._asociacion_id), codigo_barra=codigo, cantidad=qty)
-                    self._result = TroquelDialogResult(created_or_updated=True, troquel_id=int(t.troquel_id))
-                else:
-                    svc.update(s, troquel_id=int(self._troquel_id), cantidad=qty)
-                    self._result = TroquelDialogResult(created_or_updated=True, troquel_id=int(self._troquel_id))
+            if self._mode == "create":
+                asociacion_id = self._asociacion_id
+                if asociacion_id is None:
+                    raise ValueError("No se pudo determinar la asociación.")
+
+                troquel_id = AuditoriaVisualUseCase.create_troquel(
+                    asociacion_id=int(asociacion_id),
+                    codigo_barra=codigo,
+                    cantidad=qty,
+                )
+                self._result = TroquelDialogResult(created_or_updated=True, troquel_id=troquel_id)
+            else:
+                troquel_id = self._troquel_id
+                if troquel_id is None:
+                    raise ValueError("No se pudo determinar el troquel.")
+
+                AuditoriaVisualUseCase.update_troquel(
+                    troquel_id=int(troquel_id),
+                    cantidad=qty,
+                )
+                self._result = TroquelDialogResult(created_or_updated=True, troquel_id=int(troquel_id))
 
             self.accept()
 

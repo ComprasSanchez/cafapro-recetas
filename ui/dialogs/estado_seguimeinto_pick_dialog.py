@@ -6,8 +6,7 @@ from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView, QLabel
 )
 
-from app.db.session import session_scope
-from app.service.recetas.estado_seguimiento_service import EstadoSeguimientoService
+from ui.usecase.listado_debitos_usecase import ListadoDebitosUseCase
 
 
 class EstadoSeguimientoPickDialog(QDialog):
@@ -54,13 +53,12 @@ class EstadoSeguimientoPickDialog(QDialog):
         return self._selected_id
 
     def _load(self) -> None:
-        with session_scope() as s:
-            self._rows = EstadoSeguimientoService.list(s)
+        self._rows = ListadoDebitosUseCase.load_estados()
 
         self.tbl.setRowCount(len(self._rows))
-        for i, r in enumerate(self._rows):
-            it = QTableWidgetItem(str(getattr(r, "descripcion", "") or ""))
-            it.setData(Qt.ItemDataRole.UserRole, int(getattr(r, "estado_seguimiento_id")))
+        for i, (estado_id, descripcion) in enumerate(self._rows):
+            it = QTableWidgetItem(str(descripcion or ""))
+            it.setData(Qt.ItemDataRole.UserRole, int(estado_id))
             self.tbl.setItem(i, 0, it)
 
         if self._rows:
