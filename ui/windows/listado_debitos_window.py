@@ -15,13 +15,9 @@ from PySide6.QtWidgets import (
     QHeaderView, QFrame, QSizePolicy, QLineEdit, QFileDialog, QProgressDialog
 )
 
-from app.db.session import session_scope
-from app.db.models import Periodo, Recepcion
-from app.service.recetas.estado_seguimiento_service import EstadoSeguimientoService
-from app.service.recetas.recetas_service import RecetaService
-from app.service.debitos.view_debitos import ViewDebitos
 from ui.dialogs.recepcion_pick_dialog import RecepcionPickDialog
 from ui.usecase.download_wrong_debitos_usecase import DownloadDebitosUseCase, DownloadDebitosIn
+from ui.usecase.listado_debitos_usecase import ListadoDebitosUseCase
 from ui.utils.worker import Worker
 
 class NoWheelComboBox(QComboBox):
@@ -208,9 +204,7 @@ class ListadoDebitosWindow(QDialog):
 
     # ---------------- data loaders ----------------
     def _load_estados(self) -> None:
-        with session_scope() as s:
-            rows = EstadoSeguimientoService.list(s)
-        self._estados = [(int(r.estado_seguimiento_id), str(r.descripcion)) for r in rows]
+        self._estados = ListadoDebitosUseCase.load_estados()
 
     # ---------------- recepción (patrón Excluidos) ----------------
     def _pick_recepcion(self) -> None:
@@ -257,7 +251,7 @@ class ListadoDebitosWindow(QDialog):
             return
 
         try:
-            rows = ViewDebitos.list_debitos(
+            rows = ListadoDebitosUseCase.load_debitos(
                 recepcion_id=int(self._recepcion_id),
                 fecha_auditoria=None,
             )
@@ -351,9 +345,9 @@ class ListadoDebitosWindow(QDialog):
         cb.setEnabled(False)
 
         try:
-            RecetaService.update_estado_seguimiento(
-                int(receta_id),
-                int(new_estado_id) if new_estado_id is not None else None
+            ListadoDebitosUseCase.update_estado_seguimiento(
+                receta_id=int(receta_id),
+                estado_seguimiento_id=int(new_estado_id) if new_estado_id is not None else None,
             )
             cb.setProperty("estado_prev_id", new_estado_id)
             self._patch_row_estado(int(receta_id), new_estado_id, cb.currentText())
@@ -839,22 +833,7 @@ class ListadoDebitosWindow(QDialog):
         if not self._recepcion_id:
             return "sin-periodo"
 
-        try:
-            with session_scope() as s:
-                row = (
-                    s.query(Periodo.anio, Periodo.mes, Periodo.quincena)
-                    .join(Recepcion, Recepcion.periodo_id == Periodo.periodo_id)
-                    .filter(Recepcion.recepcion_id == int(self._recepcion_id))
-                    .first()
-                )
-
-            if not row:
-                return "sin-periodo"
-
-            anio, mes, quincena = row
-            return f"{int(anio):04d}-{int(mes):02d}-q{int(quincena)}"
-        except Exception:
-            return "sin-periodo"
+        return ListadoDebitosUseCase.periodo_label(recepcion_id=int(self._recepcion_id))
 
     @staticmethod
     def _slug_part(value, *, fallback: str) -> str:

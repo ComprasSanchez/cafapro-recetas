@@ -13,9 +13,6 @@ from PySide6.QtWidgets import (
     QStyledItemDelegate,
 )
 
-from app.db.session import session_scope
-from app.service.recetas.asociacion_service import AsociacionService
-from app.service.recetas.recetas_service import RecetaService
 from ui.dialogs.forzar_asocaicion_dialog import ForzarAsociacionDialog
 from ui.dialogs.numero_receta_dialog import NumeroRecetaDialog
 from ui.dialogs.reasociar_reeta_dialog import ReasociarRecetaDialog
@@ -947,12 +944,10 @@ class AuditoriaTab(BaseTabWidget):
         if resp != QMessageBox.StandardButton.Yes:
             return
 
-        with session_scope() as s:
-            RecetaService.anular_receta(
-                s,
-                receta_id=receta_id,
-                nro_receta=nro_receta
-            )
+        self._uc.anular_receta(
+            receta_id=receta_id,
+            nro_receta=nro_receta,
+        )
 
         self._reload_auditoria()
 
@@ -981,12 +976,10 @@ class AuditoriaTab(BaseTabWidget):
         if resp != QMessageBox.StandardButton.Yes:
             return
 
-        with session_scope() as s:
-            RecetaService.duplicar_receta(
-                s,
-                receta_id=receta_id,
-                nro_receta=nro_receta,
-            )
+        self._uc.duplicar_receta(
+            receta_id=receta_id,
+            nro_receta=nro_receta,
+        )
 
         self._reload_auditoria()
 
@@ -1006,11 +999,7 @@ class AuditoriaTab(BaseTabWidget):
         if resp != QMessageBox.StandardButton.Yes:
             return
 
-        with session_scope() as s:
-            RecetaService.eliminar_sobrante(
-                s,
-                receta_id=receta_id,
-            )
+        self._uc.eliminar_sobrante(receta_id=receta_id)
 
         self._reload_auditoria()
 
@@ -1027,11 +1016,7 @@ class AuditoriaTab(BaseTabWidget):
         if resp != QMessageBox.StandardButton.Yes:
             return
 
-        with session_scope() as s:
-            AsociacionService.desasociar(
-                s,
-                receta_id=receta_id,
-            )
+        self._uc.desasociar_receta(receta_id=receta_id)
 
         self._reload_auditoria()
 

@@ -6,6 +6,7 @@ from typing import Any
 from app.db.session import session_scope
 from app.infra.storage import s3_storage
 from app.service.recepcion.recepcion_service import RecepcionService
+from app.service.recetas.archivo_service import ArchivoService
 from app.service.recetas.tif_service import ProcesarItemIn, TiffService
 from app.service.recetas.historial_receta_service import HistorialRecetaService
 from core.image_handler import ImageHandler
@@ -107,4 +108,9 @@ class CargaRecepcionUseCase:
         with session_scope() as s:
             RecepcionService.cerrar_recepcion(s, recepcion_id=recepcion_id)
             return CloseRecepcionOut(recepcion_id=recepcion_id, estado_recepcion_id=2)
+
+    @staticmethod
+    def list_fechas_descargadas(*, recepcion_id: int):
+        with session_scope() as s:
+            return ArchivoService.list_fechas(s, recepcion_id=recepcion_id)
 

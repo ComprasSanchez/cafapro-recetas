@@ -10,8 +10,6 @@ from PySide6.QtWidgets import (
     QTableWidgetItem, QTableWidget, QAbstractItemView, QSplitter, QHeaderView, QDateEdit
 )
 
-from app.db.session import session_scope
-from app.service.recetas.archivo_service import ArchivoService
 from ui.dialogs.dias_descargado_dialog import DiasDescargadosDialog
 from ui.tabs.base_tab import BaseTabWidget
 from ui.dialogs.recepcion_pick_dialog import RecepcionPickDialog
@@ -560,9 +558,7 @@ class ArchivoCvsTab(BaseTabWidget):
             QMessageBox.warning(self, "Atención", "Primero seleccioná una recepción.")
             return
 
-        # Cargamos fechas (rápido) y abrimos calendario
-        with session_scope() as s:
-            fechas = ArchivoService.list_fechas(s, recepcion_id=self._recepcion_id)
+        fechas = self._uc.list_fechas_descargadas(recepcion_id=self._recepcion_id)
 
         dlg = DiasDescargadosDialog(
             recepcion_id=self._recepcion_id,

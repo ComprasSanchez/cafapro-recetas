@@ -7,7 +7,7 @@ import sqlalchemy as sa
 import unicodedata
 from sqlalchemy import select
 
-from app.db.models import Recetas
+from app.db.models import Periodo, Recepcion, Recetas
 from app.db.session import session_scope
 from app.db.view import VwArchivoRecetaDebitos
 
@@ -66,6 +66,28 @@ class ViewDebitos:
             )
 
             return q.all()
+
+    @staticmethod
+    def get_periodo_label(recepcion_id: int) -> str:
+        if not recepcion_id:
+            return "sin-periodo"
+
+        try:
+            with session_scope() as s:
+                row = (
+                    s.query(Periodo.anio, Periodo.mes, Periodo.quincena)
+                    .join(Recepcion, Recepcion.periodo_id == Periodo.periodo_id)
+                    .filter(Recepcion.recepcion_id == int(recepcion_id))
+                    .first()
+                )
+
+            if not row:
+                return "sin-periodo"
+
+            anio, mes, quincena = row
+            return f"{int(anio):04d}-{int(mes):02d}-q{int(quincena)}"
+        except Exception:
+            return "sin-periodo"
 
     @staticmethod
     def download_wrong_debitos(rows, folder, s3):

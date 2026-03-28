@@ -276,6 +276,11 @@ class ArchivoCvsUseCase:
         return recetas_por_ref, detalles_por_ref
 
     @staticmethod
+    def list_fechas_descargadas(*, recepcion_id: int):
+        with session_scope() as s:
+            return ArchivoService.list_fechas(s, recepcion_id=recepcion_id)
+
+    @staticmethod
     def subir(
         *,
         recepcion_id: int,

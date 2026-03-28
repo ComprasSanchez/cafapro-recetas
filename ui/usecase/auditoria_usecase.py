@@ -12,6 +12,7 @@ from app.db.session import session_scope
 from app.service.recepcion.recepcion_service import RecepcionService
 from app.service.recetas.asociacion_service import AsociacionService
 from app.service.recetas.estado_receta_service import EstadoRecetaService
+from app.service.recetas.recetas_service import RecetaService
 from app.service.auditoria.view_auditoria import ViewAuditoriaService
 import requests
 from urllib.parse import quote
@@ -288,6 +289,40 @@ class AuditoriaUseCase:
                 s,
                 receta_id=receta_id,
                 archivo_id=archivo_id,
+            )
+
+    @staticmethod
+    def anular_receta(*, receta_id: int, nro_receta: str) -> None:
+        with session_scope() as s:
+            RecetaService.anular_receta(
+                s,
+                receta_id=receta_id,
+                nro_receta=nro_receta,
+            )
+
+    @staticmethod
+    def duplicar_receta(*, receta_id: int, nro_receta: str) -> None:
+        with session_scope() as s:
+            RecetaService.duplicar_receta(
+                s,
+                receta_id=receta_id,
+                nro_receta=nro_receta,
+            )
+
+    @staticmethod
+    def eliminar_sobrante(*, receta_id: int) -> None:
+        with session_scope() as s:
+            RecetaService.eliminar_sobrante(
+                s,
+                receta_id=receta_id,
+            )
+
+    @staticmethod
+    def desasociar_receta(*, receta_id: int) -> None:
+        with session_scope() as s:
+            AsociacionService.desasociar(
+                s,
+                receta_id=receta_id,
             )
 
 
