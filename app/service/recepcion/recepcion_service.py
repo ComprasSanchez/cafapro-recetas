@@ -3,10 +3,10 @@ from dataclasses import dataclass
 from datetime import date, timedelta, datetime
 from typing import Optional
 
-from sqlalchemy import select, func, distinct, update, and_
 from sqlalchemy.orm import Session
 
-from app.db.models import Recepcion, EstadoRecepcion, ObraSocial, Periodo, Prestador, Archivo, Asociacion
+from app.adapters.sqlalchemy.recepcion_repository import RecepcionRepository
+from app.db.models import Recepcion
 
 
 @dataclass(frozen=True)
@@ -43,22 +43,10 @@ class RecepcionRowItem:
 class RecepcionService:
     @staticmethod
     def list_prestadores_con_recepcion(s: Session, *, periodo_id: int) -> list[PrestadorConRecepcionesItem]:
-        rows = s.execute(
-            select(
-                Prestador.prestador_id,
-                Prestador.nombre,
-                Prestador.codigo,
-                Prestador.imed,
-                func.count(distinct(Recepcion.recepcion_id)).label("cantidad"),
-            )
-            .join(Recepcion, Recepcion.prestador_id == Prestador.prestador_id)
-            .where(
-                Prestador.activo.is_(True),
-                Recepcion.periodo_id == int(periodo_id),
-            )
-            .group_by(Prestador.prestador_id, Prestador.nombre, Prestador.codigo, Prestador.imed)
-            .order_by(Prestador.nombre.nulls_last(), Prestador.codigo)
-        ).all()
+        rows = RecepcionRepository.list_prestadores_con_recepcion(
+            s,
+            periodo_id=int(periodo_id),
+        )
 
         out: list[PrestadorConRecepcionesItem] = []
         for pid, nom, cod, imed, cant in rows:
@@ -75,20 +63,11 @@ class RecepcionService:
 
     @staticmethod
     def list_recepciones(s: Session, *, periodo_id: int, prestador_id: int) -> list[RecepcionRowItem]:
-        rows = s.execute(
-            select(
-                Recepcion.recepcion_id,
-                Recepcion.numero,
-                ObraSocial.nombre,
-                Recepcion.fecha_presentacion,
-            )
-            .join(ObraSocial, ObraSocial.obra_social_id == Recepcion.obra_social_id)
-            .where(
-                Recepcion.periodo_id == int(periodo_id),
-                Recepcion.prestador_id == int(prestador_id),
-            )
-            .order_by(Recepcion.fecha_presentacion.desc(), Recepcion.numero.desc(), Recepcion.recepcion_id.desc())
-        ).all()
+        rows = RecepcionRepository.list_recepciones_por_periodo_prestador(
+            s,
+            periodo_id=int(periodo_id),
+            prestador_id=int(prestador_id),
+        )
 
         return [
             RecepcionRowItem(
@@ -101,33 +80,8 @@ class RecepcionService:
         ]
 
     @staticmethod
-    @staticmethod
     def list(s: Session, *, all: bool = True) -> list[RecepcionListItem]:
-        q = (
-            select(
-                Recepcion.recepcion_id,
-                Recepcion.numero,
-                ObraSocial.nombre,
-                Periodo.anio, Periodo.mes, Periodo.quincena,
-                Prestador.codigo, Prestador.nombre,
-                EstadoRecepcion.descripcion,
-                Recepcion.fecha_presentacion,
-                Recepcion.creado_en,
-                Prestador.imed,
-                ObraSocial.validador,
-                ObraSocial.dias_vencimiento,
-                ObraSocial.codigo_financiador,
-            )
-            .join(ObraSocial, ObraSocial.obra_social_id == Recepcion.obra_social_id)
-            .join(Periodo, Periodo.periodo_id == Recepcion.periodo_id)
-            .join(Prestador, Prestador.prestador_id == Recepcion.prestador_id)
-            .join(EstadoRecepcion, EstadoRecepcion.estado_recepcion_id == Recepcion.estado_recepcion_id)
-        )
-
-        if not all:
-            q = q.where(Recepcion.estado_recepcion_id == 1)
-
-        rows = s.execute(q.order_by(Recepcion.recepcion_id.desc())).all()
+        rows = RecepcionRepository.list_with_details(s, include_closed=all)
         out: list[RecepcionListItem] = []
         for r in rows:
             (rid, numero, os_nombre, anio, mes, quin, pres_cod, pres_nom,
@@ -167,29 +121,18 @@ class RecepcionService:
         if not estado_recepcion_id:
             raise ValueError("estado_recepcion es obligatorio.")
 
-        # ---------------------------------
-        # verificar si ya existe recepción
-        # ---------------------------------
-
-        existe = s.execute(
-            select(Recepcion.recepcion_id)
-            .where(
-                Recepcion.obra_social_id == int(obra_social_id),
-                Recepcion.periodo_id == int(periodo_id),
-                Recepcion.prestador_id == int(prestador_id),
-            )
-        ).scalar_one_or_none()
-
-        if existe:
+        if RecepcionRepository.exists_same_scope(
+            s,
+            obra_social_id=int(obra_social_id),
+            periodo_id=int(periodo_id),
+            prestador_id=int(prestador_id),
+        ):
             raise RuntimeError(
                 "Ya existe una recepción para esta obra social, período y prestador."
             )
 
-        # ---------------------------------
-        # crear recepción
-        # ---------------------------------
-
-        rec = Recepcion(
+        return RecepcionRepository.create(
+            s,
             obra_social_id=int(obra_social_id),
             periodo_id=int(periodo_id),
             prestador_id=int(prestador_id),
@@ -199,15 +142,9 @@ class RecepcionService:
             creado_por_usuario_id=creado_por_usuario_id,
         )
 
-        s.add(rec)
-        s.flush()
-        s.refresh(rec)
-
-        return rec
-
     @staticmethod
     def delete(s: Session, recepcion_id: int) -> None:
-        rec = s.get(Recepcion, recepcion_id)
+        rec = RecepcionRepository.get(s, recepcion_id=int(recepcion_id))
         if not rec:
             raise ValueError("La recepción no existe.")
         s.delete(rec)
@@ -215,14 +152,7 @@ class RecepcionService:
 
     @staticmethod
     def cerrar_recepcion(s: Session, recepcion_id: int) -> None:
-        row = (
-            s.execute(
-                select(Recepcion, ObraSocial.dias_vencimiento)
-                .join(ObraSocial, ObraSocial.obra_social_id == Recepcion.obra_social_id)
-                .where(Recepcion.recepcion_id == int(recepcion_id))
-            )
-            .first()
-        )
+        row = RecepcionRepository.get_cierre_context(s, recepcion_id=int(recepcion_id))
         if not row:
             raise RuntimeError(f"No existe la recepción {recepcion_id}")
 
@@ -233,24 +163,9 @@ class RecepcionService:
         if dias_venc is not None and isinstance(fecha_presentacion, datetime):
             cutoff = fecha_presentacion - timedelta(days=dias_venc)
 
-        # Archivos de la recepción que NO tienen asociación vigente
-        archivos_sin_asoc = (
-            s.execute(
-                select(Archivo)
-                .outerjoin(
-                    Asociacion,
-                    and_(
-                        Asociacion.archivo_id == Archivo.archivo_id,
-                        Asociacion.vigente.is_(True),
-                    )
-                )
-                .where(
-                    Archivo.recepcion_id == int(recepcion_id),
-                    Asociacion.asociacion_id.is_(None),  # <- no hay vigente
-                )
-            )
-            .scalars()
-            .all()
+        archivos_sin_asoc = RecepcionRepository.list_archivos_sin_asociacion(
+            s,
+            recepcion_id=int(recepcion_id),
         )
 
         for a in archivos_sin_asoc:

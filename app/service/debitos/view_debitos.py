@@ -3,11 +3,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date
 import re
 
-import sqlalchemy as sa
 import unicodedata
-from sqlalchemy import select
 
-from app.db.models import Periodo, Recepcion, Recetas
+from app.adapters.sqlalchemy.debitos_view_repository import DebitosViewRepository
 from app.db.session import session_scope
 from app.db.view import VwArchivoRecetaDebitos
 
@@ -18,16 +16,7 @@ class ViewDebitos:
     def list_recepciones() -> list[tuple[int, int]]:
 
         with session_scope() as s:
-            rows = (
-                s.query(
-                    VwArchivoRecetaDebitos.recepcion_id,
-                    VwArchivoRecetaDebitos.recepcion_numero,
-                )
-                .filter(VwArchivoRecetaDebitos.recepcion_id.isnot(None))
-                .distinct()
-                .order_by(VwArchivoRecetaDebitos.recepcion_numero.asc())
-                .all()
-            )
+            rows = DebitosViewRepository.list_recepciones(s)
 
         out: list[tuple[int, int]] = []
 
@@ -47,25 +36,11 @@ class ViewDebitos:
     ) -> list[VwArchivoRecetaDebitos]:
 
         with session_scope() as s:
-
-            q = s.query(VwArchivoRecetaDebitos)
-
-            if recepcion_id is not None:
-                q = q.filter(VwArchivoRecetaDebitos.recepcion_id == int(recepcion_id))
-
-            if fecha_auditoria is not None:
-                q = q.filter(
-                    sa.cast(VwArchivoRecetaDebitos.creado_en, sa.Date)
-                    == fecha_auditoria
-                )
-
-            q = q.order_by(
-                VwArchivoRecetaDebitos.fecha.asc(),
-                VwArchivoRecetaDebitos.hora.asc(),
-                VwArchivoRecetaDebitos.orden_lote.asc(),
+            return DebitosViewRepository.list_debitos(
+                s,
+                recepcion_id=recepcion_id,
+                fecha_auditoria=fecha_auditoria,
             )
-
-            return q.all()
 
     @staticmethod
     def get_periodo_label(recepcion_id: int) -> str:
@@ -74,17 +49,15 @@ class ViewDebitos:
 
         try:
             with session_scope() as s:
-                row = (
-                    s.query(Periodo.anio, Periodo.mes, Periodo.quincena)
-                    .join(Recepcion, Recepcion.periodo_id == Periodo.periodo_id)
-                    .filter(Recepcion.recepcion_id == int(recepcion_id))
-                    .first()
+                periodo_parts = DebitosViewRepository.get_periodo_parts(
+                    s,
+                    recepcion_id=int(recepcion_id),
                 )
 
-            if not row:
+            if not periodo_parts:
                 return "sin-periodo"
 
-            anio, mes, quincena = row
+            anio, mes, quincena = periodo_parts
             return f"{int(anio):04d}-{int(mes):02d}-q{int(quincena)}"
         except Exception:
             return "sin-periodo"
@@ -102,16 +75,10 @@ class ViewDebitos:
             return 0
 
         with session_scope() as s:
-
-            recetas = s.execute(
-                select(
-                    Recetas.receta_id,
-                    Recetas.ubicacion_frente,
-                    Recetas.ubicacion_dorso
-                ).where(
-                    Recetas.receta_id.in_(receta_ids)
-                )
-            ).all()
+            recetas = DebitosViewRepository.get_recetas_paths(
+                s,
+                receta_ids=receta_ids,
+            )
 
         tasks = []
 
