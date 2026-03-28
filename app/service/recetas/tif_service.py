@@ -9,9 +9,9 @@ import os
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from sqlalchemy import select, or_, and_
 from sqlalchemy.orm import Session
 
+from app.adapters.sqlalchemy.tif_repository import TifRepository
 from core.process_tif import TiffProcessor, ScanOut
 from app.db.models import (
     Archivo,
@@ -20,10 +20,7 @@ from app.db.models import (
     Asociacion,
     Troqueles,
     EstadoTroquelEnum,
-    Recepcion,
     Debitos,
-    Prestador,
-    ObraSocial,
 )
 from app.infra.s3_storage import S3Storage
 from app.service.integraciones.medicamento_client import MedicamentoClient
@@ -84,24 +81,11 @@ class TiffService:
 
     @staticmethod
     def _exists_processed_base_in_recepcion(s: Session, recepcion_id: int, base_name: str) -> bool:
-        like_pat = f"%/{base_name}_%"
-        rid = (
-            s.execute(
-                select(Recetas.receta_id)
-                .where(
-                    and_(
-                        Recetas.recepcion_id == int(recepcion_id),
-                        or_(
-                            Recetas.ubicacion_frente.ilike(like_pat),
-                            Recetas.ubicacion_dorso.ilike(like_pat),
-                        ),
-                    )
-                )
-                .limit(1)
-            )
-            .scalar_one_or_none()
+        return TifRepository.exists_processed_base_in_recepcion(
+            s,
+            recepcion_id=int(recepcion_id),
+            base_name=base_name,
         )
-        return rid is not None
 
     @staticmethod
     def _archivo_ts(a: Archivo) -> datetime:
@@ -140,24 +124,11 @@ class TiffService:
         if not candidate_values:
             return _MatchResult(ref_to_archivo={}, duplicated_refs=set(), missing_refs=refs_set)
 
-        where_match = Archivo.nro_referencia.in_(candidate_values)
-        if not only_referencia:
-            where_match = or_(
-                where_match,
-                Archivo.nro_receta.in_(candidate_values),
-            )
-
-        rows = (
-            s.execute(
-                select(Archivo).where(
-                    and_(
-                        Archivo.recepcion_id == int(recepcion_id),
-                        where_match,
-                    )
-                )
-            )
-            .scalars()
-            .all()
+        rows = TifRepository.list_archivos_for_match(
+            s,
+            recepcion_id=int(recepcion_id),
+            candidate_values=candidate_values,
+            only_referencia=only_referencia,
         )
 
         by_token: Dict[str, Dict[int, Archivo]] = {}
@@ -520,20 +491,11 @@ class TiffService:
 
     @staticmethod
     def _archivo_ya_asociado(s: Session, recepcion_id: int, archivo_id: int) -> bool:
-        rid = (
-            s.execute(
-                select(Recetas.receta_id)
-                .join(Asociacion, Asociacion.receta_id == Recetas.receta_id)
-                .where(
-                    Recetas.recepcion_id == int(recepcion_id),
-                    Asociacion.archivo_id == int(archivo_id),
-                    Asociacion.vigente.is_(True),
-                )
-                .limit(1)
-            )
-            .scalar_one_or_none()
+        return TifRepository.is_archivo_ya_asociado(
+            s,
+            recepcion_id=int(recepcion_id),
+            archivo_id=int(archivo_id),
         )
-        return rid is not None
 
     @staticmethod
     def _is_valesalud(obra_social_nombre: str | None) -> bool:
@@ -558,15 +520,11 @@ class TiffService:
         revision_counter = 1
 
         # 0) recepcion + prestador.imed
-        rec: Recepcion | None = (
-            s.execute(select(Recepcion).where(Recepcion.recepcion_id == recepcion_id)).scalar_one_or_none()
-        )
+        rec = TifRepository.get_recepcion(s, recepcion_id=int(recepcion_id))
         if not rec:
             raise RuntimeError(f"No existe la recepción {recepcion_id}")
 
-        pr_row = (
-            s.execute(select(Prestador).where(Prestador.prestador_id == rec.prestador_id)).scalar_one_or_none()
-        )
+        pr_row = TifRepository.get_prestador(s, prestador_id=int(rec.prestador_id))
         if not pr_row:
             raise RuntimeError("No existe el Prestador asociado a la recepción.")
 
@@ -579,10 +537,7 @@ class TiffService:
             fecha_presentacion_dt = fecha_presentacion
         else:
             fecha_presentacion_dt = datetime.fromisoformat(str(fecha_presentacion))
-        os_row = s.execute(
-            select(ObraSocial.nombre, ObraSocial.dias_vencimiento)
-            .where(ObraSocial.obra_social_id == rec.obra_social_id)
-        ).first()
+        os_row = TifRepository.get_obra_social_context(s, obra_social_id=int(rec.obra_social_id))
         os_nombre = (os_row[0] if os_row else None)
         dias_vencimiento_raw = (os_row[1] if os_row else None)
         dias_vencimiento = int(dias_vencimiento_raw) if dias_vencimiento_raw is not None else None
@@ -695,10 +650,16 @@ class TiffService:
                 continue
 
             # 2.4) bulk load Archivos + Detalles
-            archivos = s.execute(select(Archivo).where(Archivo.archivo_id.in_(archivo_ids))).scalars().all()
+            archivos = TifRepository.get_archivos_by_ids(
+                s,
+                archivo_ids=archivo_ids,
+            )
             archivo_by_id: Dict[int, Archivo] = {a.archivo_id: a for a in archivos}
 
-            detalles = s.execute(select(ArchivoDetalle).where(ArchivoDetalle.archivo_id.in_(archivo_ids))).scalars().all()
+            detalles = TifRepository.get_detalles_by_archivo_ids(
+                s,
+                archivo_ids=archivo_ids,
+            )
             detalles_by_archivo: Dict[int, List[ArchivoDetalle]] = {}
             for d in detalles:
                 detalles_by_archivo.setdefault(d.archivo_id, []).append(d)
@@ -903,13 +864,10 @@ class TiffService:
 
             # Debitos vencido bulk
             if recetas_vencidas_ids:
-                ya_tienen = set(
-                    s.execute(
-                        select(Debitos.receta_id).where(
-                            Debitos.motivo_debito_id == MOTIVO_DEBITO_RECETA_VENCIDA_ID,
-                            Debitos.receta_id.in_(recetas_vencidas_ids),
-                        )
-                    ).scalars().all()
+                ya_tienen = TifRepository.get_recetas_with_motivo(
+                    s,
+                    receta_ids=recetas_vencidas_ids,
+                    motivo_id=MOTIVO_DEBITO_RECETA_VENCIDA_ID,
                 )
                 for rid in recetas_vencidas_ids:
                     if rid in ya_tienen:
