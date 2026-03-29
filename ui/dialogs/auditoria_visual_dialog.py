@@ -13,8 +13,10 @@ from PySide6.QtWidgets import (
 
 from ui.dialogs.estado_seguimiento_pick_dialog import EstadoSeguimientoPickDialog
 from ui.dialogs.historial_dialog import HistorialDialog
+from ui.dialogs.auditoria_visual_cache_helpers import put_preview_cache_item
 from ui.label.image_view_label import ImageViewer
 from ui.label.clickable_label import ClickableLabel
+from ui.dialogs.auditoria_visual_prefetch_helpers import build_prefetch_queue, pop_next_prefetch
 from ui.dialogs.vendedor_pick_dialog import VendedorPickDialog
 from ui.dialogs.troquel_dialog import TroquelDialog
 from ui.dialogs.auditoria_visual_helpers import fmt_date, fmt_money, parse_ddmmyyyy
@@ -1136,43 +1138,13 @@ class AuditoriaVisualDialog(QDialog):
     # índice actual: +1, -1, +2, -2, ... (hasta PREFETCH_SIZE).
     # ---------------------------------------------------------
     def _rebuild_prefetch_queue(self) -> None:
-        self._prefetch_queue.clear()
-
-        if not self._asociacion_ids:
-            return
-
-        total = len(self._asociacion_ids)
-        if total <= 1:
-            return
-
-        current_id = int(self._asociacion_ids[self._idx])
-
-        step = 1
-        while len(self._prefetch_queue) < self.PREFETCH_SIZE and step < total:
-            for delta in (step, -step):
-                j = self._idx + delta
-                if j < 0 or j >= total:
-                    continue
-
-                asociacion_id = int(self._asociacion_ids[j])
-                if asociacion_id == current_id:
-                    continue
-
-                if asociacion_id in self._data_cache:
-                    continue
-
-                if asociacion_id in self._loading_ids:
-                    continue
-
-                if asociacion_id in self._prefetch_queue:
-                    continue
-
-                self._prefetch_queue.append(asociacion_id)
-
-                if len(self._prefetch_queue) >= self.PREFETCH_SIZE:
-                    break
-
-            step += 1
+        self._prefetch_queue = build_prefetch_queue(
+            asociacion_ids=self._asociacion_ids,
+            current_index=self._idx,
+            prefetch_size=self.PREFETCH_SIZE,
+            cached_ids={int(x) for x in self._data_cache.keys()},
+            loading_ids=self._loading_ids,
+        )
 
     # ---------------------------------------------------------
     # Precarga en background asociaciones cercanas para
@@ -1186,18 +1158,11 @@ class AuditoriaVisualDialog(QDialog):
         if not self._prefetch_queue:
             return
 
-        asociacion_id: int | None = None
-        while self._prefetch_queue:
-            candidate = int(self._prefetch_queue.pop(0))
-
-            if candidate in self._data_cache:
-                continue
-
-            if candidate in self._loading_ids:
-                continue
-
-            asociacion_id = candidate
-            break
+        asociacion_id = pop_next_prefetch(
+            self._prefetch_queue,
+            cached_ids={int(x) for x in self._data_cache.keys()},
+            loading_ids=self._loading_ids,
+        )
 
         if not asociacion_id:
             return
@@ -1307,20 +1272,12 @@ class AuditoriaVisualDialog(QDialog):
     # Elimina el más antiguo cuando se llena.
     # ---------------------------------------------------------
     def _cache_preview(self, raw: str, img_bytes: bytes):
-
-        if not img_bytes:
-            return
-
-        # si ya existe, no hacer nada
-        if raw in self._preview_cache:
-            return
-
-        # controlar tamaño del cache
-        if len(self._preview_cache) >= self.MAX_PREVIEW_CACHE:
-            # eliminar el más antiguo
-            self._preview_cache.pop(next(iter(self._preview_cache)))
-
-        self._preview_cache[raw] = img_bytes
+        put_preview_cache_item(
+            self._preview_cache,
+            raw=raw,
+            img_bytes=img_bytes,
+            max_items=self.MAX_PREVIEW_CACHE,
+        )
 
     def _on_save_error(self, err):
         QMessageBox.critical(
