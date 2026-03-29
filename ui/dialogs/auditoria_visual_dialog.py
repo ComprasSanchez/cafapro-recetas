@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, QTimer, QThreadPool
-from PySide6.QtGui import QPixmap, QColor, QBrush, QFont
+from PySide6.QtGui import QColor, QBrush, QFont
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QSplitter,
     QLabel, QPushButton, QFrame, QScrollArea, QTableWidget,
@@ -12,6 +12,13 @@ from PySide6.QtWidgets import (
 from ui.dialogs.estado_seguimiento_pick_dialog import EstadoSeguimientoPickDialog
 from ui.dialogs.historial_dialog import HistorialDialog
 from ui.dialogs.auditoria_visual_cache_helpers import put_preview_cache_item
+from ui.dialogs.auditoria_visual_preview_helpers import (
+    empty_preview_text,
+    extract_preview_error,
+    is_stale_preview_response,
+    pixmap_from_png_bytes,
+    viewport_preview_size,
+)
 from ui.label.image_view_label import ImageViewer
 from ui.label.clickable_label import ClickableLabel
 from ui.dialogs.auditoria_visual_prefetch_helpers import build_prefetch_queue, pop_next_prefetch
@@ -617,24 +624,20 @@ class AuditoriaVisualDialog(QDialog):
     def _set_preview_and_fit(self, lado: str, key_or_path: str) -> None:
         raw = (key_or_path or "").strip()
         if not raw:
-            self._clear_preview(lado, f"Sin imagen ({'frente' if lado == 'F' else 'dorso'})")
+            self._clear_preview(lado, empty_preview_text(lado))
             return
 
         self._last_preview_path[lado] = raw
 
         scroll, viewer = self._widgets_por_lado(lado)
-
-        vw = max(200, scroll.viewport().width() - 12)
-        vh = max(200, scroll.viewport().height() - 12)
+        vw, vh = viewport_preview_size(scroll)
 
         if raw in self._preview_cache:
 
             png_bytes = self._preview_cache[raw]
 
-            pix = QPixmap()
-            ok = pix.loadFromData(png_bytes)
-
-            if ok and not pix.isNull():
+            pix = pixmap_from_png_bytes(png_bytes)
+            if pix is not None:
                 viewer.setText("")
                 viewer.set_pixmap(pix)
                 QTimer.singleShot(0, lambda: viewer.fit_to(scroll.viewport().size()))
@@ -685,9 +688,13 @@ class AuditoriaVisualDialog(QDialog):
         req_id = int(out.get("req_id") or 0)
         raw = (out.get("raw") or "").strip()
 
-        if req_id != self._preview_req_id.get(lado, 0):
-            return
-        if self._last_preview_path.get(lado) and self._last_preview_path[lado] != raw:
+        if is_stale_preview_response(
+            lado=lado,
+            req_id=req_id,
+            raw=raw,
+            preview_req_id=self._preview_req_id,
+            last_preview_path=self._last_preview_path,
+        ):
             return
 
         png_bytes = out.get("png_bytes") or b""
@@ -699,9 +706,8 @@ class AuditoriaVisualDialog(QDialog):
 
         self._cache_preview(raw, png_bytes)
 
-        pix = QPixmap()
-        ok = pix.loadFromData(png_bytes)
-        if not ok or pix.isNull():
+        pix = pixmap_from_png_bytes(png_bytes)
+        if pix is None:
             self._clear_preview(lado, "No se pudo leer la imagen.")
             return
 
@@ -710,8 +716,7 @@ class AuditoriaVisualDialog(QDialog):
         QTimer.singleShot(0, lambda: viewer.fit_to(scroll.viewport().size()))
 
     def _ui_error_preview(self, lado: str, err_text: str) -> None:
-        lines = [l.strip() for l in (err_text or "").splitlines() if l.strip()]
-        nice = lines[-1] if lines else "Error al cargar la imagen."
+        nice = extract_preview_error(err_text)
 
         viewer = self.img_frente if lado == "F" else self.img_dorso
         viewer.set_pixmap(None)
