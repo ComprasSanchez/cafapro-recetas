@@ -5,25 +5,41 @@ from datetime import datetime
 from typing import Callable
 
 from core.process_tif import TroquelEstado
+from core.process_tif import TiffProcessor
+from sqlalchemy.orm import Session
 
+from app.adapters.sqlalchemy.tif_repository import TifRepository
 from app.db.models import Archivo, ArchivoDetalle
 from app.dto.medicamentos_dto import MedicamentoDTO
+from app.infra.s3_storage import S3Storage
+from app.service.integraciones.medicamento_client import MedicamentoClient
+from app.service.recetas.tif_context import TifRunContext
 from app.service.recetas.tif_logic import (
     archivo_ts,
     build_detalle_context,
     esta_vencido,
     evaluate_revision_troqueles,
     evaluate_troqueles,
+    match_all_refs,
     norm_str,
     to_render_states,
+    warm_medicamento_cache,
 )
+from app.service.recetas.tif_parallel import parallel_render_upload, parallel_scan
+from app.service.recetas.tif_persistence import filter_valid_uploaded, persist_uploaded_chunk
 from app.service.recetas.tif_types import (
+    ProcesarItemIn,
     ProcesarResumen,
     _MatchResult,
     _ScannedItem,
     _TroquelEval,
     _WorkItem,
 )
+
+
+def _chunks(lst: list[ProcesarItemIn], size: int):
+    for i in range(0, len(lst), size):
+        yield lst[i:i + size]
 
 
 @dataclass(frozen=True)
@@ -202,3 +218,153 @@ def precompute_render_context(
         troquel_evals_by_archivo_id=troquel_evals_by_archivo_id,
         troquel_evals_by_work_id=troquel_evals_by_work_id,
     )
+
+
+def process_chunk(
+    s: Session,
+    *,
+    chunk: list[ProcesarItemIn],
+    run_ctx: TifRunContext,
+    usuario_id: int,
+    med_cache: dict[str, MedicamentoDTO | None],
+    seen_recetas: set[str],
+    seen_refs: set[str],
+    revision_counter: int,
+    tif: TiffProcessor,
+    storage: S3Storage,
+    client: MedicamentoClient,
+    scan_workers: int,
+    upload_workers: int,
+) -> ProcesarResumen:
+    resumen = ProcesarResumen()
+
+    scanned = parallel_scan(
+        tif=tif,
+        items=chunk,
+        scan_workers=scan_workers,
+        resumen=resumen,
+    )
+    if not scanned:
+        return resumen
+
+    all_refs: list[str] = []
+    for x in scanned:
+        all_refs.extend(x.scan.headers or [])
+
+    match = match_all_refs(
+        s,
+        recepcion_id=run_ctx.recepcion_id,
+        refs=all_refs,
+        only_referencia=run_ctx.only_ref_match,
+    )
+
+    selection = select_work_items(
+        scanned=scanned,
+        match=match,
+        only_ref_match=run_ctx.only_ref_match,
+        seen_recetas=seen_recetas,
+        seen_refs=seen_refs,
+        resumen=resumen,
+        is_archivo_ya_asociado=lambda archivo_id: TifRepository.is_archivo_ya_asociado(
+            s,
+            recepcion_id=run_ctx.recepcion_id,
+            archivo_id=archivo_id,
+        ),
+    )
+
+    work = selection.work
+    archivo_ids = selection.archivo_ids
+    revision_items = selection.revision_items
+    headers_render_by_work_id = selection.headers_render_by_work_id
+
+    if not work and not revision_items:
+        return resumen
+
+    archivo_by_id, detalles_by_archivo = TifRepository.load_archivo_bundle(
+        s,
+        archivo_ids=archivo_ids,
+    )
+
+    precomputed = precompute_render_context(
+        work=work,
+        revision_items=revision_items,
+        headers_render_by_work_id=headers_render_by_work_id,
+        archivo_by_id=archivo_by_id,
+        detalles_by_archivo=detalles_by_archivo,
+        fecha_presentacion_dt=run_ctx.fecha_presentacion_dt,
+        dias_vencimiento=run_ctx.dias_vencimiento,
+        med_cache=med_cache,
+        warm_cache=lambda codebars: warm_medicamento_cache(client, med_cache, codebars),
+        resumen=resumen,
+    )
+
+    uploaded = parallel_render_upload(
+        storage=storage,
+        tif=tif,
+        work_items=work + precomputed.revision_work,
+        archivo_by_id=archivo_by_id,
+        prestador_imed=run_ctx.prestador_imed,
+        estado_render_by_work=precomputed.estado_render_by_archivo_id,
+        headers_render_by_work_id=headers_render_by_work_id,
+        upload_workers=upload_workers,
+        resumen=resumen,
+    )
+
+    valid_uploaded = filter_valid_uploaded(uploaded, resumen)
+    if not valid_uploaded:
+        return resumen
+
+    resumen.ok += persist_uploaded_chunk(
+        s,
+        recepcion_id=run_ctx.recepcion_id,
+        usuario_id=int(usuario_id),
+        valid_uploaded=valid_uploaded,
+        archivo_by_id=archivo_by_id,
+        troquel_evals_by_work_id=precomputed.troquel_evals_by_work_id,
+        troquel_evals_by_archivo_id=precomputed.troquel_evals_by_archivo_id,
+        dias_vencimiento=run_ctx.dias_vencimiento,
+        motivo_debito_receta_vencida_id=run_ctx.motivo_debito_receta_vencida_id,
+        revision_counter=revision_counter,
+    )
+
+    return resumen
+
+
+def process_items_in_chunks(
+    s: Session,
+    *,
+    items_filtrados: list[ProcesarItemIn],
+    run_ctx: TifRunContext,
+    usuario_id: int,
+    chunk_size: int,
+    tif: TiffProcessor,
+    storage: S3Storage,
+    client: MedicamentoClient,
+    scan_workers: int,
+    upload_workers: int,
+) -> ProcesarResumen:
+    total = ProcesarResumen()
+    med_cache: dict[str, MedicamentoDTO | None] = {}
+    seen_recetas: set[str] = set()
+    seen_refs: set[str] = set()
+    revision_counter = 1
+
+    for chunk in _chunks(items_filtrados, int(chunk_size)):
+        resumen = process_chunk(
+            s,
+            chunk=chunk,
+            run_ctx=run_ctx,
+            usuario_id=usuario_id,
+            med_cache=med_cache,
+            seen_recetas=seen_recetas,
+            seen_refs=seen_refs,
+            revision_counter=revision_counter,
+            tif=tif,
+            storage=storage,
+            client=client,
+            scan_workers=scan_workers,
+            upload_workers=upload_workers,
+        )
+        total.merge(resumen)
+
+    return total
