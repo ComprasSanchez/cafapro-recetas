@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import date, datetime
 from decimal import Decimal
 
 from PySide6.QtCore import Qt, QTimer, QThreadPool
@@ -12,12 +11,13 @@ from PySide6.QtWidgets import (
     QWidget, QInputDialog, QLineEdit, QMenu, QListWidget, QListWidgetItem, QToolButton, QStyle
 )
 
-from ui.dialogs.estado_seguimeinto_pick_dialog import EstadoSeguimientoPickDialog
+from ui.dialogs.estado_seguimiento_pick_dialog import EstadoSeguimientoPickDialog
 from ui.dialogs.historial_dialog import HistorialDialog
 from ui.label.image_view_label import ImageViewer
 from ui.label.clickable_label import ClickableLabel
 from ui.dialogs.vendedor_pick_dialog import VendedorPickDialog
 from ui.dialogs.troquel_dialog import TroquelDialog
+from ui.dialogs.auditoria_visual_helpers import fmt_date, fmt_money, parse_ddmmyyyy
 from ui.state.auditoria_state import AuditoriaState
 from ui.usecase.auditoria_visual_usecase import AuditoriaVisualUseCase
 from ui.utils.worker import Worker
@@ -581,7 +581,7 @@ class AuditoriaVisualDialog(QDialog):
 
             self._set_cell(self.tbl_troqueles, i, 3, str(getattr(t, "droga", "") or ""))
             self._set_cell(self.tbl_troqueles, i, 4, str(getattr(t, "code_alfabeta", "") or ""))
-            self._set_cell(self.tbl_troqueles, i, 5, self._fmt_money(Decimal(str(getattr(t, "monto", 0) or 0))))
+            self._set_cell(self.tbl_troqueles, i, 5, fmt_money(Decimal(str(getattr(t, "monto", 0) or 0))))
             self._set_cell(self.tbl_troqueles, i, 6, estado_code)
 
             troq_id = int(getattr(t, "troquel_id", 0) or 0)
@@ -619,8 +619,8 @@ class AuditoriaVisualDialog(QDialog):
             self._set_cell(self.tbl_arch_det, i, 4, str(getattr(d, "estado", "") or ""))
             self._set_cell(self.tbl_arch_det, i, 5, str(getattr(d, "nro_autorizacion", "") or ""))
             self._set_cell(self.tbl_arch_det, i, 6, str(getattr(d, "cantidad", "") or ""))
-            self._set_cell(self.tbl_arch_det, i, 7, self._fmt_money(Decimal(str(getattr(d, "importe_bruto", 0) or 0))))
-            self._set_cell(self.tbl_arch_det, i, 8, self._fmt_money(Decimal(str(getattr(d, "importe_cobertura", 0) or 0))))
+            self._set_cell(self.tbl_arch_det, i, 7, fmt_money(Decimal(str(getattr(d, "importe_bruto", 0) or 0))))
+            self._set_cell(self.tbl_arch_det, i, 8, fmt_money(Decimal(str(getattr(d, "importe_cobertura", 0) or 0))))
             self._set_cell(self.tbl_arch_det, i, 9, str(getattr(d, "descuento", "") or ""))
         self.tbl_arch_det.setUpdatesEnabled(True)
 
@@ -867,9 +867,9 @@ class AuditoriaVisualDialog(QDialog):
             return
 
         # -------- PARSE FECHAS --------
-        fecha_prescripcion = self._parse_ddmmyyyy(self.in_prescripcion.text())
-        fecha_emision = self._parse_ddmmyyyy(self.in_emision.text())
-        fecha_venta = self._parse_ddmmyyyy(self.in_venta.text())
+        fecha_prescripcion = parse_ddmmyyyy(self.in_prescripcion.text())
+        fecha_emision = parse_ddmmyyyy(self.in_emision.text())
+        fecha_venta = parse_ddmmyyyy(self.in_venta.text())
 
         # Venta obligatoria
         if not fecha_venta:
@@ -965,27 +965,6 @@ class AuditoriaVisualDialog(QDialog):
         it = QTableWidgetItem(text)
         it.setTextAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
         tbl.setItem(row, col, it)
-
-    @staticmethod
-    def _fmt_money(v: Decimal) -> str:
-        try:
-            return f"{Decimal(v):.2f}"
-        except Exception:
-            return "0.00"
-
-    @staticmethod
-    def _parse_ddmmyyyy(s: str) -> date | None:
-        s = (s or "").strip()
-        if not s:
-            return None
-
-        for fmt in ("%d/%m/%Y", "%d/%m/%y"):
-            try:
-                return datetime.strptime(s, fmt).date()
-            except ValueError:
-                pass
-
-        return None
 
     def _on_troqueles_context_menu(self, pos) -> None:
 
@@ -1106,15 +1085,6 @@ class AuditoriaVisualDialog(QDialog):
 
         dlg = HistorialDialog(archivo_id_actual=archivo_id, parent=self)
         dlg.exec()
-
-    @staticmethod
-    def _fmt_date(d):
-        if not d:
-            return ""
-        try:
-            return d.strftime("%d/%m/%y")
-        except Exception:
-            return ""
 
     def _on_next_only(self):
 
@@ -1304,7 +1274,7 @@ class AuditoriaVisualDialog(QDialog):
         # ENTER en fecha de venta
         if focus is self.in_venta:
 
-            fecha_venta = self._parse_ddmmyyyy(self.in_venta.text())
+            fecha_venta = parse_ddmmyyyy(self.in_venta.text())
 
             # si no hay fecha, no hacer nada
             if not fecha_venta:
@@ -1460,15 +1430,15 @@ class AuditoriaVisualDialog(QDialog):
     def _render_header(self):
 
         self.in_prescripcion.setText(
-            self._fmt_date(getattr(self.data.receta, "fecha_prescripcion", None))
+            fmt_date(getattr(self.data.receta, "fecha_prescripcion", None))
         )
 
         self.in_emision.setText(
-            self._fmt_date(getattr(self.data.receta, "fecha_emision", None))
+            fmt_date(getattr(self.data.receta, "fecha_emision", None))
         )
 
         self.in_venta.setText(
-            self._fmt_date(getattr(self.data.receta, "fecha_venta", None))
+            fmt_date(getattr(self.data.receta, "fecha_venta", None))
         )
 
         self.lb_big.setText(
@@ -1484,19 +1454,19 @@ class AuditoriaVisualDialog(QDialog):
     def _render_resumen(self):
 
         self.lb_a_cargo.setText(
-            self._fmt_money(
+            fmt_money(
                 Decimal(str(getattr(self.data.archivo, "importe_cobertura", 0) or 0))
             )
         )
 
         self.lb_imp_obs.setText(
-            self._fmt_money(
+            fmt_money(
                 Decimal(str(getattr(self.data.archivo, "importe_afiliado", 0) or 0))
             )
         )
 
         self.lb_imp_neto.setText(
-            self._fmt_money(
+            fmt_money(
                 Decimal(str(getattr(self.data.archivo, "importe_bruto", 0) or 0))
             )
         )

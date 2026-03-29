@@ -7,7 +7,7 @@ from ui.windows.periodo_window import PeriodosWindow
 from ui.windows.plan_window import PlanWindow
 from ui.windows.prestador_window import PrestadoresWindow
 from ui.windows.recepcion_window import RecepcionesWindow
-from ui.windows.resumen_recepcion_winodow import ResumenRecepcionWindow
+from ui.windows.resumen_recepcion_window import ResumenRecepcionWindow
 from ui.windows.usuario_window import UsuariosWindow
 from ui.windows.vendedor_window import VendedoresWindow
 

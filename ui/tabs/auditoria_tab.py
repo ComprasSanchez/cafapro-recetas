@@ -13,9 +13,9 @@ from PySide6.QtWidgets import (
     QStyledItemDelegate,
 )
 
-from ui.dialogs.forzar_asocaicion_dialog import ForzarAsociacionDialog
+from ui.dialogs.forzar_asociacion_dialog import ForzarAsociacionDialog
 from ui.dialogs.numero_receta_dialog import NumeroRecetaDialog
-from ui.dialogs.reasociar_reeta_dialog import ReasociarRecetaDialog
+from ui.dialogs.reasociar_receta_dialog import ReasociarRecetaDialog
 from ui.models.auditoria_row_vm import AuditoriaRowVM
 from ui.tabs.base_tab import BaseTabWidget
 from ui.dialogs.recepcion_pick_dialog import RecepcionPickDialog
