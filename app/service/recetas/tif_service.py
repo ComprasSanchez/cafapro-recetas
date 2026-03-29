@@ -9,7 +9,7 @@ from core.process_tif import TiffProcessor
 from app.infra.s3_storage import S3Storage
 from app.service.integraciones.medicamento_client import MedicamentoClient
 from app.service.recetas.tif_context import filter_unprocessed_items, load_run_context
-from app.service.recetas.tif_workflow import process_items_in_chunks
+from app.service.recetas.tif_workflow import ChunkRuntime, process_items_in_chunks
 from app.service.recetas.tif_types import (
     ProcesarItemIn,
     ProcesarResumen,
@@ -59,17 +59,21 @@ class TiffService:
         if not items_filtrados:
             return total
 
+        runtime = ChunkRuntime(
+            tif=self._tif,
+            storage=self._storage,
+            client=self._client,
+            scan_workers=self._scan_workers,
+            upload_workers=self._upload_workers,
+        )
+
         total_chunks = process_items_in_chunks(
             s,
             items_filtrados=items_filtrados,
             run_ctx=run_ctx,
             usuario_id=usuario_id,
             chunk_size=self._chunk_size,
-            tif=self._tif,
-            storage=self._storage,
-            client=self._client,
-            scan_workers=self._scan_workers,
-            upload_workers=self._upload_workers,
+            runtime=runtime,
         )
         total.merge(total_chunks)
 

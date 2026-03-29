@@ -139,6 +139,15 @@ class PrecomputeOut:
     troquel_evals_by_work_id: dict[int, list[_TroquelEval]]
 
 
+@dataclass(frozen=True)
+class ChunkRuntime:
+    tif: TiffProcessor
+    storage: S3Storage
+    client: MedicamentoClient
+    scan_workers: int
+    upload_workers: int
+
+
 def precompute_render_context(
     *,
     work: list[_WorkItem],
@@ -230,18 +239,14 @@ def process_chunk(
     seen_recetas: set[str],
     seen_refs: set[str],
     revision_counter: int,
-    tif: TiffProcessor,
-    storage: S3Storage,
-    client: MedicamentoClient,
-    scan_workers: int,
-    upload_workers: int,
+    runtime: ChunkRuntime,
 ) -> ProcesarResumen:
     resumen = ProcesarResumen()
 
     scanned = parallel_scan(
-        tif=tif,
+        tif=runtime.tif,
         items=chunk,
-        scan_workers=scan_workers,
+        scan_workers=runtime.scan_workers,
         resumen=resumen,
     )
     if not scanned:
@@ -294,19 +299,19 @@ def process_chunk(
         fecha_presentacion_dt=run_ctx.fecha_presentacion_dt,
         dias_vencimiento=run_ctx.dias_vencimiento,
         med_cache=med_cache,
-        warm_cache=lambda codebars: warm_medicamento_cache(client, med_cache, codebars),
+        warm_cache=lambda codebars: warm_medicamento_cache(runtime.client, med_cache, codebars),
         resumen=resumen,
     )
 
     uploaded = parallel_render_upload(
-        storage=storage,
-        tif=tif,
+        storage=runtime.storage,
+        tif=runtime.tif,
         work_items=work + precomputed.revision_work,
         archivo_by_id=archivo_by_id,
         prestador_imed=run_ctx.prestador_imed,
         estado_render_by_work=precomputed.estado_render_by_archivo_id,
         headers_render_by_work_id=headers_render_by_work_id,
-        upload_workers=upload_workers,
+        upload_workers=runtime.upload_workers,
         resumen=resumen,
     )
 
@@ -337,11 +342,7 @@ def process_items_in_chunks(
     run_ctx: TifRunContext,
     usuario_id: int,
     chunk_size: int,
-    tif: TiffProcessor,
-    storage: S3Storage,
-    client: MedicamentoClient,
-    scan_workers: int,
-    upload_workers: int,
+    runtime: ChunkRuntime,
 ) -> ProcesarResumen:
     total = ProcesarResumen()
     med_cache: dict[str, MedicamentoDTO | None] = {}
@@ -359,11 +360,7 @@ def process_items_in_chunks(
             seen_recetas=seen_recetas,
             seen_refs=seen_refs,
             revision_counter=revision_counter,
-            tif=tif,
-            storage=storage,
-            client=client,
-            scan_workers=scan_workers,
-            upload_workers=upload_workers,
+            runtime=runtime,
         )
         total.merge(resumen)
 

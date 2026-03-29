@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import traceback
 from dataclasses import dataclass
 from typing import Any, Callable
@@ -52,11 +53,9 @@ class ServiceJob(QRunnable):
                 emit_progress=lambda p, m="": self.signals.progress.emit(int(p), m or "")
             )
 
-            try:
-                # Si tu service soporta ctx=..., lo usamos
+            if _supports_ctx(self.fn):
                 result = self.fn(*self.args, ctx=ctx, **self.kwargs)
-            except TypeError:
-                # Si no soporta ctx, lo ejecutamos normal
+            else:
                 result = self.fn(*self.args, **self.kwargs)
 
             self.signals.result.emit(result)
@@ -66,3 +65,19 @@ class ServiceJob(QRunnable):
 
         finally:
             self.signals.finished.emit("Listo")
+
+
+def _supports_ctx(fn: Callable[..., Any]) -> bool:
+    try:
+        sig = inspect.signature(fn)
+    except (TypeError, ValueError):
+        return False
+
+    if "ctx" in sig.parameters:
+        return True
+
+    for p in sig.parameters.values():
+        if p.kind is inspect.Parameter.VAR_KEYWORD:
+            return True
+
+    return False
