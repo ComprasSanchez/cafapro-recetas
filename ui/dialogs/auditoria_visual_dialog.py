@@ -34,6 +34,11 @@ from ui.dialogs.auditoria_visual_render_helpers import (
     render_resumen_fields,
     render_troqueles_table,
 )
+from ui.dialogs.auditoria_visual_troqueles_helpers import (
+    estado_es_rechazado,
+    estado_permite_eliminar,
+    read_troquel_row,
+)
 from ui.state.auditoria_state import AuditoriaState
 from ui.usecase.auditoria_visual_usecase import AuditoriaVisualUseCase
 from ui.utils.worker import Worker
@@ -893,9 +898,7 @@ class AuditoriaVisualDialog(QDialog):
             self._pool.start(worker)
 
             # invalidar cache
-            if self.asociacion_id:
-                asoc_id = int(self.asociacion_id)
-                self._data_cache.pop(asoc_id, None)
+            self._invalidate_current_asociacion_cache()
 
             # PASAR A LA SIGUIENTE INMEDIATAMENTE
             self._on_next_only()
@@ -923,12 +926,15 @@ class AuditoriaVisualDialog(QDialog):
 
         act_delete = None
 
-        # 🔥 verificar estado del troquel
         if row >= 0:
-            estado_item = tbl.item(row, 6)
-            estado = estado_item.text() if estado_item else ""
+            row_data = read_troquel_row(tbl, row)
+            estado = row_data.estado if row_data else ""
 
-            if estado in (self.ESTADO_TROQUEL_AMARILLO, self.ESTADO_TROQUEL_ROJO):
+            if estado_permite_eliminar(
+                estado=estado,
+                estado_amarillo=self.ESTADO_TROQUEL_AMARILLO,
+                estado_rojo=self.ESTADO_TROQUEL_ROJO,
+            ):
                 act_delete = menu.addAction("Eliminar troquel")
 
         chosen = menu.exec(tbl.viewport().mapToGlobal(pos))
@@ -958,8 +964,7 @@ class AuditoriaVisualDialog(QDialog):
             return
 
         # 🔥 invalidar cache y recargar async
-        asoc_id = int(self.asociacion_id)
-        self._data_cache.pop(asoc_id, None)
+        self._invalidate_current_asociacion_cache()
         self._goto(self._idx)
 
     def _ctx_edit_troquel_qty(self) -> None:
@@ -968,38 +973,19 @@ class AuditoriaVisualDialog(QDialog):
             QMessageBox.information(self, "Sin selección", "Seleccioná un troquel para editar.")
             return
 
-        it0 = self.tbl_troqueles.item(row, 0)
-        if not it0:
+        row_data = read_troquel_row(self.tbl_troqueles, row)
+        if not row_data:
             return
 
-        troquel_id = int(it0.data(Qt.ItemDataRole.UserRole) or 0)
-        if not troquel_id:
+        if not row_data.troquel_id:
             QMessageBox.warning(self, "Error", "No se pudo determinar el troquel.")
             return
 
-        codigo = (
-            it0.text()
-            if it0
-            else ""
-        ).strip()
-
-        item_qty = self.tbl_troqueles.item(row, 2)
-        qty_txt = (
-            item_qty.text()
-            if item_qty
-            else "1"
-        ).strip()
-
-        try:
-            qty = int(qty_txt)
-        except Exception:
-            qty = 1
-
         dlg = TroquelDialog(
             mode="update",
-            troquel_id=troquel_id,
-            codigo_barra=codigo,
-            cantidad=qty,
+            troquel_id=row_data.troquel_id,
+            codigo_barra=row_data.codigo,
+            cantidad=row_data.cantidad,
             parent=self,
         )
 
@@ -1007,10 +993,8 @@ class AuditoriaVisualDialog(QDialog):
             return
 
         # 🔥 invalidar cache y recargar async
-        if self.asociacion_id:
-            asoc_id = int(self.asociacion_id)
-            self._data_cache.pop(asoc_id, None)
-            self._goto(self._idx)
+        self._invalidate_current_asociacion_cache()
+        self._goto(self._idx)
 
     def _open_historial_debitada(self) -> None:
         if not self.data:
@@ -1215,6 +1199,13 @@ class AuditoriaVisualDialog(QDialog):
             max_items=self.MAX_PREVIEW_CACHE,
         )
 
+    def _invalidate_current_asociacion_cache(self) -> None:
+        if not self.asociacion_id:
+            return
+
+        asoc_id = int(self.asociacion_id)
+        self._data_cache.pop(asoc_id, None)
+
     def _on_save_error(self, err):
         QMessageBox.critical(
             self,
@@ -1386,19 +1377,18 @@ class AuditoriaVisualDialog(QDialog):
         if row < 0:
             return
 
-        it0 = self.tbl_troqueles.item(row, 0)
-        estado_item = self.tbl_troqueles.item(row, 6)
-        estado = estado_item.text() if estado_item else ""
-        if not it0:
+        row_data = read_troquel_row(self.tbl_troqueles, row)
+        if not row_data:
             return
 
-        troquel_id = int(it0.data(Qt.ItemDataRole.UserRole) or 0)
-
-        if not troquel_id:
+        if not row_data.troquel_id:
             QMessageBox.warning(self, "Error", "No se pudo determinar el troquel.")
             return
 
-        if estado == self.ESTADO_TROQUEL_ROJO:
+        if estado_es_rechazado(
+            estado=row_data.estado,
+            estado_rojo=self.ESTADO_TROQUEL_ROJO,
+        ):
             ok = QMessageBox.warning(
                 self,
                 "Eliminar troquel rechazado",
@@ -1424,12 +1414,10 @@ class AuditoriaVisualDialog(QDialog):
             return
 
         try:
-            AuditoriaVisualUseCase.delete_troquel(troquel_id=troquel_id)
+            AuditoriaVisualUseCase.delete_troquel(troquel_id=row_data.troquel_id)
 
             # 🔥 invalidar cache
-            if self.asociacion_id:
-                asoc_id = int(self.asociacion_id)
-                self._data_cache.pop(asoc_id, None)
+            self._invalidate_current_asociacion_cache()
 
             # recargar
             self._goto(self._idx)
