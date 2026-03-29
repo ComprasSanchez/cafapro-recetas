@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
 from ui.dialogs.estado_seguimiento_pick_dialog import EstadoSeguimientoPickDialog
 from ui.dialogs.historial_dialog import HistorialDialog
 from ui.dialogs.auditoria_visual_cache_helpers import put_preview_cache_item
+from ui.dialogs.auditoria_visual_finalize_helpers import build_finalizar_payload
 from ui.dialogs.auditoria_visual_motivos_helpers import render_motivos_list, set_motivo_item_text
 from ui.dialogs.auditoria_visual_preview_helpers import (
     empty_preview_text,
@@ -823,51 +824,24 @@ class AuditoriaVisualDialog(QDialog):
         if not self.data:
             return
 
-        receta_id = int(getattr(self.data.receta, "receta_id", 0) or 0)
-        if not receta_id:
-            QMessageBox.critical(self, "Error", "No se pudo determinar la receta.")
+        payload, validation_error = build_finalizar_payload(
+            data=self.data,
+            state=self.state,
+            prescripcion_text=self.in_prescripcion.text(),
+            emision_text=self.in_emision.text(),
+            venta_text=self.in_venta.text(),
+        )
+
+        if validation_error:
+            if validation_error.level == "critical":
+                QMessageBox.critical(self, validation_error.title, validation_error.message)
+            else:
+                QMessageBox.warning(self, validation_error.title, validation_error.message)
             return
 
-        # -------- PARSE FECHAS --------
-        fecha_prescripcion = parse_ddmmyyyy(self.in_prescripcion.text())
-        fecha_emision = parse_ddmmyyyy(self.in_emision.text())
-        fecha_venta = parse_ddmmyyyy(self.in_venta.text())
-
-        # Venta obligatoria
-        if not fecha_venta:
-            QMessageBox.warning(
-                self,
-                "Falta fecha",
-                "Tenés que cargar la fecha de Venta (dd/MM/yyyy)."
-            )
-            return
-
-        # -------- VALIDACIÓN 1: AUTORIZACIÓN vs VENTA --------
-        fecha_autorizacion = getattr(self.data.archivo, "fecha", None)
-
-        if fecha_autorizacion and fecha_venta:
-            if fecha_autorizacion != fecha_venta:
-                QMessageBox.warning(
-                    self,
-                    "Fechas no coinciden",
-                    "La fecha de Autorización y la fecha de Venta deben coincidir."
-                )
-                return
-
-        # -------- VALIDACIÓN 2: SI HAY DÉBITOS → VENDEDOR OBLIGATORIO --------
-        if self.state.debitos and not self.state.vendedor_id:
-            QMessageBox.warning(
-                self,
-                "Falta vendedor",
-                "Si seleccionás algún débito, tenés que cargar un vendedor."
-            )
-            return
-
-        # -------- CONSTRUCCIÓN DÉBITOS --------
-        debitos_inputs = [
-            (mid, det)
-            for mid, det in self.state.debitos.items()
-        ]
+        assert payload is not None
+        receta_id = payload.receta_id
+        debitos_inputs = payload.debitos_inputs
 
         estado_seg_id: int | None = None
 
@@ -893,15 +867,25 @@ class AuditoriaVisualDialog(QDialog):
             estado_seg_id = int(estado_seg_id)
 
         try:
+            usuario_id = self.creado_por_usuario_id
+            if usuario_id is None:
+                QMessageBox.warning(
+                    self,
+                    "Falta usuario",
+                    "No se pudo determinar el usuario actual.",
+                )
+                return
+
             worker = Worker(
                 self._save_auditoria_background,
                 receta_id=receta_id,
                 vendedor_id=self.state.vendedor_id,
                 estado_seg_id=estado_seg_id,
-                fecha_prescripcion=fecha_prescripcion,
-                fecha_emision=fecha_emision,
-                fecha_venta=fecha_venta,
+                fecha_prescripcion=payload.fecha_prescripcion,
+                fecha_emision=payload.fecha_emision,
+                fecha_venta=payload.fecha_venta,
                 debitos_inputs=debitos_inputs,
+                usuario_id=int(usuario_id),
             )
 
             worker.signals.error.connect(self._on_save_error)
@@ -994,14 +978,15 @@ class AuditoriaVisualDialog(QDialog):
             return
 
         codigo = (
-            self.tbl_troqueles.item(row, 0).text()
-            if self.tbl_troqueles.item(row, 0)
+            it0.text()
+            if it0
             else ""
         ).strip()
 
+        item_qty = self.tbl_troqueles.item(row, 2)
         qty_txt = (
-            self.tbl_troqueles.item(row, 2).text()
-            if self.tbl_troqueles.item(row, 2)
+            item_qty.text()
+            if item_qty
             else "1"
         ).strip()
 
@@ -1247,6 +1232,7 @@ class AuditoriaVisualDialog(QDialog):
             fecha_emision,
             fecha_venta,
             debitos_inputs,
+            usuario_id,
     ):
         AuditoriaVisualUseCase.finalizar_auditoria(
             receta_id=receta_id,
@@ -1255,7 +1241,7 @@ class AuditoriaVisualDialog(QDialog):
             fecha_prescripcion=fecha_prescripcion,
             fecha_emision=fecha_emision,
             fecha_venta=fecha_venta,
-            usuario_id=self.creado_por_usuario_id,
+            usuario_id=int(usuario_id),
             debitos_inputs=debitos_inputs,
         )
 
@@ -1275,10 +1261,7 @@ class AuditoriaVisualDialog(QDialog):
             if path:
                 self._set_preview_and_fit(lado, path)
             else:
-                self._clear_preview(
-                    lado,
-                    f"Sin imagen ({'frente' if lado == 'F' else 'dorso'})"
-                )
+                self._clear_preview(lado, empty_preview_text(lado))
 
     def _render_motivos(self):
 
