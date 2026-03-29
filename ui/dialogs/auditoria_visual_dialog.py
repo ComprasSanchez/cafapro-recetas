@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, QTimer, QThreadPool
-from PySide6.QtGui import QColor, QBrush, QFont
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QSplitter,
     QLabel, QPushButton, QFrame, QScrollArea, QTableWidget,
@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
 from ui.dialogs.estado_seguimiento_pick_dialog import EstadoSeguimientoPickDialog
 from ui.dialogs.historial_dialog import HistorialDialog
 from ui.dialogs.auditoria_visual_cache_helpers import put_preview_cache_item
+from ui.dialogs.auditoria_visual_motivos_helpers import render_motivos_list, set_motivo_item_text
 from ui.dialogs.auditoria_visual_preview_helpers import (
     empty_preview_text,
     extract_preview_error,
@@ -782,21 +783,10 @@ class AuditoriaVisualDialog(QDialog):
         self.state.debitos[motivo_id] = detalle_final
         self._set_motivo_item_text(item, detalle_final)
 
-    @staticmethod
-    def _motivo_base_desc(item: QListWidgetItem) -> str:
-        desc = item.data(Qt.ItemDataRole.UserRole + 1)
-        if desc is None:
-            txt = item.text() or ""
-            i = txt.find("  (")
-            return txt[:i] if i >= 0 else txt
-        return str(desc)
-
     def _set_motivo_item_text(self, item: QListWidgetItem, detalle: str | None) -> None:
-        base = self._motivo_base_desc(item)
-        text = f"{base}  ({detalle})" if detalle else base
         self._updating_motivos = True
         try:
-            item.setText(text)
+            set_motivo_item_text(item, detalle)
         finally:
             self._updating_motivos = False
 
@@ -1295,55 +1285,12 @@ class AuditoriaVisualDialog(QDialog):
         if not self.data:
             return
 
-        self.list_motivos.blockSignals(True)
-        self.list_motivos.clear()
-
-        # unir motivos frente + dorso
-        motivos = (self.data.motivos_frente or []) + (self.data.motivos_dorso or [])
-
-        # evitar duplicados por motivo_id
-        uniq = {}
-        for m in motivos:
-            uniq[int(m.motivo_debito_id)] = m
-
-        motivos = list(uniq.values())
-
-        # 🔥 ordenar alfabéticamente
-        motivos.sort(key=lambda m: (m.descripcion or "").lower())
-
-        for m in motivos:
-
-            motivo_id = int(m.motivo_debito_id)
-            descripcion = m.descripcion
-            activo = bool(getattr(m, "activo", True))
-            seleccionado = motivo_id in self.state.debitos
-
-            if not activo and not seleccionado:
-                continue
-
-            text = descripcion
-
-            if seleccionado:
-                detalle = self.state.debitos.get(motivo_id)
-                if detalle:
-                    text = f"{descripcion}  ({detalle})"
-
-            item = QListWidgetItem(text)
-            item.setData(Qt.ItemDataRole.UserRole, motivo_id)
-            item.setData(Qt.ItemDataRole.UserRole + 1, descripcion)
-            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-
-            item.setCheckState(
-                Qt.CheckState.Checked if seleccionado else Qt.CheckState.Unchecked
-            )
-
-            if not activo:
-                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
-                item.setForeground(QBrush(QColor(150, 150, 150)))
-
-            self.list_motivos.addItem(item)
-
-        self.list_motivos.blockSignals(False)
+        render_motivos_list(
+            self.list_motivos,
+            motivos_frente=self.data.motivos_frente,
+            motivos_dorso=self.data.motivos_dorso,
+            selected_debitos=self.state.debitos,
+        )
 
     def _render_header(self):
         if not self.data:
