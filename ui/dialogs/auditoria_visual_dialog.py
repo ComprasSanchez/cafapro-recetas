@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-from decimal import Decimal
-
 from PySide6.QtCore import Qt, QTimer, QThreadPool
 from PySide6.QtGui import QPixmap, QColor, QBrush, QFont
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QSplitter,
     QLabel, QPushButton, QFrame, QScrollArea, QTableWidget,
-    QTableWidgetItem, QHeaderView, QAbstractItemView, QMessageBox,
+    QHeaderView, QAbstractItemView, QMessageBox,
     QWidget, QInputDialog, QLineEdit, QMenu, QListWidget, QListWidgetItem, QToolButton, QStyle
 )
 
@@ -20,6 +18,13 @@ from ui.dialogs.auditoria_visual_prefetch_helpers import build_prefetch_queue, p
 from ui.dialogs.vendedor_pick_dialog import VendedorPickDialog
 from ui.dialogs.troquel_dialog import TroquelDialog
 from ui.dialogs.auditoria_visual_helpers import fmt_date, fmt_money, parse_ddmmyyyy
+from ui.dialogs.auditoria_visual_render_helpers import (
+    render_archivo_detalle_table,
+    render_header_fields,
+    render_navigation_label,
+    render_resumen_fields,
+    render_troqueles_table,
+)
 from ui.state.auditoria_state import AuditoriaState
 from ui.usecase.auditoria_visual_usecase import AuditoriaVisualUseCase
 from ui.utils.worker import Worker
@@ -569,62 +574,22 @@ class AuditoriaVisualDialog(QDialog):
 
     def _render_troqueles(self) -> None:
         assert self.data is not None
-        rows = self.data.troqueles
-
-        self.tbl_troqueles.setUpdatesEnabled(False)
-        self.tbl_troqueles.setRowCount(len(rows))
-        for i, t in enumerate(rows):
-            estado = getattr(t, "estado", "")
-            estado_code = str(getattr(estado, "value", estado) or "")
-
-            self._set_cell(self.tbl_troqueles, i, 0, str(getattr(t, "codigo_barra", "") or ""))
-            self._set_cell(self.tbl_troqueles, i, 1, str(getattr(t, "presentacion", "") or ""))
-            self._set_cell(self.tbl_troqueles, i, 2, str(getattr(t, "cantidad", "") or ""))
-
-            self._set_cell(self.tbl_troqueles, i, 3, str(getattr(t, "droga", "") or ""))
-            self._set_cell(self.tbl_troqueles, i, 4, str(getattr(t, "code_alfabeta", "") or ""))
-            self._set_cell(self.tbl_troqueles, i, 5, fmt_money(Decimal(str(getattr(t, "monto", 0) or 0))))
-            self._set_cell(self.tbl_troqueles, i, 6, estado_code)
-
-            troq_id = int(getattr(t, "troquel_id", 0) or 0)
-            it0 = self.tbl_troqueles.item(i, 0)
-            if it0 and troq_id:
-                it0.setData(Qt.ItemDataRole.UserRole, troq_id)
-
-            color = None
-            if estado_code == self.ESTADO_TROQUEL_VERDE:
-                color = QColor(17, 151, 59)
-            elif estado_code == self.ESTADO_TROQUEL_AMARILLO:
-                color = QColor(228, 245, 44)
-            elif estado_code == self.ESTADO_TROQUEL_ROJO:
-                color = QColor(165, 32, 25)
-            if color is not None:
-                brush = QBrush(color)
-                for c in range(self.tbl_troqueles.columnCount()):
-                    it = self.tbl_troqueles.item(i, c)
-                    if it:
-                        it.setData(Qt.BackgroundRole, brush)
-
-        self.tbl_troqueles.setUpdatesEnabled(True)
+        render_troqueles_table(
+            self.tbl_troqueles,
+            rows=self.data.troqueles,
+            estado_troquel_verde=self.ESTADO_TROQUEL_VERDE,
+            estado_troquel_amarillo=self.ESTADO_TROQUEL_AMARILLO,
+            estado_troquel_rojo=self.ESTADO_TROQUEL_ROJO,
+            fmt_money=fmt_money,
+        )
 
     def _render_archivo_detalle(self) -> None:
         assert self.data is not None
-        rows = self.data.archivo_detalles
-
-        self.tbl_arch_det.setUpdatesEnabled(False)
-        self.tbl_arch_det.setRowCount(len(rows))
-        for i, d in enumerate(rows):
-            self._set_cell(self.tbl_arch_det, i, 0, str(getattr(d, "codigo_barra", "") or ""))
-            self._set_cell(self.tbl_arch_det, i, 1, str(getattr(d, "cod_medic", "") or ""))
-            self._set_cell(self.tbl_arch_det, i, 2, str(getattr(d, "nombre", "") or ""))
-            self._set_cell(self.tbl_arch_det, i, 3, str(getattr(d, "presentacion", "") or ""))
-            self._set_cell(self.tbl_arch_det, i, 4, str(getattr(d, "estado", "") or ""))
-            self._set_cell(self.tbl_arch_det, i, 5, str(getattr(d, "nro_autorizacion", "") or ""))
-            self._set_cell(self.tbl_arch_det, i, 6, str(getattr(d, "cantidad", "") or ""))
-            self._set_cell(self.tbl_arch_det, i, 7, fmt_money(Decimal(str(getattr(d, "importe_bruto", 0) or 0))))
-            self._set_cell(self.tbl_arch_det, i, 8, fmt_money(Decimal(str(getattr(d, "importe_cobertura", 0) or 0))))
-            self._set_cell(self.tbl_arch_det, i, 9, str(getattr(d, "descuento", "") or ""))
-        self.tbl_arch_det.setUpdatesEnabled(True)
+        render_archivo_detalle_table(
+            self.tbl_arch_det,
+            rows=self.data.archivo_detalles,
+            fmt_money=fmt_money,
+        )
 
     # -------------------------
     # Preview controls (doble)
@@ -958,15 +923,6 @@ class AuditoriaVisualDialog(QDialog):
 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudo finalizar:\n{e}")
-
-    # -------------------------
-    # Helpers
-    # -------------------------
-    @staticmethod
-    def _set_cell(tbl: QTableWidget, row: int, col: int, text: str) -> None:
-        it = QTableWidgetItem(text)
-        it.setTextAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
-        tbl.setItem(row, col, it)
 
     def _on_troqueles_context_menu(self, pos) -> None:
 
@@ -1385,53 +1341,37 @@ class AuditoriaVisualDialog(QDialog):
         self.list_motivos.blockSignals(False)
 
     def _render_header(self):
+        if not self.data:
+            return
 
-        self.in_prescripcion.setText(
-            fmt_date(getattr(self.data.receta, "fecha_prescripcion", None))
+        render_header_fields(
+            data=self.data,
+            in_prescripcion=self.in_prescripcion,
+            in_emision=self.in_emision,
+            in_venta=self.in_venta,
+            lb_big=self.lb_big,
+            lb_autorizacion=self.lb_autorizacion,
+            btn_debitada=self.btn_debitada,
+            fmt_date=fmt_date,
         )
-
-        self.in_emision.setText(
-            fmt_date(getattr(self.data.receta, "fecha_emision", None))
-        )
-
-        self.in_venta.setText(
-            fmt_date(getattr(self.data.receta, "fecha_venta", None))
-        )
-
-        self.lb_big.setText(
-            str(getattr(self.data.archivo, "orden_lote", "") or "—")
-        )
-
-        self.lb_autorizacion.setText(
-            str(getattr(self.data.archivo, "fecha", "") or "—")
-        )
-
-        self.btn_debitada.setVisible(self.data.has_historial_debitada)
 
     def _render_resumen(self):
+        if not self.data:
+            return
 
-        self.lb_a_cargo.setText(
-            fmt_money(
-                Decimal(str(getattr(self.data.archivo, "importe_cobertura", 0) or 0))
-            )
-        )
-
-        self.lb_imp_obs.setText(
-            fmt_money(
-                Decimal(str(getattr(self.data.archivo, "importe_afiliado", 0) or 0))
-            )
-        )
-
-        self.lb_imp_neto.setText(
-            fmt_money(
-                Decimal(str(getattr(self.data.archivo, "importe_bruto", 0) or 0))
-            )
+        render_resumen_fields(
+            data=self.data,
+            lb_a_cargo=self.lb_a_cargo,
+            lb_imp_obs=self.lb_imp_obs,
+            lb_imp_neto=self.lb_imp_neto,
+            fmt_money=fmt_money,
         )
 
     def _render_navigation(self):
-
-        self.lb_pos.setText(
-            f"{self._idx + 1} / {len(self._asociacion_ids)}"
+        render_navigation_label(
+            lb_pos=self.lb_pos,
+            idx=self._idx,
+            total=len(self._asociacion_ids),
         )
 
     # ---------------------------------------------------------
