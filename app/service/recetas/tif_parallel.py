@@ -3,8 +3,9 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 import os
+from typing import cast
 
-from core.process_tif import ScanOut, TiffProcessor
+from core.process_tif import ScanOut, TiffProcessor, TroquelEstado
 from app.db.models import Archivo
 from app.infra.s3_storage import S3Storage
 from app.service.recetas.tif_logic import (
@@ -48,7 +49,7 @@ def parallel_render_upload(
     work_items: list[_WorkItem],
     archivo_by_id: dict[int, Archivo],
     prestador_imed: str,
-    estado_render_by_work: dict[int, dict[str, str]],
+    estado_render_by_work: dict[int, dict[str, TroquelEstado]],
     headers_render_by_work_id: dict[int, set[str]],
     upload_workers: int,
     resumen: ProcesarResumen,
@@ -74,7 +75,7 @@ def parallel_render_upload(
             base_name=base_name,
         )
 
-        estado = estado_render_by_work.get(w.archivo_id, {})
+        estado = cast(dict[str, TroquelEstado], estado_render_by_work.get(w.archivo_id, {}))
 
         allowed_headers = {
             norm_str(v)
@@ -109,7 +110,7 @@ def parallel_render_upload(
             tiff_path=w.it.full_path,
             scan=scan_render,
             pages=None,
-            estado_por_codebar=estado,
+            estado_resolver=lambda codebar: cast(TroquelEstado, estado.get(codebar, "R")),
         )
 
         fb = files.get("front_bytes")

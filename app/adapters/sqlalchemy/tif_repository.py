@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import cast
+
 from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
@@ -43,7 +45,7 @@ class TifRepository:
                 Archivo.nro_receta.in_(candidate_values),
             )
 
-        return (
+        return cast(list[Archivo], list(
             session.execute(
                 select(Archivo).where(
                     and_(
@@ -53,8 +55,7 @@ class TifRepository:
                 )
             )
             .scalars()
-            .all()
-        )
+        ))
 
     @staticmethod
     def is_archivo_ya_asociado(session: Session, *, recepcion_id: int, archivo_id: int) -> bool:
@@ -96,17 +97,41 @@ class TifRepository:
     def get_archivos_by_ids(session: Session, *, archivo_ids: list[int]) -> list[Archivo]:
         if not archivo_ids:
             return []
-        return session.execute(
+        return cast(list[Archivo], list(session.execute(
             select(Archivo).where(Archivo.archivo_id.in_(archivo_ids))
-        ).scalars().all()
+        ).scalars().all()))
 
     @staticmethod
     def get_detalles_by_archivo_ids(session: Session, *, archivo_ids: list[int]) -> list[ArchivoDetalle]:
         if not archivo_ids:
             return []
-        return session.execute(
+        return cast(list[ArchivoDetalle], list(session.execute(
+            select(ArchivoDetalle).where(ArchivoDetalle.archivo_id.in_(archivo_ids))
+        ).scalars().all()))
+
+    @staticmethod
+    def load_archivo_bundle(
+        session: Session,
+        *,
+        archivo_ids: list[int],
+    ) -> tuple[dict[int, Archivo], dict[int, list[ArchivoDetalle]]]:
+        if not archivo_ids:
+            return {}, {}
+
+        archivos = session.execute(
+            select(Archivo).where(Archivo.archivo_id.in_(archivo_ids))
+        ).scalars().all()
+        archivo_by_id = {a.archivo_id: a for a in archivos}
+
+        detalles = session.execute(
             select(ArchivoDetalle).where(ArchivoDetalle.archivo_id.in_(archivo_ids))
         ).scalars().all()
+
+        detalles_by_archivo: dict[int, list[ArchivoDetalle]] = {}
+        for d in detalles:
+            detalles_by_archivo.setdefault(d.archivo_id, []).append(d)
+
+        return archivo_by_id, detalles_by_archivo
 
     @staticmethod
     def get_recetas_with_motivo(

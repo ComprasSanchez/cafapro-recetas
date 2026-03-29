@@ -6,6 +6,8 @@ from decimal import Decimal
 from pathlib import Path
 import os
 
+from core.process_tif import TroquelEstado
+
 from sqlalchemy.orm import Session
 
 from app.adapters.sqlalchemy.tif_repository import TifRepository
@@ -292,8 +294,8 @@ def evaluate_revision_troqueles(
     return evals
 
 
-def to_render_states(evals: list[_TroquelEval]) -> dict[str, str]:
-    out: dict[str, str] = {}
+def to_render_states(evals: list[_TroquelEval]) -> dict[str, TroquelEstado]:
+    out: dict[str, TroquelEstado] = {}
 
     for e in evals:
         if e.estado == EstadoTroquelEnum.V:
