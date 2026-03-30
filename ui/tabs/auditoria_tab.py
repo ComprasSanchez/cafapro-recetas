@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QEvent, QTimer
+from PySide6.QtCore import Qt, QEvent, QThreadPool, QTimer
 from PySide6.QtGui import QPixmap, QColor, QPen, QIcon
 from PySide6.QtWidgets import (
     QWidget, QFrame, QVBoxLayout, QGridLayout, QHBoxLayout,
@@ -20,6 +20,7 @@ from ui.models.auditoria_row_vm import AuditoriaRowVM
 from ui.tabs.base_tab import BaseTabWidget
 from ui.dialogs.recepcion_pick_dialog import RecepcionPickDialog
 from ui.dialogs.auditoria_visual_dialog import AuditoriaVisualDialog
+from ui.jobs.jobs_service import ServiceJob
 
 from ui.usecase.auditoria_usecase import (
     AuditoriaUseCase, RecepcionOut, EstadosOut, AuditoriaRowsOut, PreviewBytesOut
@@ -98,6 +99,12 @@ class AuditoriaTab(BaseTabWidget):
         self._empty_icon = QIcon()
 
         self._uc = AuditoriaUseCase()
+        self._auditoria_loading = False
+        self._auditoria_reload_pending = False
+        self._preview_runner = QThreadPool(self)
+        self._preview_runner.setMaxThreadCount(1)
+        self._active_preview_jobs: set[ServiceJob] = set()
+        self._preview_request_id = 0
 
         # evita que se dispare preview mientras re-renderizamos
         self._rendering_table = False
@@ -165,6 +172,7 @@ class AuditoriaTab(BaseTabWidget):
         self.btn_reload.setIcon(icon)
 
         self.btn_reload.clicked.connect(self._reload_auditoria)
+        self.btn_reload.setEnabled(False)
 
         num_box = QWidget()
         num_l = QHBoxLayout(num_box)
@@ -265,14 +273,8 @@ class AuditoriaTab(BaseTabWidget):
 
         self._rows_view = []
         self._clear_table_and_preview()
-
-        self.run_job(
-            self._uc.load_auditoria,
-            recepcion_id=self._recepcion_id,
-            title="Cargando auditoría…",
-            on_result=self._apply_auditoria_rows,
-            on_error=self._ui_error,
-        )
+        self._update_reload_button_state()
+        self._request_reload_auditoria(title="Cargando auditoría…")
 
     # -------------------------
     # BODY
@@ -561,6 +563,53 @@ class AuditoriaTab(BaseTabWidget):
         self.lb_status.setText(f"Auditoría cargada: {len(self._rows_view)} registros")
         self._apply_filters()
 
+    def _update_reload_button_state(self) -> None:
+        if not hasattr(self, "btn_reload"):
+            return
+        self.btn_reload.setEnabled(bool(self._recepcion_id) and not self._auditoria_loading)
+
+    def _request_reload_auditoria(self, *, title: str) -> None:
+        if not self._recepcion_id:
+            return
+
+        if self._auditoria_loading:
+            self._auditoria_reload_pending = True
+            self.footer_set(info="Recarga en cola...")
+            return
+
+        self._auditoria_loading = True
+        self._auditoria_reload_pending = False
+        self._update_reload_button_state()
+
+        recepcion_id = int(self._recepcion_id)
+
+        self.run_job(
+            self._uc.load_auditoria,
+            recepcion_id=recepcion_id,
+            title=title,
+            on_result=lambda out, rid=recepcion_id: self._on_reload_result(rid, out),
+            on_error=lambda err, rid=recepcion_id: self._on_reload_error(rid, err),
+            on_finished=self._on_reload_finished,
+        )
+
+    def _on_reload_result(self, recepcion_id: int, out: AuditoriaRowsOut) -> None:
+        if int(self._recepcion_id or 0) != int(recepcion_id):
+            return
+        self._apply_auditoria_rows(out)
+
+    def _on_reload_error(self, recepcion_id: int, err_text: str) -> None:
+        if int(self._recepcion_id or 0) != int(recepcion_id):
+            return
+        self._ui_error(err_text)
+
+    def _on_reload_finished(self) -> None:
+        self._auditoria_loading = False
+        self._update_reload_button_state()
+
+        if self._auditoria_reload_pending and self._recepcion_id:
+            self._auditoria_reload_pending = False
+            QTimer.singleShot(0, lambda: self._request_reload_auditoria(title="Actualizando auditoría..."))
+
     # -------------------------
     # Filters (en memoria)
     # -------------------------
@@ -766,19 +815,39 @@ class AuditoriaTab(BaseTabWidget):
     def _load_preview_async(self, path: str) -> None:
         vw = max(200, self.scroll.viewport().width() - 12)
         vh = max(200, self.scroll.viewport().height() - 12)
+        self._preview_request_id += 1
+        req_id = self._preview_request_id
 
         self.img_preview.setText("Cargando…")
         self.img_preview.setPixmap(QPixmap())
 
-        self.run_job(
+        job = ServiceJob(
             self._uc.load_preview_bytes,
             path=path,
             vw=vw,
             vh=vh,
             title="Cargando imagen…",
-            on_result=self._apply_preview_bytes,
-            on_error=self._ui_error_preview,
         )
+        self._active_preview_jobs.add(job)
+
+        def _cleanup() -> None:
+            self._active_preview_jobs.discard(job)
+
+        job.signals.result.connect(lambda out, rid=req_id: self._on_preview_result(rid, out))
+        job.signals.error.connect(lambda err, rid=req_id: self._on_preview_error(rid, err))
+        job.signals.finished.connect(lambda _msg: _cleanup())
+
+        self._preview_runner.start(job)
+
+    def _on_preview_result(self, req_id: int, out: PreviewBytesOut) -> None:
+        if req_id != self._preview_request_id:
+            return
+        self._apply_preview_bytes(out)
+
+    def _on_preview_error(self, req_id: int, err_text: str) -> None:
+        if req_id != self._preview_request_id:
+            return
+        self._ui_error_preview(err_text)
 
     def _apply_preview_bytes(self, out: PreviewBytesOut) -> None:
         if self._last_preview_path and (self._last_preview_path != out.path):
@@ -796,6 +865,7 @@ class AuditoriaTab(BaseTabWidget):
         self.img_preview.setText("")
 
     def _clear_preview(self) -> None:
+        self._preview_request_id += 1
         self.img_preview.setPixmap(QPixmap())
         self.img_preview.setText("Sin imagen")
         self._last_preview_path = None
@@ -911,14 +981,7 @@ class AuditoriaTab(BaseTabWidget):
         )
 
         if dlg.exec():
-            # refrescar auditoría
-            self.run_job(
-                self._uc.load_auditoria,
-                recepcion_id=self._recepcion_id,
-                title="Actualizando auditoría...",
-                on_result=self._apply_auditoria_rows,
-                on_error=self._ui_error,
-            )
+            self._request_reload_auditoria(title="Actualizando auditoría...")
 
     def _anular_receta(self, receta_id: int):
         dlg = NumeroRecetaDialog(self)
@@ -1117,17 +1180,7 @@ class AuditoriaTab(BaseTabWidget):
             self._set_bg(row, self.COL_RECON, Qt.green)
 
     def _reload_auditoria(self):
-
-        if not self._recepcion_id:
-            return
-
-        self.run_job(
-            self._uc.load_auditoria,
-            recepcion_id=self._recepcion_id,
-            title="Actualizando auditoría...",
-            on_result=self._apply_auditoria_rows,
-            on_error=self._ui_error,
-        )
+        self._request_reload_auditoria(title="Actualizando auditoría...")
 
     def _open_reasociar_receta(self, receta_id: int):
 
