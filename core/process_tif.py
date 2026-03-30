@@ -1,9 +1,16 @@
 from __future__ import annotations
 
 import os
+import threading
 import warnings
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Tuple, TypedDict, Literal
+
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
+os.environ.setdefault("VECLIB_MAXIMUM_THREADS", "1")
 
 import cv2
 import easyocr
@@ -13,12 +20,24 @@ from pyzbar.pyzbar import decode as zbar_decode, ZBarSymbol
 
 
 warnings.filterwarnings("ignore")
+cv2.setNumThreads(1)
+cv2.ocl.setUseOpenCL(False)
+
+try:
+    import torch
+
+    torch.set_num_threads(1)
+    if hasattr(torch, "set_num_interop_threads"):
+        torch.set_num_interop_threads(1)
+except Exception:
+    pass
 
 BBox = Tuple[int, int, int, int]
 TroquelEstado = Literal["V", "A", "R"]
 
 # OCR inicializado una sola vez
 EASY_OCR_READER = easyocr.Reader(['en'], gpu=False)
+EASY_OCR_LOCK = threading.Lock()
 
 
 class HeaderDet(TypedDict):
@@ -70,31 +89,40 @@ class TiffZBarMaskedScanner:
     # --------------------------------------------------------
 
     @staticmethod
-    def load_pages_bgr(tiff_path: str) -> List[np.ndarray]:
+    def load_pages_bgr(tiff_path: str, *, max_pages: int | None = None) -> List[np.ndarray]:
+        pages: List[np.ndarray] = []
+        max_pages_int = int(max_pages) if max_pages is not None else None
 
-        ok, pages = cv2.imreadmulti(tiff_path, flags=cv2.IMREAD_COLOR)
+        try:
+            img = Image.open(tiff_path)
+            i = 0
+            while True:
+                if max_pages_int is not None and i >= max_pages_int:
+                    break
 
-        if ok and pages:
-            return list(pages)
+                try:
+                    img.seek(i)
+                except EOFError:
+                    break
 
-        pages = []
-        img = Image.open(tiff_path)
+                rgb = img.convert("RGB")
+                arr = np.array(rgb)
+                pages.append(cv2.cvtColor(arr, cv2.COLOR_RGB2BGR))
+                i += 1
 
-        i = 0
-        while True:
-            try:
-                img.seek(i)
-            except EOFError:
-                break
+            img.close()
+            if pages:
+                return pages
+        except Exception:
+            pass
 
-            rgb = img.convert("RGB")
-            arr = np.array(rgb)
-            pages.append(cv2.cvtColor(arr, cv2.COLOR_RGB2BGR))
-            i += 1
+        ok, pages_cv = cv2.imreadmulti(tiff_path, flags=cv2.IMREAD_COLOR)
+        if not ok or not pages_cv:
+            return []
 
-        img.close()
-
-        return pages
+        if max_pages_int is not None:
+            return list(pages_cv[:max_pages_int])
+        return list(pages_cv)
 
     # --------------------------------------------------------
     # MAIN PROCESS
@@ -156,12 +184,13 @@ class TiffZBarMaskedScanner:
         # OCR only (headers)
         # --------------------
 
-        results = EASY_OCR_READER.readtext(
-            gray,
-            detail=1,
-            paragraph=False,
-            allowlist="0123456789"
-        )
+        with EASY_OCR_LOCK:
+            results = EASY_OCR_READER.readtext(
+                gray,
+                detail=1,
+                paragraph=False,
+                allowlist="0123456789"
+            )
 
         for item in results:
             row: Any = item
@@ -310,7 +339,7 @@ class TiffScanRenderer:
     ) -> FilesOut:
 
         if pages is None:
-            pages = TiffZBarMaskedScanner.load_pages_bgr(tiff_path)
+            pages = TiffZBarMaskedScanner.load_pages_bgr(tiff_path, max_pages=2)
 
         out: FilesOut = {
             "front_bytes": None,
@@ -417,7 +446,10 @@ class TiffProcessor:
 
     def scan(self, tiff_path: str) -> ScanOut:
 
-        pages = TiffZBarMaskedScanner.load_pages_bgr(tiff_path)
+        pages = TiffZBarMaskedScanner.load_pages_bgr(
+            tiff_path,
+            max_pages=self._scanner.max_pages,
+        )
 
         base = os.path.splitext(os.path.basename(tiff_path))[0]
 
@@ -425,7 +457,10 @@ class TiffProcessor:
 
     def scan_with_pages(self, tiff_path: str):
 
-        pages = TiffZBarMaskedScanner.load_pages_bgr(tiff_path)
+        pages = TiffZBarMaskedScanner.load_pages_bgr(
+            tiff_path,
+            max_pages=self._scanner.max_pages,
+        )
 
         base = os.path.splitext(os.path.basename(tiff_path))[0]
 

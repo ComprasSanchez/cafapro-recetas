@@ -78,6 +78,15 @@ class CargaRecepcionTab(BaseTabWidget):
             b.setMinimumHeight(h)
         return b
 
+    @staticmethod
+    def _fmt_duration(seconds: float) -> str:
+        total = max(0, int(round(float(seconds))))
+        hh, rem = divmod(total, 3600)
+        mm, ss = divmod(rem, 60)
+        if hh > 0:
+            return f"{hh:02d}:{mm:02d}:{ss:02d}"
+        return f"{mm:02d}:{ss:02d}"
+
     def _set_actions_enabled(self, enabled: bool) -> None:
         self.btn_pick_recepcion.setEnabled(enabled)
         self.btn_new_recepcion.setEnabled(enabled)
@@ -396,6 +405,37 @@ class CargaRecepcionTab(BaseTabWidget):
                 msg += "\n\nErrores:\n" + "\n".join(errs[:10])
                 if len(errs) > 10:
                     msg += f"\n... y {len(errs) - 10} más"
+
+        stats = getattr(resumen, "stats", None)
+        if stats is not None:
+            elapsed = float(getattr(stats, "elapsed_seconds", 0.0) or 0.0)
+            rpm = float(getattr(stats, "items_per_minute", 0.0) or 0.0)
+            sec_item = float(getattr(stats, "seconds_per_item", 0.0) or 0.0)
+            processed_items = int(getattr(stats, "processed_items", 0) or 0)
+            total_items = int(getattr(stats, "total_items", 0) or 0)
+            chunk_count = int(getattr(stats, "chunk_count", 0) or 0)
+            cmin = float(getattr(stats, "chunk_min_seconds", 0.0) or 0.0)
+            cavg = float(getattr(stats, "chunk_avg_seconds", 0.0) or 0.0)
+            cmax = float(getattr(stats, "chunk_max_seconds", 0.0) or 0.0)
+            con_header = int(getattr(stats, "con_header", 0) or 0)
+            sin_header = int(getattr(stats, "sin_header", 0) or 0)
+            rev_sin_match = int(getattr(stats, "revision_por_sin_match", 0) or 0)
+            rev_ya_asoc = int(getattr(stats, "revision_por_ya_asociado", 0) or 0)
+            reintentos_seguro = int(getattr(stats, "reintentos_modo_seguro", 0) or 0)
+
+            msg += (
+                "\n\nEstadísticas:\n"
+                f"Items procesados: {processed_items}/{total_items}\n"
+                f"Tiempo total: {self._fmt_duration(elapsed)}\n"
+                f"Ritmo: {rpm:.1f} recetas/min\n"
+                f"Promedio: {sec_item:.2f} s/receta\n"
+                f"Chunks: {chunk_count}\n"
+                f"Chunk min/prom/max: {cmin:.1f}s / {cavg:.1f}s / {cmax:.1f}s\n"
+                f"Con header: {con_header} | Sin header: {sin_header}\n"
+                f"Revision por sin match: {rev_sin_match}\n"
+                f"Revision por ya asociado: {rev_ya_asoc}\n"
+                f"Reintentos modo seguro: {reintentos_seguro}"
+            )
 
         QMessageBox.information(self, "Resultado del procesamiento", msg)
 

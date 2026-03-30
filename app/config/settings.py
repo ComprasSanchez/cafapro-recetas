@@ -58,9 +58,11 @@ class Settings(BaseSettings):
     # -----------------------
     # TIFF processing
     # -----------------------
-    TIFF_CHUNK_SIZE: int = Field(default=25)
+    TIFF_CHUNK_SIZE: int = Field(default=20)
     TIFF_SCAN_WORKERS: int = Field(default=3)
-    TIFF_UPLOAD_WORKERS: int = Field(default=4)
+    TIFF_UPLOAD_WORKERS: int = Field(default=1)
+    TIFF_CHUNK_PAUSE_MS: int = Field(default=80)
+    TIFF_UPLOAD_PAUSE_MS: int = Field(default=80)
 
     # -----------------------
     # Helpers

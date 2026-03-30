@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
+from pathlib import Path
+import time
 from typing import Any
 
 from app.config.settings import settings
@@ -48,6 +51,15 @@ class CloseRecepcionOut:
 
 class CargaRecepcionApplication:
     @staticmethod
+    def _fmt_duration(seconds: float) -> str:
+        total = max(0, int(round(seconds)))
+        hh, rem = divmod(total, 3600)
+        mm, ss = divmod(rem, 60)
+        if hh > 0:
+            return f"{hh:02d}:{mm:02d}:{ss:02d}"
+        return f"{mm:02d}:{ss:02d}"
+
+    @staticmethod
     def load_recepcion(*, recepcion_id: int, ctx=None) -> LoadRecepcionOut:
         if ctx:
             ctx.emit_progress(10, "Leyendo recepcion...")
@@ -88,6 +100,8 @@ class CargaRecepcionApplication:
         if ctx:
             ctx.emit_progress(5, "Procesando TIFFs...")
 
+        started_at = time.perf_counter()
+
         input_items = [
             TiffProcesarItemIn(file_name=x.file_name, full_path=x.full_path)
             for x in (items or [])
@@ -99,17 +113,59 @@ class CargaRecepcionApplication:
                 chunk_size=int(settings.TIFF_CHUNK_SIZE),
                 scan_workers=int(settings.TIFF_SCAN_WORKERS),
                 upload_workers=int(settings.TIFF_UPLOAD_WORKERS),
+                chunk_pause_ms=int(settings.TIFF_CHUNK_PAUSE_MS),
+                upload_pause_ms=int(settings.TIFF_UPLOAD_PAUSE_MS),
             )
 
             total_items = len(input_items)
+            checkpoint_dir = Path("output") / "process_checkpoints"
+            checkpoint_path = checkpoint_dir / f"recepcion_{int(recepcion_id)}.json"
 
-            def _emit_chunk_progress(done: int, total: int) -> None:
-                if not ctx:
-                    return
+            def _write_checkpoint(payload: dict[str, Any]) -> None:
+                try:
+                    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+                    checkpoint_path.write_text(
+                        json.dumps(payload, ensure_ascii=True, indent=2),
+                        encoding="utf-8",
+                    )
+                except Exception:
+                    pass
+
+            def _emit_chunk_progress(done: int, total: int, chunk_elapsed: float) -> None:
+                elapsed = max(0.001, time.perf_counter() - started_at)
                 total_safe = max(1, int(total))
                 done_safe = max(0, min(int(done), total_safe))
                 percent = 15 + int((done_safe / total_safe) * 80)
-                ctx.emit_progress(percent, f"Procesando TIFFs... {done_safe}/{total_safe}")
+                items_per_minute = (done_safe / elapsed) * 60.0 if done_safe > 0 else 0.0
+                eta_text = "--:--"
+                if done_safe > 0 and done_safe < total_safe:
+                    remaining = total_safe - done_safe
+                    eta_seconds = (remaining / done_safe) * elapsed
+                    eta_text = CargaRecepcionApplication._fmt_duration(eta_seconds)
+
+                msg = (
+                    f"Procesando TIFFs... {done_safe}/{total_safe}"
+                    f" | {items_per_minute:.1f} rec/min"
+                    f" | ETA {eta_text}"
+                    f" | chunk {chunk_elapsed:.1f}s"
+                )
+
+                _write_checkpoint(
+                    {
+                        "recepcion_id": int(recepcion_id),
+                        "done": done_safe,
+                        "total": total_safe,
+                        "percent": percent,
+                        "elapsed_seconds": elapsed,
+                        "items_per_minute": items_per_minute,
+                        "chunk_elapsed_seconds": float(chunk_elapsed),
+                        "eta": eta_text,
+                        "status": "running",
+                    }
+                )
+
+                if ctx:
+                    ctx.emit_progress(percent, msg)
 
             resumen = svc.procesar(
                 s=s,
@@ -126,8 +182,28 @@ class CargaRecepcionApplication:
                 recepcion_id=recepcion_id,
             )
 
+        total_elapsed = max(0.0, time.perf_counter() - started_at)
+        final_stats = getattr(resumen, "stats", None)
+        _write_checkpoint(
+            {
+                "recepcion_id": int(recepcion_id),
+                "done": int(getattr(final_stats, "processed_items", len(input_items)) or 0),
+                "total": len(input_items),
+                "elapsed_seconds": total_elapsed,
+                "items_per_minute": float(getattr(final_stats, "items_per_minute", 0.0) or 0.0),
+                "seconds_per_item": float(getattr(final_stats, "seconds_per_item", 0.0) or 0.0),
+                "status": "finished",
+            }
+        )
+
         if ctx:
-            ctx.emit_progress(100, "Procesamiento finalizado")
+            ctx.emit_progress(
+                100,
+                (
+                    "Procesamiento finalizado"
+                    f" | tiempo {CargaRecepcionApplication._fmt_duration(total_elapsed)}"
+                ),
+            )
 
         return ProcesarOut(resumen=resumen)
 

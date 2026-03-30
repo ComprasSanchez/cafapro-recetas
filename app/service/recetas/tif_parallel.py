@@ -3,6 +3,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 import os
+import time
 from typing import cast
 
 from core.process_tif import ScanOut, TiffProcessor, TroquelEstado
@@ -27,15 +28,27 @@ def parallel_scan(
     out: list[_ScannedItem] = []
 
     def job(it):
-        scan = tif.scan(it.full_path)
-        return it, scan
+        try:
+            scan, pages = tif.scan_with_pages(it.full_path)
+        except Exception:
+            scan = tif.scan(it.full_path)
+            pages = None
+
+        has_header = any(norm_str(h) for h in (scan.headers or []))
+        if not has_header:
+            safe_scan = tif.scan(it.full_path)
+            if any(norm_str(h) for h in (safe_scan.headers or [])):
+                scan = safe_scan
+                pages = None
+
+        return it, scan, pages
 
     with ThreadPoolExecutor(max_workers=scan_workers) as ex:
         futs = [ex.submit(job, it) for it in items]
         for fut in as_completed(futs):
             try:
-                it, scan = fut.result()
-                out.append(_ScannedItem(it=it, scan=scan))
+                it, scan, pages = fut.result()
+                out.append(_ScannedItem(it=it, scan=scan, pages=pages))
             except Exception as e:
                 resumen.errores.append(f"scan error: {e}")
 
@@ -52,6 +65,7 @@ def parallel_render_upload(
     estado_render_by_work: dict[int, dict[str, TroquelEstado]],
     headers_render_by_work_id: dict[int, set[str]],
     upload_workers: int,
+    upload_pause_ms: int,
     resumen: ProcesarResumen,
 ) -> list[_UploadResult]:
     results: list[_UploadResult] = []
@@ -109,17 +123,31 @@ def parallel_render_upload(
         files = tif.render_bytes(
             tiff_path=w.it.full_path,
             scan=scan_render,
-            pages=None,
+            pages=(w.pages if w.pages else None),
             estado_resolver=lambda codebar: cast(TroquelEstado, estado.get(codebar, "R")),
         )
 
         fb = files.get("front_bytes")
         bb = files.get("back_bytes")
 
+        if not fb and not bb and w.pages:
+            files = tif.render_bytes(
+                tiff_path=w.it.full_path,
+                scan=scan_render,
+                pages=None,
+                estado_resolver=lambda codebar: cast(TroquelEstado, estado.get(codebar, "R")),
+            )
+            fb = files.get("front_bytes")
+            bb = files.get("back_bytes")
+
         if fb:
             storage.put_jpg(front_key, fb)
         if bb:
             storage.put_jpg(back_key, bb)
+
+        pause_ms = max(0, int(upload_pause_ms))
+        if pause_ms > 0:
+            time.sleep(pause_ms / 1000.0)
 
         return _UploadResult(
             work=w,
@@ -127,7 +155,16 @@ def parallel_render_upload(
             back_key=back_key if bb else None,
         )
 
-    with ThreadPoolExecutor(max_workers=upload_workers) as ex:
+    workers = max(1, int(upload_workers))
+    if workers == 1:
+        for w in work_items:
+            try:
+                results.append(job(w))
+            except Exception as e:
+                resumen.errores.append(f"render/upload error: {e}")
+        return results
+
+    with ThreadPoolExecutor(max_workers=workers) as ex:
         futs = [ex.submit(job, w) for w in work_items]
 
         for fut in as_completed(futs):

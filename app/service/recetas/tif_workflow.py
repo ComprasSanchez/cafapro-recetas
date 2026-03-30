@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+import time
 from typing import Callable
 
 from core.process_tif import TroquelEstado
@@ -30,6 +31,7 @@ from app.service.recetas.tif_persistence import filter_valid_uploaded, persist_u
 from app.service.recetas.tif_types import (
     ProcesarItemIn,
     ProcesarResumen,
+    ProcesarStats,
     _MatchResult,
     _ScannedItem,
     _TroquelEval,
@@ -68,8 +70,14 @@ def select_work_items(
     for x in scanned:
         refs = [norm_str(r) for r in (x.scan.headers or []) if norm_str(r)]
 
+        if refs:
+            resumen.con_header += 1
+        else:
+            resumen.sin_header += 1
+
         if not refs:
             resumen.sin_match += 1
+            resumen.revision_por_sin_match += 1
             revision_items.append(x)
             continue
 
@@ -86,10 +94,12 @@ def select_work_items(
 
         if archivo is None:
             resumen.sin_match += 1
+            resumen.revision_por_sin_match += 1
             revision_items.append(x)
             continue
 
         if is_archivo_ya_asociado(int(archivo.archivo_id)):
+            resumen.revision_por_ya_asociado += 1
             revision_items.append(x)
             continue
 
@@ -118,7 +128,12 @@ def select_work_items(
             if int(a.archivo_id) == int(archivo.archivo_id):
                 matched_refs_for_archivo.add(ref)
 
-        w_item = _WorkItem(it=x.it, scan=x.scan, archivo_id=int(archivo.archivo_id))
+        w_item = _WorkItem(
+            it=x.it,
+            scan=x.scan,
+            archivo_id=int(archivo.archivo_id),
+            pages=x.pages,
+        )
         work.append(w_item)
         headers_render_by_work_id[id(w_item)] = matched_refs_for_archivo
         archivo_ids.append(int(archivo.archivo_id))
@@ -146,6 +161,24 @@ class ChunkRuntime:
     client: MedicamentoClient
     scan_workers: int
     upload_workers: int
+    upload_pause_ms: int = 0
+
+
+def _count_items_with_header(scanned: list[_ScannedItem]) -> int:
+    return sum(
+        1
+        for x in scanned
+        if any(norm_str(h) for h in (x.scan.headers or []))
+    )
+
+
+def _is_suspicious_scan(scanned: list[_ScannedItem]) -> bool:
+    total = len(scanned)
+    if total < 5:
+        return False
+    with_header = _count_items_with_header(scanned)
+    ratio_without_header = 1.0 - (with_header / max(1, total))
+    return ratio_without_header >= 0.85
 
 
 def precompute_render_context(
@@ -167,6 +200,7 @@ def precompute_render_context(
             it=x.it,
             scan=x.scan,
             archivo_id=0,
+            pages=x.pages,
         )
         revision_work.append(w_item)
         headers_render_by_work_id[id(w_item)] = set()
@@ -249,6 +283,18 @@ def process_chunk(
         scan_workers=runtime.scan_workers,
         resumen=resumen,
     )
+
+    if runtime.scan_workers > 1 and _is_suspicious_scan(scanned):
+        scanned_safe = parallel_scan(
+            tif=runtime.tif,
+            items=chunk,
+            scan_workers=1,
+            resumen=resumen,
+        )
+        if _count_items_with_header(scanned_safe) > _count_items_with_header(scanned):
+            scanned = scanned_safe
+            resumen.reintentos_modo_seguro += 1
+
     if not scanned:
         return resumen
 
@@ -263,17 +309,6 @@ def process_chunk(
         only_referencia=run_ctx.only_ref_match,
     )
 
-    candidate_archivo_ids = {
-        int(a.archivo_id)
-        for a in match.ref_to_archivo.values()
-        if a is not None
-    }
-    archivo_ids_ya_asociados = TifRepository.list_archivo_ids_ya_asociados(
-        s,
-        recepcion_id=run_ctx.recepcion_id,
-        archivo_ids=list(candidate_archivo_ids),
-    )
-
     selection = select_work_items(
         scanned=scanned,
         match=match,
@@ -281,7 +316,11 @@ def process_chunk(
         seen_recetas=seen_recetas,
         seen_refs=seen_refs,
         resumen=resumen,
-        is_archivo_ya_asociado=lambda archivo_id: int(archivo_id) in archivo_ids_ya_asociados,
+        is_archivo_ya_asociado=lambda archivo_id: TifRepository.is_archivo_ya_asociado(
+            s,
+            recepcion_id=run_ctx.recepcion_id,
+            archivo_id=archivo_id,
+        ),
     )
 
     work = selection.work
@@ -319,6 +358,7 @@ def process_chunk(
         estado_render_by_work=precomputed.estado_render_by_archivo_id,
         headers_render_by_work_id=headers_render_by_work_id,
         upload_workers=runtime.upload_workers,
+        upload_pause_ms=runtime.upload_pause_ms,
         resumen=resumen,
     )
 
@@ -357,7 +397,8 @@ def process_items_in_chunks(
     usuario_id: int,
     chunk_size: int,
     runtime: ChunkRuntime,
-    on_chunk_processed: Callable[[int, int], None] | None = None,
+    on_chunk_processed: Callable[[int, int, float], None] | None = None,
+    chunk_pause_ms: int = 0,
 ) -> ProcesarResumen:
     total = ProcesarResumen()
     med_cache: dict[str, MedicamentoDTO | None] = {}
@@ -366,8 +407,14 @@ def process_items_in_chunks(
     revision_counter = 1
     total_items = len(items_filtrados)
     processed_items = 0
+    chunk_count = 0
+    chunk_elapsed_total = 0.0
+    chunk_min = float("inf")
+    chunk_max = 0.0
+    started_at = time.perf_counter()
 
     for chunk in _chunks(items_filtrados, int(chunk_size)):
+        chunk_started_at = time.perf_counter()
         resumen = process_chunk(
             s,
             chunk=chunk,
@@ -379,15 +426,51 @@ def process_items_in_chunks(
             revision_counter=revision_counter,
             runtime=runtime,
         )
+        chunk_elapsed = max(0.0, time.perf_counter() - chunk_started_at)
+
+        chunk_count += 1
+        chunk_elapsed_total += chunk_elapsed
+        chunk_min = min(chunk_min, chunk_elapsed)
+        chunk_max = max(chunk_max, chunk_elapsed)
+
         total.merge(resumen)
         processed_items += len(chunk)
+        s.commit()
 
         if on_chunk_processed:
-            on_chunk_processed(processed_items, total_items)
+            on_chunk_processed(processed_items, total_items, chunk_elapsed)
+
+        pause_ms = max(0, int(chunk_pause_ms))
+        if pause_ms > 0 and processed_items < total_items:
+            time.sleep(pause_ms / 1000.0)
 
         s.expunge_all()
 
         del resumen
         del chunk
+
+    elapsed_seconds = max(0.0, time.perf_counter() - started_at)
+    items_per_minute = 0.0
+    seconds_per_item = 0.0
+    if processed_items > 0 and elapsed_seconds > 0:
+        items_per_minute = (processed_items / elapsed_seconds) * 60.0
+        seconds_per_item = elapsed_seconds / processed_items
+
+    total.stats = ProcesarStats(
+        total_items=total_items,
+        processed_items=processed_items,
+        chunk_count=chunk_count,
+        elapsed_seconds=elapsed_seconds,
+        items_per_minute=items_per_minute,
+        seconds_per_item=seconds_per_item,
+        chunk_min_seconds=(chunk_min if chunk_count else 0.0),
+        chunk_avg_seconds=((chunk_elapsed_total / chunk_count) if chunk_count else 0.0),
+        chunk_max_seconds=chunk_max,
+        con_header=total.con_header,
+        sin_header=total.sin_header,
+        revision_por_sin_match=total.revision_por_sin_match,
+        revision_por_ya_asociado=total.revision_por_ya_asociado,
+        reintentos_modo_seguro=total.reintentos_modo_seguro,
+    )
 
     return total

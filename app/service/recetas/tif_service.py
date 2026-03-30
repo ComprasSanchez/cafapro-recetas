@@ -23,18 +23,22 @@ class TiffService:
         storage: S3Storage,
         tif: Optional[TiffProcessor] = None,
         client: Optional[MedicamentoClient] = None,
-        chunk_size: int = 25,
+        chunk_size: int = 20,
         scan_workers: Optional[int] = None,
-        upload_workers: int = 4,
+        upload_workers: int = 1,
+        chunk_pause_ms: int = 80,
+        upload_pause_ms: int = 80,
     ) -> None:
         self._storage = storage
         self._tif = tif or TiffProcessor()
         self._client = client or MedicamentoClient()
 
         cpu = os.cpu_count() or 4
-        self._chunk_size = max(10, min(50, int(chunk_size)))
-        self._scan_workers = max(1, min(4, int(scan_workers or min(cpu, 3))))
-        self._upload_workers = max(1, min(6, int(upload_workers)))
+        self._chunk_size = max(10, min(40, int(chunk_size)))
+        self._scan_workers = max(1, min(3, int(scan_workers or min(cpu, 1))))
+        self._upload_workers = max(1, min(1, int(upload_workers)))
+        self._chunk_pause_ms = max(0, min(500, int(chunk_pause_ms)))
+        self._upload_pause_ms = max(0, min(500, int(upload_pause_ms)))
 
     # -------------------------
     # MAIN (por tandas)
@@ -45,7 +49,7 @@ class TiffService:
         recepcion_id: int,
         usuario_id: int,
         items: List[ProcesarItemIn],
-        progress_cb: Callable[[int, int], None] | None = None,
+        progress_cb: Callable[[int, int, float], None] | None = None,
     ) -> ProcesarResumen:
 
         total = ProcesarResumen()
@@ -66,6 +70,7 @@ class TiffService:
             client=self._client,
             scan_workers=self._scan_workers,
             upload_workers=self._upload_workers,
+            upload_pause_ms=self._upload_pause_ms,
         )
 
         total_chunks = process_items_in_chunks(
@@ -76,6 +81,7 @@ class TiffService:
             chunk_size=self._chunk_size,
             runtime=runtime,
             on_chunk_processed=progress_cb,
+            chunk_pause_ms=self._chunk_pause_ms,
         )
         total.merge(total_chunks)
 
