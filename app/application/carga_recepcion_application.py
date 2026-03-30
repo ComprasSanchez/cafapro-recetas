@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import json
-from pathlib import Path
 import time
 from typing import Any
 
@@ -115,23 +113,12 @@ class CargaRecepcionApplication:
                 upload_workers=int(settings.TIFF_UPLOAD_WORKERS),
                 chunk_pause_ms=int(settings.TIFF_CHUNK_PAUSE_MS),
                 upload_pause_ms=int(settings.TIFF_UPLOAD_PAUSE_MS),
+                pipeline_mode=str(getattr(settings, "TIFF_PIPELINE_MODE", "item") or "item"),
             )
 
             total_items = len(input_items)
-            checkpoint_dir = Path("output") / "process_checkpoints"
-            checkpoint_path = checkpoint_dir / f"recepcion_{int(recepcion_id)}.json"
 
-            def _write_checkpoint(payload: dict[str, Any]) -> None:
-                try:
-                    checkpoint_dir.mkdir(parents=True, exist_ok=True)
-                    checkpoint_path.write_text(
-                        json.dumps(payload, ensure_ascii=True, indent=2),
-                        encoding="utf-8",
-                    )
-                except Exception:
-                    pass
-
-            def _emit_chunk_progress(done: int, total: int, chunk_elapsed: float) -> None:
+            def _emit_chunk_progress(done: int, total: int, chunk_elapsed: float, stage: str) -> None:
                 elapsed = max(0.001, time.perf_counter() - started_at)
                 total_safe = max(1, int(total))
                 done_safe = max(0, min(int(done), total_safe))
@@ -145,23 +132,10 @@ class CargaRecepcionApplication:
 
                 msg = (
                     f"Procesando TIFFs... {done_safe}/{total_safe}"
+                    f" | {stage}"
                     f" | {items_per_minute:.1f} rec/min"
                     f" | ETA {eta_text}"
                     f" | chunk {chunk_elapsed:.1f}s"
-                )
-
-                _write_checkpoint(
-                    {
-                        "recepcion_id": int(recepcion_id),
-                        "done": done_safe,
-                        "total": total_safe,
-                        "percent": percent,
-                        "elapsed_seconds": elapsed,
-                        "items_per_minute": items_per_minute,
-                        "chunk_elapsed_seconds": float(chunk_elapsed),
-                        "eta": eta_text,
-                        "status": "running",
-                    }
                 )
 
                 if ctx:
@@ -183,18 +157,6 @@ class CargaRecepcionApplication:
             )
 
         total_elapsed = max(0.0, time.perf_counter() - started_at)
-        final_stats = getattr(resumen, "stats", None)
-        _write_checkpoint(
-            {
-                "recepcion_id": int(recepcion_id),
-                "done": int(getattr(final_stats, "processed_items", len(input_items)) or 0),
-                "total": len(input_items),
-                "elapsed_seconds": total_elapsed,
-                "items_per_minute": float(getattr(final_stats, "items_per_minute", 0.0) or 0.0),
-                "seconds_per_item": float(getattr(final_stats, "seconds_per_item", 0.0) or 0.0),
-                "status": "finished",
-            }
-        )
 
         if ctx:
             ctx.emit_progress(

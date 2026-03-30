@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections import Counter
 from datetime import datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -15,6 +14,9 @@ from app.db.models import Archivo, ArchivoDetalle, EstadoTroquelEnum
 from app.dto.medicamentos_dto import MedicamentoDTO
 from app.service.integraciones.medicamento_client import MedicamentoClient
 from app.service.recetas.tif_types import _DetalleContext, _MatchResult, _TroquelEval
+
+
+ZERO_DECIMAL = Decimal("0")
 
 
 def norm_str(x) -> str:
@@ -194,49 +196,52 @@ def evaluate_troqueles(
     detalle: _DetalleContext,
     med_cache: dict[str, MedicamentoDTO | None],
 ) -> list[_TroquelEval]:
-    counts: dict[str, int] = dict(
-        Counter(
-            norm_str(c)
-            for c in (scan_troqueles or [])
-            if norm_str(c)
-        )
-    )
+    counts = _count_normalized(scan_troqueles)
+    if not counts:
+        return []
+
+    cods_detalle = detalle.cods_detalle
+    cant_por_cod = detalle.cant_por_cod
+    importe_por_cod = detalle.importe_por_cod
 
     evals: list[_TroquelEval] = []
+    append_eval = evals.append
 
     for codebar, qty_scan in counts.items():
+        qty_scan_i = int(qty_scan)
         dto = med_cache.get(codebar)
 
         if dto is None:
-            evals.append(
+            append_eval(
                 _TroquelEval(
                     codebar=codebar,
-                    cantidad_scan=int(qty_scan),
+                    cantidad_scan=qty_scan_i,
                     estado=EstadoTroquelEnum.A,
                     code_alfabeta=0,
                     droga_concat=None,
                     presentacion=None,
-                    monto=Decimal("0"),
+                    monto=ZERO_DECIMAL,
                 )
             )
             continue
 
-        code_alfabeta = int(dto.code_alfabeta or 0)
-        ca = norm_str(dto.code_alfabeta)
-        match_detalle = bool(ca) and (ca in detalle.cods_detalle)
+        code_alfabeta_raw = dto.code_alfabeta
+        code_alfabeta = int(code_alfabeta_raw or 0)
+        ca = norm_str(code_alfabeta_raw)
+        match_detalle = bool(ca) and (ca in cods_detalle)
 
         if not match_detalle:
             estado = EstadoTroquelEnum.R
-            monto = Decimal("0")
+            monto = ZERO_DECIMAL
         else:
-            qty_det = int(detalle.cant_por_cod.get(ca, 0))
-            estado = EstadoTroquelEnum.V if qty_det == int(qty_scan) else EstadoTroquelEnum.R
-            monto = detalle.importe_por_cod.get(ca, Decimal("0"))
+            qty_det = int(cant_por_cod.get(ca, 0))
+            estado = EstadoTroquelEnum.V if qty_det == qty_scan_i else EstadoTroquelEnum.R
+            monto = importe_por_cod.get(ca, ZERO_DECIMAL)
 
-        evals.append(
+        append_eval(
             _TroquelEval(
                 codebar=codebar,
-                cantidad_scan=int(qty_scan),
+                cantidad_scan=qty_scan_i,
                 estado=estado,
                 code_alfabeta=code_alfabeta,
                 droga_concat=dto.drogas_concat,
@@ -253,45 +258,56 @@ def evaluate_revision_troqueles(
     scan_troqueles: list[str],
     med_cache: dict[str, MedicamentoDTO | None],
 ) -> list[_TroquelEval]:
-    counts: dict[str, int] = dict(
-        Counter(
-            norm_str(c)
-            for c in (scan_troqueles or [])
-            if norm_str(c)
-        )
-    )
+    counts = _count_normalized(scan_troqueles)
+    if not counts:
+        return []
 
     evals: list[_TroquelEval] = []
+    append_eval = evals.append
     for codebar, qty_scan in counts.items():
+        qty_scan_i = int(qty_scan)
         dto = med_cache.get(codebar)
 
         if dto is None:
-            evals.append(
+            append_eval(
                 _TroquelEval(
                     codebar=codebar,
-                    cantidad_scan=int(qty_scan),
+                    cantidad_scan=qty_scan_i,
                     estado=EstadoTroquelEnum.A,
                     code_alfabeta=0,
                     droga_concat=None,
                     presentacion=None,
-                    monto=Decimal("0"),
+                    monto=ZERO_DECIMAL,
                 )
             )
             continue
 
-        evals.append(
+        append_eval(
             _TroquelEval(
                 codebar=codebar,
-                cantidad_scan=int(qty_scan),
+                cantidad_scan=qty_scan_i,
                 estado=EstadoTroquelEnum.A,
                 code_alfabeta=int(dto.code_alfabeta or 0),
                 droga_concat=dto.drogas_concat,
                 presentacion=dto.presentacion,
-                monto=Decimal("0"),
+                monto=ZERO_DECIMAL,
             )
         )
 
     return evals
+
+
+def _count_normalized(values: list[str] | None) -> dict[str, int]:
+    if not values:
+        return {}
+
+    counts: dict[str, int] = {}
+    for raw in values:
+        value = norm_str(raw)
+        if not value:
+            continue
+        counts[value] = counts.get(value, 0) + 1
+    return counts
 
 
 def to_render_states(evals: list[_TroquelEval]) -> dict[str, TroquelEstado]:

@@ -9,7 +9,11 @@ from core.process_tif import TiffProcessor
 from app.infra.s3_storage import S3Storage
 from app.service.integraciones.medicamento_client import MedicamentoClient
 from app.service.recetas.tif_context import filter_unprocessed_items, load_run_context
-from app.service.recetas.tif_workflow import ChunkRuntime, process_items_in_chunks
+from app.service.recetas.tif_workflow import (
+    ChunkRuntime,
+    process_items_in_chunks,
+    process_items_individual_async,
+)
 from app.service.recetas.tif_types import (
     ProcesarItemIn,
     ProcesarResumen,
@@ -26,8 +30,9 @@ class TiffService:
         chunk_size: int = 20,
         scan_workers: Optional[int] = None,
         upload_workers: int = 1,
-        chunk_pause_ms: int = 80,
-        upload_pause_ms: int = 80,
+        chunk_pause_ms: int = 0,
+        upload_pause_ms: int = 0,
+        pipeline_mode: str = "item",
     ) -> None:
         self._storage = storage
         self._tif = tif or TiffProcessor()
@@ -35,10 +40,12 @@ class TiffService:
 
         cpu = os.cpu_count() or 4
         self._chunk_size = max(10, min(40, int(chunk_size)))
-        self._scan_workers = max(1, min(3, int(scan_workers or min(cpu, 1))))
+        self._scan_workers = max(1, min(3, int(scan_workers or min(cpu, 2))))
         self._upload_workers = max(1, min(1, int(upload_workers)))
-        self._chunk_pause_ms = max(0, min(500, int(chunk_pause_ms)))
+        self._chunk_pause_ms = max(0, min(250, int(chunk_pause_ms)))
         self._upload_pause_ms = max(0, min(500, int(upload_pause_ms)))
+        mode = str(pipeline_mode or "").strip().lower()
+        self._pipeline_mode = mode if mode in {"chunk", "item"} else "chunk"
 
     # -------------------------
     # MAIN (por tandas)
@@ -49,7 +56,7 @@ class TiffService:
         recepcion_id: int,
         usuario_id: int,
         items: List[ProcesarItemIn],
-        progress_cb: Callable[[int, int, float], None] | None = None,
+        progress_cb: Callable[[int, int, float, str], None] | None = None,
     ) -> ProcesarResumen:
 
         total = ProcesarResumen()
@@ -73,16 +80,28 @@ class TiffService:
             upload_pause_ms=self._upload_pause_ms,
         )
 
-        total_chunks = process_items_in_chunks(
-            s,
-            items_filtrados=items_filtrados,
-            run_ctx=run_ctx,
-            usuario_id=usuario_id,
-            chunk_size=self._chunk_size,
-            runtime=runtime,
-            on_chunk_processed=progress_cb,
-            chunk_pause_ms=self._chunk_pause_ms,
-        )
-        total.merge(total_chunks)
+        if self._pipeline_mode == "item":
+            processed = process_items_individual_async(
+                s,
+                items_filtrados=items_filtrados,
+                run_ctx=run_ctx,
+                usuario_id=usuario_id,
+                runtime=runtime,
+                on_chunk_processed=progress_cb,
+                chunk_pause_ms=self._chunk_pause_ms,
+            )
+        else:
+            processed = process_items_in_chunks(
+                s,
+                items_filtrados=items_filtrados,
+                run_ctx=run_ctx,
+                usuario_id=usuario_id,
+                chunk_size=self._chunk_size,
+                runtime=runtime,
+                on_chunk_processed=progress_cb,
+                chunk_pause_ms=self._chunk_pause_ms,
+            )
+
+        total.merge(processed)
 
         return total

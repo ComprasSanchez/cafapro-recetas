@@ -59,10 +59,11 @@ class Settings(BaseSettings):
     # TIFF processing
     # -----------------------
     TIFF_CHUNK_SIZE: int = Field(default=20)
-    TIFF_SCAN_WORKERS: int = Field(default=3)
+    TIFF_SCAN_WORKERS: int = Field(default=2)
     TIFF_UPLOAD_WORKERS: int = Field(default=1)
-    TIFF_CHUNK_PAUSE_MS: int = Field(default=80)
-    TIFF_UPLOAD_PAUSE_MS: int = Field(default=80)
+    TIFF_CHUNK_PAUSE_MS: int = Field(default=0)
+    TIFF_UPLOAD_PAUSE_MS: int = Field(default=0)
+    TIFF_PIPELINE_MODE: str = Field(default="item")  # item|chunk
 
     # -----------------------
     # Helpers

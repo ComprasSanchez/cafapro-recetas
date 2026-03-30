@@ -1,16 +1,16 @@
 from __future__ import annotations
 
 import os
-import threading
+import time
 import warnings
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Tuple, TypedDict, Literal
 
-os.environ.setdefault("OMP_NUM_THREADS", "1")
-os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
-os.environ.setdefault("MKL_NUM_THREADS", "1")
-os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
-os.environ.setdefault("VECLIB_MAXIMUM_THREADS", "1")
+os.environ.setdefault("OMP_NUM_THREADS", "2")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "2")
+os.environ.setdefault("MKL_NUM_THREADS", "2")
+os.environ.setdefault("NUMEXPR_NUM_THREADS", "2")
+os.environ.setdefault("VECLIB_MAXIMUM_THREADS", "2")
 
 import cv2
 import easyocr
@@ -20,15 +20,15 @@ from pyzbar.pyzbar import decode as zbar_decode, ZBarSymbol
 
 
 warnings.filterwarnings("ignore")
-cv2.setNumThreads(1)
+cv2.setNumThreads(2)
 cv2.ocl.setUseOpenCL(False)
 
 try:
     import torch
 
-    torch.set_num_threads(1)
+    torch.set_num_threads(2)
     if hasattr(torch, "set_num_interop_threads"):
-        torch.set_num_interop_threads(1)
+        torch.set_num_interop_threads(2)
 except Exception:
     pass
 
@@ -37,7 +37,6 @@ TroquelEstado = Literal["V", "A", "R"]
 
 # OCR inicializado una sola vez
 EASY_OCR_READER = easyocr.Reader(['en'], gpu=False)
-EASY_OCR_LOCK = threading.Lock()
 
 
 class HeaderDet(TypedDict):
@@ -69,6 +68,9 @@ class ScanOut:
     troqueles: List[str]
     header_detections: List[HeaderDet]
     troquel_detections: List[TroquelDet]
+    scan_load_seconds: float = 0.0
+    scan_ocr_seconds: float = 0.0
+    scan_zbar_seconds: float = 0.0
 
 
 # ============================================================
@@ -128,30 +130,42 @@ class TiffZBarMaskedScanner:
     # MAIN PROCESS
     # --------------------------------------------------------
 
-    def process_pages(self, pages: List[np.ndarray], base_name: str) -> ScanOut:
+    def process_pages(
+        self,
+        pages: List[np.ndarray],
+        base_name: str,
+        *,
+        load_pages_seconds: float = 0.0,
+    ) -> ScanOut:
 
         headers = []
         troqueles = []
         header_dets = []
         troquel_dets = []
+        ocr_seconds = 0.0
+        zbar_seconds = 0.0
 
         for page_idx, page_bgr in enumerate(pages[: self.max_pages]):
 
             # HEADERS SOLO EN PRIMERA PAGINA
             if page_idx == 0:
+                ocr_started_at = time.perf_counter()
 
                 h_vals, h_dets = self._scan_page_headers(
                     page_bgr,
                     page_idx=page_idx
                 )
+                ocr_seconds += max(0.0, time.perf_counter() - ocr_started_at)
 
                 headers.extend(h_vals)
                 header_dets.extend(h_dets)
 
+            zbar_started_at = time.perf_counter()
             t_vals, t_dets = self._scan_page_troqueles(
                 page_bgr,
                 page_idx=page_idx
             )
+            zbar_seconds += max(0.0, time.perf_counter() - zbar_started_at)
 
             troqueles.extend(t_vals)
             troquel_dets.extend(t_dets)
@@ -162,6 +176,9 @@ class TiffZBarMaskedScanner:
             troqueles=troqueles,
             header_detections=header_dets,
             troquel_detections=troquel_dets,
+            scan_load_seconds=float(load_pages_seconds),
+            scan_ocr_seconds=ocr_seconds,
+            scan_zbar_seconds=zbar_seconds,
         )
 
     # --------------------------------------------------------
@@ -175,22 +192,56 @@ class TiffZBarMaskedScanner:
 
         H, _W = page_bgr.shape[:2]
 
-        roi = page_bgr[int(H * 0.05):int(H * 0.28), :]
+        roi_top = int(H * 0.05)
+        roi_bottom = int(H * 0.24)
+        roi = page_bgr[roi_top:roi_bottom, :]
 
         gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+
+        # fast-path: OCR liviano para extraer solo texto de headers
+        gray_fast = gray
+        if gray_fast.shape[1] > 1400:
+            gray_fast = cv2.resize(
+                gray_fast,
+                None,
+                fx=0.75,
+                fy=0.75,
+                interpolation=cv2.INTER_AREA,
+            )
+
+        fast_results = EASY_OCR_READER.readtext(
+            gray_fast,
+            detail=0,
+            paragraph=False,
+            allowlist="0123456789",
+        )
+
+        fast_headers: list[str] = []
+        seen_fast: set[str] = set()
+        for text in fast_results:
+            raw_txt = self._norm_ocr_text(text)
+            if not raw_txt or not raw_txt.isdigit() or len(raw_txt) < 6:
+                continue
+            if raw_txt in seen_fast:
+                continue
+            seen_fast.add(raw_txt)
+            fast_headers.append(raw_txt)
+
+        if fast_headers:
+            return fast_headers, dets
+
         gray = cv2.GaussianBlur(gray, (3, 3), 0)
 
         # --------------------
         # OCR only (headers)
         # --------------------
 
-        with EASY_OCR_LOCK:
-            results = EASY_OCR_READER.readtext(
-                gray,
-                detail=1,
-                paragraph=False,
-                allowlist="0123456789"
-            )
+        results = EASY_OCR_READER.readtext(
+            gray,
+            detail=1,
+            paragraph=False,
+            allowlist="0123456789"
+        )
 
         for item in results:
             row: Any = item
@@ -208,7 +259,7 @@ class TiffZBarMaskedScanner:
                 continue
 
             x, y, w, hh = rect
-            bbox = (x, y + int(H * 0.05), w, hh)
+            bbox = (x, y + roi_top, w, hh)
             headers.append(raw_txt)
             dets.append({
                 "page_idx": page_idx,
@@ -445,26 +496,38 @@ class TiffProcessor:
         self._renderer = TiffScanRenderer()
 
     def scan(self, tiff_path: str) -> ScanOut:
+        load_started_at = time.perf_counter()
 
         pages = TiffZBarMaskedScanner.load_pages_bgr(
             tiff_path,
             max_pages=self._scanner.max_pages,
         )
+        load_elapsed = max(0.0, time.perf_counter() - load_started_at)
 
         base = os.path.splitext(os.path.basename(tiff_path))[0]
 
-        return self._scanner.process_pages(pages, base)
+        return self._scanner.process_pages(
+            pages,
+            base,
+            load_pages_seconds=load_elapsed,
+        )
 
     def scan_with_pages(self, tiff_path: str):
+        load_started_at = time.perf_counter()
 
         pages = TiffZBarMaskedScanner.load_pages_bgr(
             tiff_path,
             max_pages=self._scanner.max_pages,
         )
+        load_elapsed = max(0.0, time.perf_counter() - load_started_at)
 
         base = os.path.splitext(os.path.basename(tiff_path))[0]
 
-        scan = self._scanner.process_pages(pages, base)
+        scan = self._scanner.process_pages(
+            pages,
+            base,
+            load_pages_seconds=load_elapsed,
+        )
 
         return scan, pages
 

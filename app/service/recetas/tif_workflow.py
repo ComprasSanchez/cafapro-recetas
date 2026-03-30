@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
 import time
@@ -26,7 +27,7 @@ from app.service.recetas.tif_logic import (
     to_render_states,
     warm_medicamento_cache,
 )
-from app.service.recetas.tif_parallel import parallel_render_upload, parallel_scan
+from app.service.recetas.tif_parallel import parallel_render_upload, parallel_scan, scan_one_item
 from app.service.recetas.tif_persistence import filter_valid_uploaded, persist_uploaded_chunk
 from app.service.recetas.tif_types import (
     ProcesarItemIn,
@@ -37,6 +38,10 @@ from app.service.recetas.tif_types import (
     _TroquelEval,
     _WorkItem,
 )
+
+
+StageProgressCb = Callable[[int, int, float, str], None]
+ProcessStageCb = Callable[[str, float], None]
 
 
 def _chunks(lst: list[ProcesarItemIn], size: int):
@@ -193,6 +198,7 @@ def precompute_render_context(
     med_cache: dict[str, MedicamentoDTO | None],
     warm_cache: Callable[[set[str]], None],
     resumen: ProcesarResumen,
+    stage_cb: ProcessStageCb | None = None,
 ) -> PrecomputeOut:
     revision_work: list[_WorkItem] = []
     for x in revision_items:
@@ -218,11 +224,16 @@ def precompute_render_context(
             if cb_value:
                 all_codebars.add(cb_value)
 
+    med_api_started_at = time.perf_counter()
     warm_cache(all_codebars)
+    if stage_cb:
+        stage_cb("MED_API", max(0.0, time.perf_counter() - med_api_started_at))
 
     estado_render_by_archivo_id: dict[int, dict[str, TroquelEstado]] = {}
     troquel_evals_by_archivo_id: dict[int, list[_TroquelEval]] = {}
     troquel_evals_by_work_id: dict[int, list[_TroquelEval]] = {}
+
+    eval_matched_started_at = time.perf_counter()
 
     for w in work:
         archivo = archivo_by_id.get(w.archivo_id)
@@ -248,12 +259,20 @@ def precompute_render_context(
         troquel_evals_by_work_id[id(w)] = evals
         estado_render_by_archivo_id[w.archivo_id] = to_render_states(evals)
 
+    if stage_cb:
+        stage_cb("EVAL_MATCHED", max(0.0, time.perf_counter() - eval_matched_started_at))
+
+    eval_revision_started_at = time.perf_counter()
+
     for w in revision_work:
         evals = evaluate_revision_troqueles(
             scan_troqueles=(w.scan.troqueles or []),
             med_cache=med_cache,
         )
         troquel_evals_by_work_id[id(w)] = evals
+
+    if stage_cb:
+        stage_cb("EVAL_REVISION", max(0.0, time.perf_counter() - eval_revision_started_at))
 
     return PrecomputeOut(
         revision_work=revision_work,
@@ -263,10 +282,10 @@ def precompute_render_context(
     )
 
 
-def process_chunk(
+def process_scanned_batch(
     s: Session,
     *,
-    chunk: list[ProcesarItemIn],
+    scanned: list[_ScannedItem],
     run_ctx: TifRunContext,
     usuario_id: int,
     med_cache: dict[str, MedicamentoDTO | None],
@@ -274,30 +293,14 @@ def process_chunk(
     seen_refs: set[str],
     revision_counter: int,
     runtime: ChunkRuntime,
+    stage_cb: ProcessStageCb | None = None,
 ) -> ProcesarResumen:
     resumen = ProcesarResumen()
-
-    scanned = parallel_scan(
-        tif=runtime.tif,
-        items=chunk,
-        scan_workers=runtime.scan_workers,
-        resumen=resumen,
-    )
-
-    if runtime.scan_workers > 1 and _is_suspicious_scan(scanned):
-        scanned_safe = parallel_scan(
-            tif=runtime.tif,
-            items=chunk,
-            scan_workers=1,
-            resumen=resumen,
-        )
-        if _count_items_with_header(scanned_safe) > _count_items_with_header(scanned):
-            scanned = scanned_safe
-            resumen.reintentos_modo_seguro += 1
 
     if not scanned:
         return resumen
 
+    match_started_at = time.perf_counter()
     all_refs: list[str] = []
     for x in scanned:
         all_refs.extend(x.scan.headers or [])
@@ -308,6 +311,10 @@ def process_chunk(
         refs=all_refs,
         only_referencia=run_ctx.only_ref_match,
     )
+    if stage_cb:
+        stage_cb("MATCH", max(0.0, time.perf_counter() - match_started_at))
+
+    select_started_at = time.perf_counter()
 
     selection = select_work_items(
         scanned=scanned,
@@ -322,6 +329,8 @@ def process_chunk(
             archivo_id=archivo_id,
         ),
     )
+    if stage_cb:
+        stage_cb("SELECT", max(0.0, time.perf_counter() - select_started_at))
 
     work = selection.work
     archivo_ids = selection.archivo_ids
@@ -331,10 +340,13 @@ def process_chunk(
     if not work and not revision_items:
         return resumen
 
+    db_bundle_started_at = time.perf_counter()
     archivo_by_id, detalles_by_archivo = TifRepository.load_archivo_bundle(
         s,
         archivo_ids=archivo_ids,
     )
+    if stage_cb:
+        stage_cb("DB_BUNDLE", max(0.0, time.perf_counter() - db_bundle_started_at))
 
     precomputed = precompute_render_context(
         work=work,
@@ -347,8 +359,10 @@ def process_chunk(
         med_cache=med_cache,
         warm_cache=lambda codebars: warm_medicamento_cache(runtime.client, med_cache, codebars),
         resumen=resumen,
+        stage_cb=stage_cb,
     )
 
+    render_upload_started_at = time.perf_counter()
     uploaded = parallel_render_upload(
         storage=runtime.storage,
         tif=runtime.tif,
@@ -361,9 +375,14 @@ def process_chunk(
         upload_pause_ms=runtime.upload_pause_ms,
         resumen=resumen,
     )
+    if stage_cb:
+        stage_cb("RENDER+UPLOAD", max(0.0, time.perf_counter() - render_upload_started_at))
 
+    persist_started_at = time.perf_counter()
     valid_uploaded = filter_valid_uploaded(uploaded, resumen)
     if not valid_uploaded:
+        if stage_cb:
+            stage_cb("PERSIST", max(0.0, time.perf_counter() - persist_started_at))
         return resumen
 
     resumen.ok += persist_uploaded_chunk(
@@ -378,15 +397,106 @@ def process_chunk(
         motivo_debito_receta_vencida_id=run_ctx.motivo_debito_receta_vencida_id,
         revision_counter=revision_counter,
     )
+    if stage_cb:
+        stage_cb("PERSIST", max(0.0, time.perf_counter() - persist_started_at))
 
     del uploaded
     del valid_uploaded
     del precomputed
     del archivo_by_id
     del detalles_by_archivo
-    del scanned
 
     return resumen
+
+
+def process_chunk(
+    s: Session,
+    *,
+    chunk: list[ProcesarItemIn],
+    run_ctx: TifRunContext,
+    usuario_id: int,
+    med_cache: dict[str, MedicamentoDTO | None],
+    seen_recetas: set[str],
+    seen_refs: set[str],
+    revision_counter: int,
+    runtime: ChunkRuntime,
+) -> ProcesarResumen:
+    scan_resumen = ProcesarResumen()
+    scanned = parallel_scan(
+        tif=runtime.tif,
+        items=chunk,
+        scan_workers=runtime.scan_workers,
+        resumen=scan_resumen,
+    )
+
+    retried_safe = False
+    if runtime.scan_workers > 1 and _is_suspicious_scan(scanned):
+        safe_scan_resumen = ProcesarResumen()
+        scanned_safe = parallel_scan(
+            tif=runtime.tif,
+            items=chunk,
+            scan_workers=1,
+            resumen=safe_scan_resumen,
+        )
+        if _count_items_with_header(scanned_safe) > _count_items_with_header(scanned):
+            scanned = scanned_safe
+            scan_resumen.merge(safe_scan_resumen)
+            retried_safe = True
+
+    resumen = process_scanned_batch(
+        s,
+        scanned=scanned,
+        run_ctx=run_ctx,
+        usuario_id=usuario_id,
+        med_cache=med_cache,
+        seen_recetas=seen_recetas,
+        seen_refs=seen_refs,
+        revision_counter=revision_counter,
+        runtime=runtime,
+    )
+
+    resumen.merge(scan_resumen)
+    if retried_safe:
+        resumen.reintentos_modo_seguro += 1
+
+    del scanned
+    return resumen
+
+
+def _apply_stats(
+    total: ProcesarResumen,
+    *,
+    total_items: int,
+    processed_items: int,
+    chunk_count: int,
+    chunk_elapsed_total: float,
+    chunk_min: float,
+    chunk_max: float,
+    started_at: float,
+) -> None:
+    elapsed_seconds = max(0.0, time.perf_counter() - started_at)
+    items_per_minute = 0.0
+    seconds_per_item = 0.0
+    if processed_items > 0 and elapsed_seconds > 0:
+        items_per_minute = (processed_items / elapsed_seconds) * 60.0
+        seconds_per_item = elapsed_seconds / processed_items
+
+    total.stats = ProcesarStats(
+        total_items=total_items,
+        processed_items=processed_items,
+        chunk_count=chunk_count,
+        elapsed_seconds=elapsed_seconds,
+        items_per_minute=items_per_minute,
+        seconds_per_item=seconds_per_item,
+        chunk_min_seconds=(chunk_min if chunk_count else 0.0),
+        chunk_avg_seconds=((chunk_elapsed_total / chunk_count) if chunk_count else 0.0),
+        chunk_max_seconds=chunk_max,
+        con_header=total.con_header,
+        sin_header=total.sin_header,
+        revision_por_sin_match=total.revision_por_sin_match,
+        revision_por_ya_asociado=total.revision_por_ya_asociado,
+        reintentos_modo_seguro=total.reintentos_modo_seguro,
+    )
 
 
 def process_items_in_chunks(
@@ -397,7 +507,7 @@ def process_items_in_chunks(
     usuario_id: int,
     chunk_size: int,
     runtime: ChunkRuntime,
-    on_chunk_processed: Callable[[int, int, float], None] | None = None,
+    on_chunk_processed: StageProgressCb | None = None,
     chunk_pause_ms: int = 0,
 ) -> ProcesarResumen:
     total = ProcesarResumen()
@@ -438,7 +548,7 @@ def process_items_in_chunks(
         s.commit()
 
         if on_chunk_processed:
-            on_chunk_processed(processed_items, total_items, chunk_elapsed)
+            on_chunk_processed(processed_items, total_items, chunk_elapsed, "CHUNK")
 
         pause_ms = max(0, int(chunk_pause_ms))
         if pause_ms > 0 and processed_items < total_items:
@@ -449,28 +559,193 @@ def process_items_in_chunks(
         del resumen
         del chunk
 
-    elapsed_seconds = max(0.0, time.perf_counter() - started_at)
-    items_per_minute = 0.0
-    seconds_per_item = 0.0
-    if processed_items > 0 and elapsed_seconds > 0:
-        items_per_minute = (processed_items / elapsed_seconds) * 60.0
-        seconds_per_item = elapsed_seconds / processed_items
-
-    total.stats = ProcesarStats(
+    _apply_stats(
+        total,
         total_items=total_items,
         processed_items=processed_items,
         chunk_count=chunk_count,
-        elapsed_seconds=elapsed_seconds,
-        items_per_minute=items_per_minute,
-        seconds_per_item=seconds_per_item,
-        chunk_min_seconds=(chunk_min if chunk_count else 0.0),
-        chunk_avg_seconds=((chunk_elapsed_total / chunk_count) if chunk_count else 0.0),
-        chunk_max_seconds=chunk_max,
-        con_header=total.con_header,
-        sin_header=total.sin_header,
-        revision_por_sin_match=total.revision_por_sin_match,
-        revision_por_ya_asociado=total.revision_por_ya_asociado,
-        reintentos_modo_seguro=total.reintentos_modo_seguro,
+        chunk_elapsed_total=chunk_elapsed_total,
+        chunk_min=chunk_min,
+        chunk_max=chunk_max,
+        started_at=started_at,
+    )
+
+    return total
+
+
+def process_items_individual_async(
+    s: Session,
+    *,
+    items_filtrados: list[ProcesarItemIn],
+    run_ctx: TifRunContext,
+    usuario_id: int,
+    runtime: ChunkRuntime,
+    on_chunk_processed: StageProgressCb | None = None,
+    chunk_pause_ms: int = 0,
+) -> ProcesarResumen:
+    total = ProcesarResumen()
+    med_cache: dict[str, MedicamentoDTO | None] = {}
+    seen_recetas: set[str] = set()
+    seen_refs: set[str] = set()
+    revision_counter = 1
+    total_items = len(items_filtrados)
+    processed_items = 0
+    chunk_count = 0
+    chunk_elapsed_total = 0.0
+    chunk_min = float("inf")
+    chunk_max = 0.0
+    started_at = time.perf_counter()
+
+    if not items_filtrados:
+        _apply_stats(
+            total,
+            total_items=0,
+            processed_items=0,
+            chunk_count=0,
+            chunk_elapsed_total=0.0,
+            chunk_min=0.0,
+            chunk_max=0.0,
+            started_at=started_at,
+        )
+        return total
+
+    window_size = max(1, int(runtime.scan_workers) * 3)
+
+    with ThreadPoolExecutor(max_workers=max(1, int(runtime.scan_workers))) as ex:
+        futures_by_index: dict[int, Future[_ScannedItem]] = {}
+        submit_idx = 0
+
+        def _prefetch() -> None:
+            nonlocal submit_idx
+            while submit_idx < total_items and len(futures_by_index) < window_size:
+                it = items_filtrados[submit_idx]
+                futures_by_index[submit_idx] = ex.submit(scan_one_item, tif=runtime.tif, it=it)
+                submit_idx += 1
+
+        _prefetch()
+
+        for idx in range(total_items):
+            item_started_at = time.perf_counter()
+            item_number = idx + 1
+            stage_totals: dict[str, float] = {}
+
+            def _emit_stage(stage: str, elapsed: float) -> None:
+                elapsed_safe = max(0.0, float(elapsed))
+                if elapsed_safe > 0:
+                    stage_totals[stage] = stage_totals.get(stage, 0.0) + elapsed_safe
+                if on_chunk_processed:
+                    on_chunk_processed(
+                        processed_items,
+                        total_items,
+                        elapsed_safe,
+                        f"[{item_number}/{total_items}] {stage} {elapsed_safe:.2f}s",
+                    )
+
+            fut = futures_by_index.pop(idx)
+
+            scan_resumen = ProcesarResumen()
+            scanned_items: list[_ScannedItem] = []
+            scan_started_at = time.perf_counter()
+            try:
+                scanned_items = [fut.result()]
+            except Exception as e:
+                scan_resumen.errores.append(f"scan error: {e}")
+
+            scan_elapsed = max(0.0, time.perf_counter() - scan_started_at)
+            if scanned_items:
+                scan_data = scanned_items[0].scan
+                scan_load = max(0.0, float(getattr(scan_data, "scan_load_seconds", 0.0) or 0.0))
+                scan_ocr = max(0.0, float(getattr(scan_data, "scan_ocr_seconds", 0.0) or 0.0))
+                scan_zbar = max(0.0, float(getattr(scan_data, "scan_zbar_seconds", 0.0) or 0.0))
+
+                if scan_load > 0:
+                    _emit_stage("SCAN_LOAD", scan_load)
+                if scan_ocr > 0:
+                    _emit_stage("SCAN_OCR", scan_ocr)
+                if scan_zbar > 0:
+                    _emit_stage("SCAN_ZBAR", scan_zbar)
+
+                residual = scan_elapsed - (scan_load + scan_ocr + scan_zbar)
+                if residual > 0.02:
+                    _emit_stage("SCAN_OTHER", residual)
+            else:
+                _emit_stage("SCAN", scan_elapsed)
+
+            resumen_item = process_scanned_batch(
+                s,
+                scanned=scanned_items,
+                run_ctx=run_ctx,
+                usuario_id=usuario_id,
+                med_cache=med_cache,
+                seen_recetas=seen_recetas,
+                seen_refs=seen_refs,
+                revision_counter=revision_counter,
+                runtime=runtime,
+                stage_cb=_emit_stage,
+            )
+            resumen_item.merge(scan_resumen)
+
+            item_elapsed = max(0.0, time.perf_counter() - item_started_at)
+            chunk_count += 1
+            chunk_elapsed_total += item_elapsed
+            chunk_min = min(chunk_min, item_elapsed)
+            chunk_max = max(chunk_max, item_elapsed)
+
+            total.merge(resumen_item)
+            processed_items += 1
+
+            commit_started_at = time.perf_counter()
+            s.commit()
+            _emit_stage("COMMIT", max(0.0, time.perf_counter() - commit_started_at))
+
+            if on_chunk_processed:
+                stage_order = [
+                    "SCAN_LOAD",
+                    "SCAN_OCR",
+                    "SCAN_ZBAR",
+                    "SCAN_OTHER",
+                    "MATCH",
+                    "SELECT",
+                    "DB_BUNDLE",
+                    "MED_API",
+                    "EVAL_MATCHED",
+                    "EVAL_REVISION",
+                    "RENDER+UPLOAD",
+                    "PERSIST",
+                    "COMMIT",
+                ]
+                detail = " | ".join(
+                    f"{name}:{stage_totals[name]:.2f}s"
+                    for name in stage_order
+                    if stage_totals.get(name, 0.0) > 0
+                )
+                detail_txt = f" | {detail}" if detail else ""
+                on_chunk_processed(
+                    processed_items,
+                    total_items,
+                    item_elapsed,
+                    f"[{item_number}/{total_items}] DONE {item_elapsed:.2f}s{detail_txt}",
+                )
+
+            pause_ms = max(0, int(chunk_pause_ms))
+            if pause_ms > 0 and processed_items < total_items:
+                time.sleep(pause_ms / 1000.0)
+
+            s.expunge_all()
+
+            del resumen_item
+            del scanned_items
+            _prefetch()
+
+    _apply_stats(
+        total,
+        total_items=total_items,
+        processed_items=processed_items,
+        chunk_count=chunk_count,
+        chunk_elapsed_total=chunk_elapsed_total,
+        chunk_min=chunk_min,
+        chunk_max=chunk_max,
+        started_at=started_at,
     )
 
     return total

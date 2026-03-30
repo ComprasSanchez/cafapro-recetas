@@ -18,6 +18,23 @@ from app.service.recetas.tif_logic import (
 from app.service.recetas.tif_types import ProcesarResumen, _ScannedItem, _UploadResult, _WorkItem
 
 
+def scan_one_item(*, tif: TiffProcessor, it) -> _ScannedItem:
+    try:
+        scan, pages = tif.scan_with_pages(it.full_path)
+    except Exception:
+        scan = tif.scan(it.full_path)
+        pages = None
+
+    has_header = any(norm_str(h) for h in (scan.headers or []))
+    if not has_header:
+        safe_scan = tif.scan(it.full_path)
+        if any(norm_str(h) for h in (safe_scan.headers or [])):
+            scan = safe_scan
+            pages = None
+
+    return _ScannedItem(it=it, scan=scan, pages=pages)
+
+
 def parallel_scan(
     *,
     tif: TiffProcessor,
@@ -27,28 +44,11 @@ def parallel_scan(
 ) -> list[_ScannedItem]:
     out: list[_ScannedItem] = []
 
-    def job(it):
-        try:
-            scan, pages = tif.scan_with_pages(it.full_path)
-        except Exception:
-            scan = tif.scan(it.full_path)
-            pages = None
-
-        has_header = any(norm_str(h) for h in (scan.headers or []))
-        if not has_header:
-            safe_scan = tif.scan(it.full_path)
-            if any(norm_str(h) for h in (safe_scan.headers or [])):
-                scan = safe_scan
-                pages = None
-
-        return it, scan, pages
-
     with ThreadPoolExecutor(max_workers=scan_workers) as ex:
-        futs = [ex.submit(job, it) for it in items]
+        futs = [ex.submit(scan_one_item, tif=tif, it=it) for it in items]
         for fut in as_completed(futs):
             try:
-                it, scan, pages = fut.result()
-                out.append(_ScannedItem(it=it, scan=scan, pages=pages))
+                out.append(fut.result())
             except Exception as e:
                 resumen.errores.append(f"scan error: {e}")
 
