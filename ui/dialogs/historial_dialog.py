@@ -32,7 +32,8 @@ class HistorialDialog(QDialog):
     def __init__(self, *, archivo_id_actual: int, parent=None):
         super().__init__(parent)
 
-        self._pool = QThreadPool.globalInstance()
+        self._pool = QThreadPool(self)
+        self._pool.setMaxThreadCount(2)
 
         self._preview_cache: dict[tuple[str, int, int], bytes] = {}
         self._preview_req_id: dict[str, int] = {"F": 0, "D": 0}

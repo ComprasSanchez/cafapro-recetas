@@ -67,7 +67,8 @@ class AuditoriaVisualDialog(QDialog):
         creado_por_usuario_id=None,
     ):
         super().__init__(parent)
-        self._pool = QThreadPool.globalInstance()
+        self._pool = QThreadPool(self)
+        self._pool.setMaxThreadCount(3)
         self.ROW_H = 36
 
         # Preview state por lado
@@ -1413,18 +1414,30 @@ class AuditoriaVisualDialog(QDialog):
         if ok != QMessageBox.StandardButton.Yes:
             return
 
-        try:
-            AuditoriaVisualUseCase.delete_troquel(troquel_id=row_data.troquel_id)
+        self._show_loading()
 
-            # 🔥 invalidar cache
-            self._invalidate_current_asociacion_cache()
+        worker = Worker(
+            self._delete_troquel_background,
+            troquel_id=int(row_data.troquel_id),
+        )
+        worker.signals.finished.connect(self._on_delete_troquel_finished)
+        worker.signals.error.connect(self._on_delete_troquel_error)
+        self._pool.start(worker)
 
-            # recargar
-            self._goto(self._idx)
+    @staticmethod
+    def _delete_troquel_background(*, troquel_id: int):
+        AuditoriaVisualUseCase.delete_troquel(troquel_id=int(troquel_id))
+        return True
 
-        except Exception as e:
-            QMessageBox.critical(
-                self,
-                "Error",
-                f"No se pudo eliminar el troquel:\n{e}"
-            )
+    def _on_delete_troquel_finished(self, _result=None):
+        self._hide_loading()
+        self._invalidate_current_asociacion_cache()
+        self._goto(self._idx)
+
+    def _on_delete_troquel_error(self, err):
+        self._hide_loading()
+        QMessageBox.critical(
+            self,
+            "Error",
+            f"No se pudo eliminar el troquel:\n{err}"
+        )

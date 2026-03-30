@@ -75,6 +75,28 @@ class TifRepository:
         return rid is not None
 
     @staticmethod
+    def list_archivo_ids_ya_asociados(
+        session: Session,
+        *,
+        recepcion_id: int,
+        archivo_ids: list[int],
+    ) -> set[int]:
+        if not archivo_ids:
+            return set()
+
+        rows = session.execute(
+            select(Asociacion.archivo_id)
+            .join(Recetas, Recetas.receta_id == Asociacion.receta_id)
+            .where(
+                Recetas.recepcion_id == int(recepcion_id),
+                Asociacion.archivo_id.in_(archivo_ids),
+                Asociacion.vigente.is_(True),
+            )
+        ).scalars().all()
+
+        return {int(x) for x in rows if x is not None}
+
+    @staticmethod
     def get_recepcion(session: Session, *, recepcion_id: int) -> Recepcion | None:
         return session.execute(
             select(Recepcion).where(Recepcion.recepcion_id == int(recepcion_id))

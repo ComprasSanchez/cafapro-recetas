@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Callable, List, Optional
 import os
 
 from sqlalchemy.orm import Session
@@ -23,18 +23,18 @@ class TiffService:
         storage: S3Storage,
         tif: Optional[TiffProcessor] = None,
         client: Optional[MedicamentoClient] = None,
-        chunk_size: int = 75,
+        chunk_size: int = 25,
         scan_workers: Optional[int] = None,
-        upload_workers: int = 32,
+        upload_workers: int = 4,
     ) -> None:
         self._storage = storage
         self._tif = tif or TiffProcessor()
         self._client = client or MedicamentoClient()
 
         cpu = os.cpu_count() or 4
-        self._chunk_size = int(chunk_size)
-        self._scan_workers = int(scan_workers or min(cpu, 6))
-        self._upload_workers = int(upload_workers)
+        self._chunk_size = max(10, min(50, int(chunk_size)))
+        self._scan_workers = max(1, min(4, int(scan_workers or min(cpu, 3))))
+        self._upload_workers = max(1, min(6, int(upload_workers)))
 
     # -------------------------
     # MAIN (por tandas)
@@ -45,6 +45,7 @@ class TiffService:
         recepcion_id: int,
         usuario_id: int,
         items: List[ProcesarItemIn],
+        progress_cb: Callable[[int, int], None] | None = None,
     ) -> ProcesarResumen:
 
         total = ProcesarResumen()
@@ -74,6 +75,7 @@ class TiffService:
             usuario_id=usuario_id,
             chunk_size=self._chunk_size,
             runtime=runtime,
+            on_chunk_processed=progress_cb,
         )
         total.merge(total_chunks)
 

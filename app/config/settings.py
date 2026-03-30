@@ -56,6 +56,13 @@ class Settings(BaseSettings):
     )
 
     # -----------------------
+    # TIFF processing
+    # -----------------------
+    TIFF_CHUNK_SIZE: int = Field(default=25)
+    TIFF_SCAN_WORKERS: int = Field(default=3)
+    TIFF_UPLOAD_WORKERS: int = Field(default=4)
+
+    # -----------------------
     # Helpers
     # -----------------------
     def validate_required(self) -> None:

@@ -921,8 +921,6 @@ class AuditoriaTab(BaseTabWidget):
             )
 
     def _anular_receta(self, receta_id: int):
-        row = self.tbl.currentRow()
-
         dlg = NumeroRecetaDialog(self)
 
         if dlg.exec() != dlg.DialogCode.Accepted:
@@ -944,17 +942,15 @@ class AuditoriaTab(BaseTabWidget):
         if resp != QMessageBox.StandardButton.Yes:
             return
 
-        self._uc.anular_receta(
+        self.run_job(
+            self._uc.anular_receta,
             receta_id=receta_id,
             nro_receta=nro_receta,
+            title="Anulando receta...",
+            on_result=lambda _out: self._reload_auditoria(),
         )
 
-        self._reload_auditoria()
-
     def _duplicar_receta(self, receta_id: int):
-
-        row = self.tbl.currentRow()
-
         dlg = NumeroRecetaDialog(self)
 
         if dlg.exec() != dlg.DialogCode.Accepted:
@@ -976,12 +972,13 @@ class AuditoriaTab(BaseTabWidget):
         if resp != QMessageBox.StandardButton.Yes:
             return
 
-        self._uc.duplicar_receta(
+        self.run_job(
+            self._uc.duplicar_receta,
             receta_id=receta_id,
             nro_receta=nro_receta,
+            title="Marcando receta duplicada...",
+            on_result=lambda _out: self._reload_auditoria(),
         )
-
-        self._reload_auditoria()
 
     def _eliminar_sobrante(self, receta_id: int):
 
@@ -999,9 +996,12 @@ class AuditoriaTab(BaseTabWidget):
         if resp != QMessageBox.StandardButton.Yes:
             return
 
-        self._uc.eliminar_sobrante(receta_id=receta_id)
-
-        self._reload_auditoria()
+        self.run_job(
+            self._uc.eliminar_sobrante,
+            receta_id=receta_id,
+            title="Eliminando receta...",
+            on_result=lambda _out: self._reload_auditoria(),
+        )
 
     def _desasociar_receta(self, receta_id: int):
 
@@ -1016,9 +1016,12 @@ class AuditoriaTab(BaseTabWidget):
         if resp != QMessageBox.StandardButton.Yes:
             return
 
-        self._uc.desasociar_receta(receta_id=receta_id)
-
-        self._reload_auditoria()
+        self.run_job(
+            self._uc.desasociar_receta,
+            receta_id=receta_id,
+            title="Desasociando receta...",
+            on_result=lambda _out: self._reload_auditoria(),
+        )
 
     @staticmethod
     def _map_rows(rows):

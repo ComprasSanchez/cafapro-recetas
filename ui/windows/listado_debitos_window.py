@@ -50,6 +50,8 @@ class ListadoDebitosWindow(QDialog):
         self.filtrados = []
         self._wrong_rows_ctx = []
         self._wrong_folder_ctx: str | None = None
+        self._pool = QThreadPool(self)
+        self._pool.setMaxThreadCount(2)
         self._filter_timer = QTimer(self)
         self._filter_timer.setSingleShot(True)
         self._filter_timer.setInterval(250)
@@ -751,7 +753,7 @@ class ListadoDebitosWindow(QDialog):
         worker.signals.finished.connect(self._download_finished)
         worker.signals.error.connect(self._download_error)
 
-        QThreadPool.globalInstance().start(worker)
+        self._pool.start(worker)
 
     def _download_finished(self, out):
 

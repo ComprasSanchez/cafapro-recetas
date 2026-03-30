@@ -12,7 +12,7 @@ class BaseTabWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
 
-        self._runner = QThreadPool.globalInstance()
+        self._runner = QThreadPool(self)
         self._runner.setMaxThreadCount(1)  # cola serial
         self._active_jobs: set[ServiceJob] = set()
 

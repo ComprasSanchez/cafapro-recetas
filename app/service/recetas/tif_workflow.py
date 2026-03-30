@@ -263,6 +263,17 @@ def process_chunk(
         only_referencia=run_ctx.only_ref_match,
     )
 
+    candidate_archivo_ids = {
+        int(a.archivo_id)
+        for a in match.ref_to_archivo.values()
+        if a is not None
+    }
+    archivo_ids_ya_asociados = TifRepository.list_archivo_ids_ya_asociados(
+        s,
+        recepcion_id=run_ctx.recepcion_id,
+        archivo_ids=list(candidate_archivo_ids),
+    )
+
     selection = select_work_items(
         scanned=scanned,
         match=match,
@@ -270,11 +281,7 @@ def process_chunk(
         seen_recetas=seen_recetas,
         seen_refs=seen_refs,
         resumen=resumen,
-        is_archivo_ya_asociado=lambda archivo_id: TifRepository.is_archivo_ya_asociado(
-            s,
-            recepcion_id=run_ctx.recepcion_id,
-            archivo_id=archivo_id,
-        ),
+        is_archivo_ya_asociado=lambda archivo_id: int(archivo_id) in archivo_ids_ya_asociados,
     )
 
     work = selection.work
@@ -332,6 +339,13 @@ def process_chunk(
         revision_counter=revision_counter,
     )
 
+    del uploaded
+    del valid_uploaded
+    del precomputed
+    del archivo_by_id
+    del detalles_by_archivo
+    del scanned
+
     return resumen
 
 
@@ -343,12 +357,15 @@ def process_items_in_chunks(
     usuario_id: int,
     chunk_size: int,
     runtime: ChunkRuntime,
+    on_chunk_processed: Callable[[int, int], None] | None = None,
 ) -> ProcesarResumen:
     total = ProcesarResumen()
     med_cache: dict[str, MedicamentoDTO | None] = {}
     seen_recetas: set[str] = set()
     seen_refs: set[str] = set()
     revision_counter = 1
+    total_items = len(items_filtrados)
+    processed_items = 0
 
     for chunk in _chunks(items_filtrados, int(chunk_size)):
         resumen = process_chunk(
@@ -363,5 +380,14 @@ def process_items_in_chunks(
             runtime=runtime,
         )
         total.merge(resumen)
+        processed_items += len(chunk)
+
+        if on_chunk_processed:
+            on_chunk_processed(processed_items, total_items)
+
+        s.expunge_all()
+
+        del resumen
+        del chunk
 
     return total

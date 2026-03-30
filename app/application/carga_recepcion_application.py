@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from app.config.settings import settings
 from app.db.session import session_scope
 from app.infra.storage import s3_storage
 from app.service.recepcion.recepcion_service import RecepcionService
@@ -93,12 +94,29 @@ class CargaRecepcionApplication:
         ]
 
         with session_scope() as s:
-            svc = TiffService(storage=s3_storage)
+            svc = TiffService(
+                storage=s3_storage,
+                chunk_size=int(settings.TIFF_CHUNK_SIZE),
+                scan_workers=int(settings.TIFF_SCAN_WORKERS),
+                upload_workers=int(settings.TIFF_UPLOAD_WORKERS),
+            )
+
+            total_items = len(input_items)
+
+            def _emit_chunk_progress(done: int, total: int) -> None:
+                if not ctx:
+                    return
+                total_safe = max(1, int(total))
+                done_safe = max(0, min(int(done), total_safe))
+                percent = 15 + int((done_safe / total_safe) * 80)
+                ctx.emit_progress(percent, f"Procesando TIFFs... {done_safe}/{total_safe}")
+
             resumen = svc.procesar(
                 s=s,
                 recepcion_id=recepcion_id,
                 usuario_id=usuario_id,
                 items=input_items,
+                progress_cb=_emit_chunk_progress if total_items else None,
             )
 
             s.flush()
