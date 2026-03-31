@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Archivo, Recetas, Asociacion
 from app.service.recetas.historial_receta_service import HistorialRecetaService
+from app.service.recetas.troqueles_service import TroquelesService
 
 
 class AsociacionService:
@@ -83,6 +84,12 @@ class AsociacionService:
         s.add(nueva)
 
         s.flush()
+
+        TroquelesService.recalculate_for_receta(
+            s,
+            receta_id=int(receta.receta_id),
+            archivo_id=int(archivo_id),
+        )
 
     @staticmethod
     def desasociar(
@@ -213,3 +220,9 @@ class AsociacionService:
         s.add(nueva)
 
         s.flush()
+
+        TroquelesService.recalculate_for_receta(
+            s,
+            receta_id=int(receta.receta_id),
+            archivo_id=int(archivo_id),
+        )
