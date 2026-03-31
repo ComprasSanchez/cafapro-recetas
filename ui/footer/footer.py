@@ -1,6 +1,17 @@
-from PySide6.QtGui import QResizeEvent
+from PySide6.QtGui import QKeyEvent, QKeySequence, QResizeEvent
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QStatusBar, QLabel, QProgressBar, QSizePolicy
+from PySide6.QtWidgets import QStatusBar, QLabel, QLineEdit, QProgressBar, QSizePolicy
+
+
+class FooterInfoLine(QLineEdit):
+    def contextMenuEvent(self, event) -> None:  # type: ignore[override]
+        event.ignore()
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:  # type: ignore[override]
+        if event.matches(QKeySequence.StandardKey.Copy) or event.matches(QKeySequence.StandardKey.Paste):
+            event.ignore()
+            return
+        super().keyPressEvent(event)
 
 
 class FooterManeger(QStatusBar):
@@ -13,13 +24,18 @@ class FooterManeger(QStatusBar):
         self._info_full = ""
 
         self.lb_status = QLabel("Listo")
-        self.lb_info = QLabel("")
-        self.lb_info.setAlignment(Qt.AlignCenter)
+        self.in_info = FooterInfoLine("")
+        self.in_info.setReadOnly(True)
+        self.in_info.setFrame(False)
+        self.in_info.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.in_info.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
+        self.in_info.setCursorPosition(0)
+        self.in_info.setPlaceholderText("")
         self.lb_status.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)
-        self.lb_info.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.in_info.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.lb_status.setMinimumWidth(0)
         self.lb_status.setMaximumWidth(180)
-        self.lb_info.setMinimumWidth(0)
+        self.in_info.setMinimumWidth(0)
 
         self.progress = QProgressBar()
         self.progress.setFixedWidth(120)
@@ -27,7 +43,7 @@ class FooterManeger(QStatusBar):
         self.progress.setVisible(False)
 
         self.addWidget(self.lb_status, 0)
-        self.addWidget(self.lb_info, 5)
+        self.addWidget(self.in_info, 5)
         self.addPermanentWidget(self.progress)
 
         self._ensure_state(self._active_channel)
@@ -91,7 +107,9 @@ class FooterManeger(QStatusBar):
 
     def _refresh_elided_texts(self) -> None:
         self._set_elided(self.lb_status, self._status_full)
-        self._set_elided(self.lb_info, self._info_full)
+        self.in_info.setText(self._info_full)
+        self.in_info.setToolTip(self._info_full)
+        self.in_info.home(False)
 
     @staticmethod
     def _set_elided(label: QLabel, text: str) -> None:
