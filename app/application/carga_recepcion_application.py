@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 import time
 from typing import Any
 
@@ -48,6 +49,23 @@ class CloseRecepcionOut:
 
 
 class CargaRecepcionApplication:
+    _STAGE_LABELS: dict[str, str] = {
+        "SCAN_LOAD": "Cargando páginas TIFF",
+        "SCAN_OCR": "Leyendo encabezado (OCR)",
+        "SCAN_ZBAR": "Leyendo troqueles",
+        "SCAN_OTHER": "Preparando lectura",
+        "MATCH": "Buscando coincidencia",
+        "SELECT": "Validando receta",
+        "DB_BUNDLE": "Leyendo datos del archivo",
+        "MED_API": "Consultando medicamentos",
+        "EVAL_MATCHED": "Evaluando troqueles asociados",
+        "EVAL_REVISION": "Evaluando troqueles en revisión",
+        "RENDER+UPLOAD": "Generando y subiendo imágenes",
+        "PERSIST": "Guardando resultados",
+        "COMMIT": "Confirmando cambios",
+        "DONE": "Completado",
+    }
+
     @staticmethod
     def _fmt_duration(seconds: float) -> str:
         total = max(0, int(round(seconds)))
@@ -56,6 +74,25 @@ class CargaRecepcionApplication:
         if hh > 0:
             return f"{hh:02d}:{mm:02d}:{ss:02d}"
         return f"{mm:02d}:{ss:02d}"
+
+    @staticmethod
+    def _humanize_stage(stage: str) -> str:
+        raw = str(stage or "").strip()
+        if not raw:
+            return "Procesando"
+
+        item_prefix = ""
+        body = raw
+        m = re.match(r"^\[(\d+/\d+)\]\s+(.+)$", raw)
+        if m:
+            item_prefix = f"[{m.group(1)}] "
+            body = m.group(2)
+
+        for code, label in CargaRecepcionApplication._STAGE_LABELS.items():
+            body = body.replace(code, label)
+
+        body = body.replace(" START", " (iniciando)")
+        return f"{item_prefix}{body}"
 
     @staticmethod
     def load_recepcion(*, recepcion_id: int, ctx=None) -> LoadRecepcionOut:
@@ -124,6 +161,7 @@ class CargaRecepcionApplication:
                 done_safe = max(0, min(int(done), total_safe))
                 percent = 15 + int((done_safe / total_safe) * 80)
                 items_per_minute = (done_safe / elapsed) * 60.0 if done_safe > 0 else 0.0
+                stage_text = CargaRecepcionApplication._humanize_stage(stage)
                 eta_text = "--:--"
                 if done_safe > 0 and done_safe < total_safe:
                     remaining = total_safe - done_safe
@@ -131,11 +169,11 @@ class CargaRecepcionApplication:
                     eta_text = CargaRecepcionApplication._fmt_duration(eta_seconds)
 
                 msg = (
-                    f"Procesando TIFFs... {done_safe}/{total_safe}"
-                    f" | {stage}"
+                    f"{stage_text}"
+                    f" | {done_safe}/{total_safe} recetas"
                     f" | {items_per_minute:.1f} rec/min"
                     f" | ETA {eta_text}"
-                    f" | chunk {chunk_elapsed:.1f}s"
+                    f" | etapa {chunk_elapsed:.1f}s"
                 )
 
                 if ctx:

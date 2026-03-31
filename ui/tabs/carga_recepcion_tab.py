@@ -308,6 +308,7 @@ class CargaRecepcionTab(BaseTabWidget):
             title="Cargando recepción…",
             on_result=self._apply_recepcion,
             on_error=self._show_job_error,
+            job_key="carga:load_recepcion",
         )
 
     def _on_new_recepcion(self):
@@ -319,6 +320,8 @@ class CargaRecepcionTab(BaseTabWidget):
                 recepcion_id=rid,
                 title="Cargando recepción…",
                 on_result=self._apply_recepcion,
+                on_error=self._show_job_error,
+                job_key="carga:load_recepcion",
             )
             return
 

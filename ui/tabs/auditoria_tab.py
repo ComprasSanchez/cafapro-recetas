@@ -126,6 +126,7 @@ class AuditoriaTab(BaseTabWidget):
             title="Cargando estados…",
             on_result=self._apply_estados,
             on_error=lambda err: None,
+            job_key="auditoria:estados",
         )
 
     # -------------------------
@@ -254,6 +255,7 @@ class AuditoriaTab(BaseTabWidget):
             title="Cargando recepción…",
             on_result=self._apply_recepcion,
             on_error=self._ui_error,
+            job_key="auditoria:load_recepcion",
         )
 
     def _apply_recepcion(self, out: RecepcionOut) -> None:
@@ -1006,6 +1008,7 @@ class AuditoriaTab(BaseTabWidget):
             nro_receta=nro_receta,
             title="Anulando receta...",
             on_result=lambda _out: self._reload_auditoria(),
+            job_key=f"auditoria:anular:{int(receta_id)}",
         )
 
     def _duplicar_receta(self, receta_id: int):
@@ -1036,6 +1039,7 @@ class AuditoriaTab(BaseTabWidget):
             nro_receta=nro_receta,
             title="Marcando receta duplicada...",
             on_result=lambda _out: self._reload_auditoria(),
+            job_key=f"auditoria:duplicar:{int(receta_id)}",
         )
 
     def _eliminar_sobrante(self, receta_id: int):
@@ -1059,6 +1063,7 @@ class AuditoriaTab(BaseTabWidget):
             receta_id=receta_id,
             title="Eliminando receta...",
             on_result=lambda _out: self._reload_auditoria(),
+            job_key=f"auditoria:eliminar:{int(receta_id)}",
         )
 
     def _desasociar_receta(self, receta_id: int):
@@ -1079,6 +1084,7 @@ class AuditoriaTab(BaseTabWidget):
             receta_id=receta_id,
             title="Desasociando receta...",
             on_result=lambda _out: self._reload_auditoria(),
+            job_key=f"auditoria:desasociar:{int(receta_id)}",
         )
 
     @staticmethod

@@ -15,9 +15,10 @@ class FooterManeger(QStatusBar):
         self.lb_status = QLabel("Listo")
         self.lb_info = QLabel("")
         self.lb_info.setAlignment(Qt.AlignCenter)
-        self.lb_status.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.lb_status.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)
         self.lb_info.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.lb_status.setMinimumWidth(0)
+        self.lb_status.setMaximumWidth(180)
         self.lb_info.setMinimumWidth(0)
 
         self.progress = QProgressBar()
@@ -25,8 +26,8 @@ class FooterManeger(QStatusBar):
         self.progress.setRange(0, 0)      # modo indeterminado
         self.progress.setVisible(False)
 
-        self.addWidget(self.lb_status, 1)
-        self.addWidget(self.lb_info, 2)
+        self.addWidget(self.lb_status, 0)
+        self.addWidget(self.lb_info, 5)
         self.addPermanentWidget(self.progress)
 
         self._ensure_state(self._active_channel)
