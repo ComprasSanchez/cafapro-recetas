@@ -29,12 +29,13 @@ class TroquelesService:
         Crea un troquel MANUAL en Auditoría Visual.
 
         Reglas:
-        - A = API 404 (dto None) -> NO se crea
-        - V = API OK y code_alfabeta coincide con algún cod_medic del ArchivoDetalle -> se crea
-        - R = API OK y NO coincide -> NO se crea
+        - Si API no devuelve medicamento -> NO se crea
+        - Si code_alfabeta no coincide con cod_medic del ArchivoDetalle -> NO se crea
+        - Si coincide código y cantidad -> V
+        - Si coincide código y NO cantidad -> R
 
         Monto:
-        - SOLO si V: suma importe_cobertura del/los ArchivoDetalle cuyo cod_medic == code_alfabeta
+        - Se toma del/los ArchivoDetalle cuyo cod_medic == code_alfabeta
         """
         codigo_barra = (codigo_barra or "").strip()
         if not codigo_barra:
@@ -54,22 +55,24 @@ class TroquelesService:
         archivo_id = int(asoc.archivo_id)
 
         # 2) “Esperados” del archivo
-        cods_detalle, importe_por_cod = self._load_archivo_detalle_expectations(s, archivo_id)
+        cods_detalle, cant_por_cod, importe_por_cod = self._load_archivo_detalle_expectations(s, archivo_id)
 
         # 3) API (404 => None)
         dto: Optional[MedicamentoDTO] = self._client.get_by_codebar(codigo_barra)
 
-        # 4) Estado final A/V/R
-        estado = self._calc_estado(dto=dto, cods_detalle=cods_detalle)
-
-        # 5) REGLA NEGOCIO: solo permitir V
-        if estado == EstadoTroquelEnum.A:
+        if dto is None:
             raise ValueError("No se puede agregar: código no encontrado en la API (A / 404).")
-        if estado == EstadoTroquelEnum.R:
+
+        ca = self._norm_str(dto.code_alfabeta)
+        if not ca or ca not in cods_detalle:
             raise ValueError("No se puede agregar: el medicamento no coincide con el detalle del archivo (R).")
 
-        # 6) Monto (solo si V)
-        monto = self._calc_monto(dto=dto, importe_por_cod=importe_por_cod)
+        qty_expected = int(cant_por_cod.get(ca, 0))
+        qty_actual = int(cantidad)
+        estado = EstadoTroquelEnum.V if qty_actual == qty_expected else EstadoTroquelEnum.R
+
+        # 6) Monto
+        monto = importe_por_cod.get(ca, Decimal("0"))
 
         troq = Troqueles(
             receta_id=receta_id,
@@ -79,7 +82,7 @@ class TroquelesService:
             code_alfabeta=int(dto.code_alfabeta or 0) if dto else 0,
             monto=monto,
             cantidad=int(cantidad),
-            estado=EstadoTroquelEnum.V,  # por regla, siempre V acá
+            estado=estado,
         )
         s.add(troq)
         s.flush()  # para troquel_id
@@ -178,9 +181,10 @@ class TroquelesService:
 
     def _load_archivo_detalle_expectations(
         self, s: Session, archivo_id: int
-    ) -> Tuple[Set[str], Dict[str, Decimal]]:
+    ) -> Tuple[Set[str], Dict[str, int], Dict[str, Decimal]]:
         """
         - cods_detalle: set de cod_medic no vacíos
+        - cant_por_cod: suma de cantidad por cod_medic
         - importe_por_cod: suma de importe_cobertura por cod_medic
         """
         dets = s.execute(
@@ -188,6 +192,7 @@ class TroquelesService:
         ).scalars().all()
 
         cods: Set[str] = set()
+        cant: Dict[str, int] = {}
         imp: Dict[str, Decimal] = {}
 
         for d in dets:
@@ -196,11 +201,13 @@ class TroquelesService:
                 continue
             cods.add(ca)
 
+            cant[ca] = cant.get(ca, 0) + int(getattr(d, "cantidad", 0) or 0)
+
             v = getattr(d, "importe_bruto", None)
             v = Decimal(str(v)) if v is not None else Decimal("0")
             imp[ca] = imp.get(ca, Decimal("0")) + v
 
-        return cods, imp
+        return cods, cant, imp
 
     @staticmethod
     def _load_archivo_detalle_context(
