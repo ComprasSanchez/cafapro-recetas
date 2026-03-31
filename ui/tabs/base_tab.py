@@ -15,6 +15,8 @@ class BaseTabWidget(QWidget):
         self._runner = QThreadPool(self)
         self._runner.setMaxThreadCount(1)  # cola serial
         self._active_jobs: set[ServiceJob] = set()
+        self._active_job_keys: dict[str, ServiceJob] = {}
+        self.footer_channel = self.__class__.__name__.lower()
 
     def _footer(self):
         w = self.window()
@@ -25,16 +27,18 @@ class BaseTabWidget(QWidget):
         if not f:
             return
 
+        channel = str(getattr(self, "footer_channel", self.__class__.__name__.lower()) or "general")
+
         if loading:
-            f.start_loading(status or "Cargando…")
+            f.start_loading(status or "Cargando…", channel=channel)
         elif loading is False:
-            f.stop_loading(status or "Listo")
+            f.stop_loading(status or "OK", channel=channel)
         else:
             if status is not None:
-                f.set_status(status)
+                f.set_status(status, channel=channel)
 
         if info is not None:
-            f.set_info(info)
+            f.set_info(info, channel=channel)
 
     def run_job(
         self,
@@ -44,14 +48,24 @@ class BaseTabWidget(QWidget):
         on_result: Callable[[Any], None] | None = None,
         on_error: Callable[[str], None] | None = None,
         on_finished: Callable[[], None] | None = None,
+        job_key: str | None = None,
         **kwargs: Any,
     ) -> None:
+        key = str(job_key or "").strip()
+        if key and key in self._active_job_keys:
+            self.footer_set(info="Ya hay una operación en curso para esta acción.")
+            return
+
         job = ServiceJob(fn, *args, title=title, **kwargs)
 
         self._active_jobs.add(job)
+        if key:
+            self._active_job_keys[key] = job
 
         def _cleanup():
             self._active_jobs.discard(job)
+            if key and self._active_job_keys.get(key) is job:
+                self._active_job_keys.pop(key, None)
         # ✅ prende loading al empezar
         job.signals.started.connect(lambda msg: self.footer_set(status=msg, loading=True))
         job.signals.finished.connect(lambda msg: (_cleanup(), _finished(msg)))
@@ -93,7 +107,7 @@ class BaseTabWidget(QWidget):
             return lines[-1] if lines else tb
 
         def _finished(_msg: str):
-            self.footer_set(status="Listo", loading=False)
+            self.footer_set(status="OK", loading=False)
             if on_finished:
                 on_finished()
 

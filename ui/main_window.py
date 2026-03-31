@@ -19,6 +19,7 @@ class MainWindow(QMainWindow):
 
         self.tabs = TabsManager(current_user, self)
         self.setCentralWidget(self.tabs)
+        self.tabs.currentChanged.connect(self._on_tab_changed)
 
         self.footer = FooterManeger(self)
         self.setStatusBar(self.footer)
@@ -31,6 +32,7 @@ class MainWindow(QMainWindow):
         )
 
         self._setup_header(current_user)
+        self._on_tab_changed(self.tabs.currentIndex())
 
     def _setup_header(self, current_user):
         actions_by_group = build_header_actions(self, current_user)
@@ -47,4 +49,9 @@ class MainWindow(QMainWindow):
                 qaction.triggered.connect(
                     lambda checked=False, _a=a: self.header_controller.handle(_a)
                 )
+
+    def _on_tab_changed(self, index: int) -> None:
+        tab = self.tabs.widget(index) if index >= 0 else None
+        channel = getattr(tab, "footer_channel", "general") if tab is not None else "general"
+        self.footer.set_active_channel(str(channel or "general"))
 

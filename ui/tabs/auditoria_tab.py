@@ -89,6 +89,7 @@ class AuditoriaTab(BaseTabWidget):
 
     def __init__(self, parent=None, creado_por_usuario_id: int | None = None):
         super().__init__(parent)
+        self.footer_channel = "auditoria"
         self.creado_por_usuario_id = creado_por_usuario_id
 
         self._recepcion_id: int | None = None
@@ -100,7 +101,6 @@ class AuditoriaTab(BaseTabWidget):
 
         self._uc = AuditoriaUseCase()
         self._auditoria_loading = False
-        self._auditoria_reload_pending = False
         self._preview_runner = QThreadPool(self)
         self._preview_runner.setMaxThreadCount(1)
         self._active_preview_jobs: set[ServiceJob] = set()
@@ -573,12 +573,10 @@ class AuditoriaTab(BaseTabWidget):
             return
 
         if self._auditoria_loading:
-            self._auditoria_reload_pending = True
-            self.footer_set(info="Recarga en cola...")
+            self.footer_set(info="La auditoría ya se está actualizando.")
             return
 
         self._auditoria_loading = True
-        self._auditoria_reload_pending = False
         self._update_reload_button_state()
 
         recepcion_id = int(self._recepcion_id)
@@ -590,6 +588,7 @@ class AuditoriaTab(BaseTabWidget):
             on_result=lambda out, rid=recepcion_id: self._on_reload_result(rid, out),
             on_error=lambda err, rid=recepcion_id: self._on_reload_error(rid, err),
             on_finished=self._on_reload_finished,
+            job_key="auditoria:reload",
         )
 
     def _on_reload_result(self, recepcion_id: int, out: AuditoriaRowsOut) -> None:
@@ -605,10 +604,6 @@ class AuditoriaTab(BaseTabWidget):
     def _on_reload_finished(self) -> None:
         self._auditoria_loading = False
         self._update_reload_button_state()
-
-        if self._auditoria_reload_pending and self._recepcion_id:
-            self._auditoria_reload_pending = False
-            QTimer.singleShot(0, lambda: self._request_reload_auditoria(title="Actualizando auditoría..."))
 
     # -------------------------
     # Filters (en memoria)

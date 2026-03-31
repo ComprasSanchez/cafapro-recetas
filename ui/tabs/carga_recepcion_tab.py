@@ -29,10 +29,15 @@ from ui.windows.listado_debitos_window import ListadoDebitosWindow
 class CargaRecepcionTab(BaseTabWidget):
     def __init__(self, creado_por_usuario_id, parent=None):
         super().__init__(parent)
+        self.footer_channel = "carga_recepcion"
         self.creado_por_usuario_id = creado_por_usuario_id
         self.cfg = ConfigManager()
         self._recepcion_id: int | None = None
         self._fecha: datetime | None = None
+        self._actions_master_enabled = True
+        self._loading_images = False
+        self._processing = False
+        self._closing_recepcion = False
 
         self.imed: str | None = None
         self.obs: str | None = None
@@ -45,6 +50,7 @@ class CargaRecepcionTab(BaseTabWidget):
 
         root.addWidget(self._build_header(), 0)
         root.addWidget(self._build_table_card(), 1)
+        self._refresh_action_buttons()
 
     # --------------------------
     # Helpers UI
@@ -88,18 +94,42 @@ class CargaRecepcionTab(BaseTabWidget):
         return f"{mm:02d}:{ss:02d}"
 
     def _set_actions_enabled(self, enabled: bool) -> None:
-        self.btn_pick_recepcion.setEnabled(enabled)
-        self.btn_new_recepcion.setEnabled(enabled)
-        self.btn_cargar.setEnabled(enabled)
-        self.btn_procesar.setEnabled(enabled)
-        self.btn_cerrar.setEnabled(enabled)
-        self.btn_debitos.setEnabled(enabled)
-        self.btn_excluidos.setEnabled(enabled)
-        self.btn_dias_descargados.setEnabled(enabled)
-        self.de_fecha.setEnabled(enabled)
+        self._actions_master_enabled = bool(enabled)
+        self._refresh_action_buttons()
+
+    def _is_busy(self) -> bool:
+        return self._loading_images or self._processing or self._closing_recepcion
+
+    def _refresh_action_buttons(self) -> None:
+        enabled = bool(self._actions_master_enabled)
+        has_recepcion = bool(self._recepcion_id)
+
+        self.btn_pick_recepcion.setEnabled(enabled and not self._is_busy())
+        self.btn_new_recepcion.setEnabled(enabled and not self._is_busy())
+        self.btn_cargar.setEnabled(enabled and has_recepcion and not self._is_busy())
+        self.btn_procesar.setEnabled(
+            enabled and has_recepcion and not self._is_busy() and self.tbl_imgs.rowCount() > 0
+        )
+        self.btn_cerrar.setEnabled(enabled and has_recepcion and not self._is_busy())
+        self.btn_debitos.setEnabled(enabled and has_recepcion and not self._is_busy())
+        self.btn_excluidos.setEnabled(enabled and has_recepcion and not self._is_busy())
+        self.btn_dias_descargados.setEnabled(enabled and has_recepcion and not self._is_busy())
+        self.de_fecha.setEnabled(enabled and not self._is_busy())
 
     def _show_job_error(self, err: str) -> None:
         QMessageBox.critical(self, "Error del proceso", err)
+
+    def _on_load_images_finished(self) -> None:
+        self._loading_images = False
+        self._refresh_action_buttons()
+
+    def _on_procesar_finished(self) -> None:
+        self._processing = False
+        self._refresh_action_buttons()
+
+    def _on_cerrar_finished(self) -> None:
+        self._closing_recepcion = False
+        self._refresh_action_buttons()
 
     # --------------------------
     # Header
@@ -320,16 +350,29 @@ class CargaRecepcionTab(BaseTabWidget):
     # Cargar imágenes (async)
     # --------------------------
     def _on_cargar(self) -> None:
+        if self._loading_images:
+            self.footer_set(info="La carga de imágenes ya está en curso.")
+            return
+        if self._processing or self._closing_recepcion:
+            self.footer_set(info="Hay otra operación en curso. Esperá a que finalice.")
+            return
+
         self._clear_images_table()
+        self._refresh_action_buttons()
 
         if not self._recepcion_id:
             QMessageBox.warning(self, "Atención", "Primero seleccioná una recepción.")
+            self._refresh_action_buttons()
             return
         if not self.imed or not self.obs:
             QMessageBox.warning(self, "Atención", "La recepción seleccionada no tiene IMED/obra social.")
+            self._refresh_action_buttons()
             return
 
         date_str = self.de_fecha.date().toString("dd/MM/yyyy")
+
+        self._loading_images = True
+        self._refresh_action_buttons()
 
         self.run_job(
             self._uc.list_images,
@@ -338,12 +381,16 @@ class CargaRecepcionTab(BaseTabWidget):
             date_str=date_str,
             title="Listando imágenes…",
             on_result=self._render_images,
+            on_error=self._show_job_error,
+            on_finished=self._on_load_images_finished,
+            job_key="carga:list_images",
         )
 
     def _render_images(self, out: ListImagesOut) -> None:
         rows = out.rows
         if not rows:
             self.footer_set(info="No se encontraron imágenes")
+            self._refresh_action_buttons()
             return
 
         self.tbl_imgs.setSortingEnabled(False)
@@ -358,11 +405,19 @@ class CargaRecepcionTab(BaseTabWidget):
         self.tbl_imgs.setSortingEnabled(True)
         self.tbl_imgs.resizeColumnsToContents()
         self.footer_set(info=f"{len(rows)} imágenes cargadas")
+        self._refresh_action_buttons()
 
     # --------------------------
     # Procesar (async)
     # --------------------------
     def _on_procesar(self) -> None:
+        if self._processing:
+            self.footer_set(info="El procesamiento ya está en curso.")
+            return
+        if self._loading_images or self._closing_recepcion:
+            self.footer_set(info="Hay otra operación en curso. Esperá a que finalice.")
+            return
+
         if not self._recepcion_id:
             QMessageBox.warning(self, "Atención", "Primero seleccioná una recepción.")
             return
@@ -381,6 +436,9 @@ class CargaRecepcionTab(BaseTabWidget):
             QMessageBox.warning(self, "Atención", "No hay rutas válidas para procesar.")
             return
 
+        self._processing = True
+        self._refresh_action_buttons()
+
         self.run_job(
             self._uc.procesar,
             recepcion_id=self._recepcion_id,
@@ -388,6 +446,9 @@ class CargaRecepcionTab(BaseTabWidget):
             items=items,
             title="Procesando…",
             on_result=self._show_procesar_result,
+            on_error=self._show_job_error,
+            on_finished=self._on_procesar_finished,
+            job_key="carga:procesar",
         )
 
     def _show_procesar_result(self, out: ProcesarOut) -> None:
@@ -485,6 +546,13 @@ class CargaRecepcionTab(BaseTabWidget):
         dlg.exec()
 
     def _on_cerrar_recepcion(self) -> None:
+        if self._closing_recepcion:
+            self.footer_set(info="El cierre de recepción ya está en curso.")
+            return
+        if self._loading_images or self._processing:
+            self.footer_set(info="Hay otra operación en curso. Esperá a que finalice.")
+            return
+
         if not self._recepcion_id:
             QMessageBox.warning(self, "Atención", "Primero seleccioná una recepción.")
             return
@@ -499,12 +567,17 @@ class CargaRecepcionTab(BaseTabWidget):
         if ans != QMessageBox.StandardButton.Yes:
             return
 
+        self._closing_recepcion = True
+        self._refresh_action_buttons()
+
         self.run_job(
             self._uc.cerrar_recepcion,  # debe existir en el UseCase
             recepcion_id=self._recepcion_id,
             title="Cerrando recepción…",
             on_result=self._on_recepcion_cerrada,
             on_error=self._show_job_error,
+            on_finished=self._on_cerrar_finished,
+            job_key="carga:cerrar",
         )
 
     def _on_recepcion_cerrada(self, out) -> None:
@@ -517,4 +590,5 @@ class CargaRecepcionTab(BaseTabWidget):
         self.btn_procesar.setEnabled(False)
         self.btn_cerrar.setEnabled(False)
         self.de_fecha.setEnabled(False)
+        self._refresh_action_buttons()
 
