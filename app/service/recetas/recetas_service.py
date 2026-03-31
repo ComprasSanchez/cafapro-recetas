@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.db.models import Recetas, Asociacion, Troqueles, Archivo, Debitos
@@ -12,6 +12,7 @@ from app.infra.storage import s3_storage
 
 class RecetaService:
     ESTADO_SEGUIMIENTO_PROCESADA = 6
+    ESTADO_RECETA_REVISION = 3
 
     def get_or_create_receta(
         self,
@@ -225,6 +226,9 @@ class RecetaService:
         if not receta:
             raise RuntimeError("Receta no encontrada")
 
+        if int(getattr(receta, "estado_receta_id", 0) or 0) != RecetaService.ESTADO_RECETA_REVISION:
+            raise RuntimeError("Solo se pueden eliminar recetas en revisión")
+
         # ---------------------------------
         # eliminar imágenes S3
         # ---------------------------------
@@ -236,10 +240,24 @@ class RecetaService:
             s3_storage.delete_object(receta.ubicacion_dorso)
 
         # ---------------------------------
+        # eliminar hijos primero (evita FK)
+        # ---------------------------------
+        s.execute(
+            delete(Troqueles).where(Troqueles.receta_id == int(receta_id))
+        )
+        s.execute(
+            delete(Debitos).where(Debitos.receta_id == int(receta_id))
+        )
+        s.execute(
+            delete(Asociacion).where(Asociacion.receta_id == int(receta_id))
+        )
+
+        # ---------------------------------
         # eliminar receta
         # ---------------------------------
 
         s.delete(receta)
+        s.flush()
 
 
 
