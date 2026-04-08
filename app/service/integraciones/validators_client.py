@@ -75,3 +75,67 @@ class ValidatorsClient:
                 break
 
         raise last_exc if last_exc else RuntimeError("Error desconocido consultando Validators API")
+
+    def incluir_excluir_recetas(
+        self,
+        *,
+        validador: str,
+        nro_prestador: int,
+        cod_financiador: int,
+        accion: str,
+        referencias: list[str],
+    ) -> dict[str, Any]:
+        accion_norm = (accion or "").strip().upper()
+        if accion_norm not in {"E", "I"}:
+            raise ValueError("Accion invalida. Debe ser 'E' (Excluir) o 'I' (Incluir).")
+
+        refs_limpias: list[str] = []
+        seen: set[str] = set()
+        for ref in referencias or []:
+            value = str(ref or "").strip()
+            if not value or value in seen:
+                continue
+            seen.add(value)
+            refs_limpias.append(value)
+
+        payload: dict[str, Any] = {
+            "validador": (validador or "").strip().lower(),
+            "nroPrestador": int(nro_prestador),
+            "codFinanciador": int(cod_financiador),
+            "accion": accion_norm,
+            "referencias": refs_limpias,
+        }
+
+        attempts = 1 + self.retries
+        last_exc: Exception | None = None
+
+        for _ in range(attempts):
+            try:
+                r = self._client.post("/validators/incluir_excluir_recetas", json=payload)
+                r.raise_for_status()
+
+                data = r.json()
+                if isinstance(data, dict):
+                    return data
+                if isinstance(data, list):
+                    return {"items": data}
+                return {"ok": True}
+            except (httpx.TimeoutException, httpx.HTTPStatusError) as e:
+                last_exc = e
+                if isinstance(e, httpx.HTTPStatusError):
+                    body = ""
+                    try:
+                        body = e.response.text
+                    except Exception:
+                        body = ""
+                    status = e.response.status_code
+                    if status == 400:
+                        raise ValueError(f"Error API Validators (400): {body}") from e
+                    if status == 401:
+                        raise ValueError("Error API Validators (401): acceso no autorizado.") from e
+                continue
+            except httpx.HTTPError as e:
+                last_exc = e
+                break
+
+        raise last_exc if last_exc else RuntimeError("Error desconocido consultando Validators API")

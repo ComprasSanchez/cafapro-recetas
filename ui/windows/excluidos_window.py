@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QThreadPool
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
 
 from ui.dialogs.recepcion_pick_dialog import RecepcionPickDialog
 from ui.usecase.recepciones_windows_usecase import RecepcionesWindowsUseCase
+from ui.utils.worker import Worker
 
 
 class ExcluidosWindow(QDialog):
@@ -27,6 +28,12 @@ class ExcluidosWindow(QDialog):
         self._recepcion_id: int | None = int(recepcion_id) if recepcion_id is not None else None
         self._recepcion_numero = str(recepcion_numero or "").strip()
         self._recepcion_fija = recepcion_id is not None
+        self._validador = "imed"
+        self._rows_cache: list = []
+        self._sync_running = False
+        self._worker: Worker | None = None
+        self._pool = QThreadPool(self)
+        self._pool.setMaxThreadCount(1)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(12, 12, 12, 12)
@@ -73,6 +80,18 @@ class ExcluidosWindow(QDialog):
         self.btn_copy.setEnabled(False)
         self.btn_copy.clicked.connect(self._copy_table_to_clipboard)
         actions.addWidget(self.btn_copy)
+
+        self.btn_excluir_todos = QPushButton("Excluir todo (E)")
+        self.btn_excluir_todos.setEnabled(False)
+        self.btn_excluir_todos.setVisible(False)
+        self.btn_excluir_todos.clicked.connect(self._on_excluir_todos)
+        actions.addWidget(self.btn_excluir_todos)
+
+        self.btn_incluir_todos = QPushButton("Incluir todo (I)")
+        self.btn_incluir_todos.setEnabled(False)
+        self.btn_incluir_todos.setVisible(False)
+        self.btn_incluir_todos.clicked.connect(self._on_incluir_todos)
+        actions.addWidget(self.btn_incluir_todos)
 
         actions.addStretch(1)
 
@@ -121,12 +140,23 @@ class ExcluidosWindow(QDialog):
             return
 
         try:
+            ctx = RecepcionesWindowsUseCase.get_recepcion_integracion_context(
+                recepcion_id=self._recepcion_id,
+            )
+            self._validador = str(getattr(ctx, "validador", "imed") or "imed").strip().lower()
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"No se pudo cargar contexto de recepción:\n{e}")
+            return
+
+        try:
             rows = RecepcionesWindowsUseCase.list_excluidos_by_recepcion(
                 recepcion_id=self._recepcion_id,
             )
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudo cargar excluidos:\n{e}")
             return
+
+        self._rows_cache = list(rows)
 
         self.table.setRowCount(0)
 
@@ -146,6 +176,108 @@ class ExcluidosWindow(QDialog):
             self._set(i, 5, self._fmt_ar(imp_cobertura), align_center=True)
 
         self.btn_copy.setEnabled(self.table.rowCount() > 0)
+        self._refresh_validators_actions()
+
+    def _refresh_validators_actions(self) -> None:
+        enabled_for_os = self._validador == "preserfar"
+        has_refs = bool(self._collect_referencias())
+        can_run = enabled_for_os and has_refs and not self._sync_running
+
+        self.btn_excluir_todos.setVisible(enabled_for_os)
+        self.btn_incluir_todos.setVisible(enabled_for_os)
+        self.btn_excluir_todos.setEnabled(can_run)
+        self.btn_incluir_todos.setEnabled(can_run)
+
+    def _collect_referencias(self) -> list[str]:
+        refs: list[str] = []
+        seen: set[str] = set()
+
+        for row in self._rows_cache:
+            ref = str(getattr(row, "nro_referencia", "") or "").strip()
+            if not ref or ref in seen:
+                continue
+            seen.add(ref)
+            refs.append(ref)
+
+        return refs
+
+    def _on_excluir_todos(self) -> None:
+        self._run_sync_validadores("E")
+
+    def _on_incluir_todos(self) -> None:
+        self._run_sync_validadores("I")
+
+    def _run_sync_validadores(self, accion: str) -> None:
+        if not self._recepcion_id:
+            return
+        if self._validador != "preserfar":
+            QMessageBox.information(
+                self,
+                "Acción no disponible",
+                "Esta acción solo aplica para obras sociales con validador 'preserfar'.",
+            )
+            return
+
+        referencias = self._collect_referencias()
+        if not referencias:
+            QMessageBox.information(self, "Sin datos", "No hay referencias para enviar.")
+            return
+
+        verbo = "excluir" if accion == "E" else "incluir"
+        reply = QMessageBox.question(
+            self,
+            "Confirmar",
+            (
+                f"Se enviarán {len(referencias)} referencias para {verbo} en Validators API.\n\n"
+                "¿Desea continuar?"
+            ),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        self._sync_running = True
+        self._refresh_validators_actions()
+
+        self._worker = Worker(
+            self._sync_validadores,
+            accion=accion,
+            referencias=referencias,
+        )
+        self._worker.signals.finished.connect(self._on_sync_validadores_ok)
+        self._worker.signals.error.connect(self._on_sync_validadores_error)
+        self._pool.start(self._worker)
+
+    def _sync_validadores(self, *, accion: str, referencias: list[str]):
+        if self._recepcion_id is None:
+            raise ValueError("No hay recepción seleccionada.")
+
+        return RecepcionesWindowsUseCase.incluir_excluir_recetas_en_validador(
+            recepcion_id=int(self._recepcion_id),
+            accion=accion,
+            referencias=referencias,
+        )
+
+    def _on_sync_validadores_ok(self, out) -> None:
+        self._sync_running = False
+        self._worker = None
+        self._refresh_validators_actions()
+
+        accion = str(getattr(out, "accion", "") or "").upper()
+        enviadas = int(getattr(out, "referencias_enviadas", 0) or 0)
+        verbo = "excluidas" if accion == "E" else "incluidas"
+        QMessageBox.information(
+            self,
+            "Operación completada",
+            f"Se enviaron {enviadas} referencias ({verbo}) al validador.",
+        )
+        self._load()
+
+    def _on_sync_validadores_error(self, err: str) -> None:
+        self._sync_running = False
+        self._worker = None
+        self._refresh_validators_actions()
+        QMessageBox.critical(self, "Error", f"No se pudo sincronizar con el validador:\n{err}")
 
     def _copy_table_to_clipboard(self) -> None:
         # Formato: TAB separated (ideal para pegar en Excel/Sheets)

@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from app.application.recepciones_application import RecepcionesApplication
+from app.application.recepciones_application import (
+    RecepcionIntegracionContext,
+    RecepcionesApplication,
+    ValidatorsSyncOut,
+)
 
 
 class RecepcionesWindowsUseCase:
@@ -34,3 +38,20 @@ class RecepcionesWindowsUseCase:
     @staticmethod
     def get_resumen_recepcion(*, recepcion_id: int):
         return RecepcionesApplication.get_resumen_recepcion(recepcion_id=int(recepcion_id))
+
+    @staticmethod
+    def get_recepcion_integracion_context(*, recepcion_id: int) -> RecepcionIntegracionContext:
+        return RecepcionesApplication.get_recepcion_integracion_context(recepcion_id=int(recepcion_id))
+
+    @staticmethod
+    def incluir_excluir_recetas_en_validador(
+        *,
+        recepcion_id: int,
+        accion: str,
+        referencias: list[str],
+    ) -> ValidatorsSyncOut:
+        return RecepcionesApplication.incluir_excluir_recetas_en_validador(
+            recepcion_id=int(recepcion_id),
+            accion=str(accion or "").strip().upper(),
+            referencias=list(referencias or []),
+        )
