@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 from sqlalchemy.orm import Session
 
 from app.adapters.sqlalchemy.tif_repository import TifRepository
-from app.service.recetas.tif_logic import base_from_tif_path, is_valesalud
+from app.db.models import Archivo, ArchivoDetalle
+from app.service.recetas.tif_logic import base_from_tif_path, is_valesalud, norm_str
 from app.service.recetas.tif_types import ProcesarItemIn
 
 
@@ -21,6 +22,17 @@ class TifRunContext:
     dias_vencimiento: int | None
     only_ref_match: bool
     motivo_debito_receta_vencida_id: int = MOTIVO_DEBITO_RECETA_VENCIDA_ID
+
+
+@dataclass
+class TifRunCache:
+    archivo_by_id: dict[int, Archivo]
+    detalles_by_archivo: dict[int, list[ArchivoDetalle]]
+    asociados_vigentes_archivo_ids: set[int]
+    processed_bases: set[str]
+    ref_index: dict[str, dict[int, Archivo]]
+    receta_index: dict[str, dict[int, Archivo]]
+    vencido_updates: dict[int, bool] = field(default_factory=dict)
 
 
 def load_run_context(session: Session, *, recepcion_id: int) -> TifRunContext:
@@ -56,22 +68,78 @@ def load_run_context(session: Session, *, recepcion_id: int) -> TifRunContext:
     )
 
 
+def _extract_processed_base_from_location(path_value: str | None) -> str:
+    raw = str(path_value or "").strip()
+    if not raw:
+        return ""
+
+    normalized = raw.replace("\\", "/")
+    filename = normalized.rsplit("/", 1)[-1]
+    stem = filename.rsplit(".", 1)[0]
+    if "_" not in stem:
+        return ""
+
+    return norm_str(stem.rsplit("_", 1)[0])
+
+
+def load_run_cache(session: Session, *, recepcion_id: int) -> TifRunCache:
+    archivos, detalles_by_archivo, asociados_vigentes, ubicaciones = TifRepository.load_recepcion_processing_bundle(
+        session,
+        recepcion_id=int(recepcion_id),
+    )
+
+    archivo_by_id: dict[int, Archivo] = {
+        int(a.archivo_id): a for a in archivos
+    }
+
+    ref_index: dict[str, dict[int, Archivo]] = {}
+    receta_index: dict[str, dict[int, Archivo]] = {}
+
+    for archivo in archivos:
+        archivo_id = int(archivo.archivo_id)
+
+        nro_ref = norm_str(getattr(archivo, "nro_referencia", None))
+        if nro_ref:
+            ref_index.setdefault(nro_ref, {})[archivo_id] = archivo
+
+        nro_receta = norm_str(getattr(archivo, "nro_receta", None))
+        if nro_receta:
+            receta_index.setdefault(nro_receta, {})[archivo_id] = archivo
+
+    processed_bases: set[str] = set()
+    for frente, dorso in ubicaciones:
+        base_frente = _extract_processed_base_from_location(frente)
+        if base_frente:
+            processed_bases.add(base_frente)
+
+        base_dorso = _extract_processed_base_from_location(dorso)
+        if base_dorso:
+            processed_bases.add(base_dorso)
+
+    return TifRunCache(
+        archivo_by_id=archivo_by_id,
+        detalles_by_archivo={
+            int(archivo_id): rows
+            for archivo_id, rows in detalles_by_archivo.items()
+        },
+        asociados_vigentes_archivo_ids={int(x) for x in asociados_vigentes},
+        processed_bases=processed_bases,
+        ref_index=ref_index,
+        receta_index=receta_index,
+    )
+
+
 def filter_unprocessed_items(
-    session: Session,
     *,
-    recepcion_id: int,
     items: list[ProcesarItemIn],
+    run_cache: TifRunCache,
 ) -> tuple[list[ProcesarItemIn], int]:
     items_filtrados: list[ProcesarItemIn] = []
     ya_asociado = 0
 
     for it in items:
         base_name = base_from_tif_path(it.full_path)
-        if base_name and TifRepository.exists_processed_base_in_recepcion(
-            session,
-            recepcion_id=int(recepcion_id),
-            base_name=base_name,
-        ):
+        if base_name and base_name in run_cache.processed_bases:
             ya_asociado += 1
             continue
         items_filtrados.append(it)

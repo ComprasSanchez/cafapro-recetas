@@ -10,19 +10,18 @@ from core.process_tif import TroquelEstado
 from core.process_tif import TiffProcessor
 from sqlalchemy.orm import Session
 
-from app.adapters.sqlalchemy.tif_repository import TifRepository
 from app.db.models import Archivo, ArchivoDetalle
 from app.dto.medicamentos_dto import MedicamentoDTO
 from app.infra.s3_storage import S3Storage
 from app.service.integraciones.medicamento_client import MedicamentoClient
-from app.service.recetas.tif_context import TifRunContext
+from app.service.recetas.tif_context import TifRunCache, TifRunContext
 from app.service.recetas.tif_logic import (
     archivo_ts,
     build_detalle_context,
     esta_vencido,
     evaluate_revision_troqueles,
     evaluate_troqueles,
-    match_all_refs,
+    match_all_refs_cached,
     norm_str,
     to_render_states,
     warm_medicamento_cache,
@@ -65,7 +64,7 @@ def select_work_items(
     seen_recetas: set[str],
     seen_refs: set[str],
     resumen: ProcesarResumen,
-    is_archivo_ya_asociado: Callable[[int], bool],
+    asociados_vigentes_archivo_ids: set[int],
 ) -> WorkSelectionOut:
     work: list[_WorkItem] = []
     archivo_ids: list[int] = []
@@ -103,7 +102,7 @@ def select_work_items(
             revision_items.append(x)
             continue
 
-        if is_archivo_ya_asociado(int(archivo.archivo_id)):
+        if int(archivo.archivo_id) in asociados_vigentes_archivo_ids:
             resumen.revision_por_ya_asociado += 1
             revision_items.append(x)
             continue
@@ -199,6 +198,7 @@ def precompute_render_context(
     warm_cache: Callable[[set[str]], None],
     resumen: ProcesarResumen,
     stage_cb: ProcessStageCb | None = None,
+    vencido_updates: dict[int, bool] | None = None,
 ) -> PrecomputeOut:
     revision_work: list[_WorkItem] = []
     for x in revision_items:
@@ -245,6 +245,8 @@ def precompute_render_context(
         esta_vencido_value = esta_vencido(archivo_ts_value, fecha_presentacion_dt, dias_vencimiento)
         if getattr(archivo, "vencido", False) != esta_vencido_value:
             archivo.vencido = esta_vencido_value
+            if vencido_updates is not None:
+                vencido_updates[int(archivo.archivo_id)] = bool(esta_vencido_value)
 
         dets = detalles_by_archivo.get(w.archivo_id, [])
         detalle_ctx = build_detalle_context(dets)
@@ -287,6 +289,7 @@ def process_scanned_batch(
     *,
     scanned: list[_ScannedItem],
     run_ctx: TifRunContext,
+    run_cache: TifRunCache,
     usuario_id: int,
     med_cache: dict[str, MedicamentoDTO | None],
     seen_recetas: set[str],
@@ -305,11 +308,11 @@ def process_scanned_batch(
     for x in scanned:
         all_refs.extend(x.scan.headers or [])
 
-    match = match_all_refs(
-        s,
-        recepcion_id=run_ctx.recepcion_id,
+    match = match_all_refs_cached(
         refs=all_refs,
         only_referencia=run_ctx.only_ref_match,
+        ref_index=run_cache.ref_index,
+        receta_index=run_cache.receta_index,
     )
     if stage_cb:
         stage_cb("MATCH", max(0.0, time.perf_counter() - match_started_at))
@@ -323,11 +326,7 @@ def process_scanned_batch(
         seen_recetas=seen_recetas,
         seen_refs=seen_refs,
         resumen=resumen,
-        is_archivo_ya_asociado=lambda archivo_id: TifRepository.is_archivo_ya_asociado(
-            s,
-            recepcion_id=run_ctx.recepcion_id,
-            archivo_id=archivo_id,
-        ),
+        asociados_vigentes_archivo_ids=run_cache.asociados_vigentes_archivo_ids,
     )
     if stage_cb:
         stage_cb("SELECT", max(0.0, time.perf_counter() - select_started_at))
@@ -341,10 +340,17 @@ def process_scanned_batch(
         return resumen
 
     db_bundle_started_at = time.perf_counter()
-    archivo_by_id, detalles_by_archivo = TifRepository.load_archivo_bundle(
-        s,
-        archivo_ids=archivo_ids,
-    )
+    archivo_by_id: dict[int, Archivo] = {
+        int(archivo_id): archivo
+        for archivo_id in archivo_ids
+        for archivo in [run_cache.archivo_by_id.get(int(archivo_id))]
+        if archivo is not None
+    }
+    detalles_by_archivo: dict[int, list[ArchivoDetalle]] = {
+        int(archivo_id): run_cache.detalles_by_archivo.get(int(archivo_id), [])
+        for archivo_id in archivo_ids
+        if int(archivo_id) in archivo_by_id
+    }
     if stage_cb:
         stage_cb("DB_BUNDLE", max(0.0, time.perf_counter() - db_bundle_started_at))
 
@@ -360,6 +366,7 @@ def process_scanned_batch(
         warm_cache=lambda codebars: warm_medicamento_cache(runtime.client, med_cache, codebars),
         resumen=resumen,
         stage_cb=stage_cb,
+        vencido_updates=run_cache.vencido_updates,
     )
 
     render_upload_started_at = time.perf_counter()
@@ -397,6 +404,13 @@ def process_scanned_batch(
         motivo_debito_receta_vencida_id=run_ctx.motivo_debito_receta_vencida_id,
         revision_counter=revision_counter,
     )
+
+    run_cache.asociados_vigentes_archivo_ids.update(
+        int(u.work.archivo_id)
+        for u in valid_uploaded
+        if int(u.work.archivo_id) > 0
+    )
+
     if stage_cb:
         stage_cb("PERSIST", max(0.0, time.perf_counter() - persist_started_at))
 
@@ -414,6 +428,7 @@ def process_chunk(
     *,
     chunk: list[ProcesarItemIn],
     run_ctx: TifRunContext,
+    run_cache: TifRunCache,
     usuario_id: int,
     med_cache: dict[str, MedicamentoDTO | None],
     seen_recetas: set[str],
@@ -447,6 +462,7 @@ def process_chunk(
         s,
         scanned=scanned,
         run_ctx=run_ctx,
+        run_cache=run_cache,
         usuario_id=usuario_id,
         med_cache=med_cache,
         seen_recetas=seen_recetas,
@@ -504,6 +520,7 @@ def process_items_in_chunks(
     *,
     items_filtrados: list[ProcesarItemIn],
     run_ctx: TifRunContext,
+    run_cache: TifRunCache,
     usuario_id: int,
     chunk_size: int,
     runtime: ChunkRuntime,
@@ -529,6 +546,7 @@ def process_items_in_chunks(
             s,
             chunk=chunk,
             run_ctx=run_ctx,
+            run_cache=run_cache,
             usuario_id=usuario_id,
             med_cache=med_cache,
             seen_recetas=seen_recetas,
@@ -578,6 +596,7 @@ def process_items_individual_async(
     *,
     items_filtrados: list[ProcesarItemIn],
     run_ctx: TifRunContext,
+    run_cache: TifRunCache,
     usuario_id: int,
     runtime: ChunkRuntime,
     on_chunk_processed: StageProgressCb | None = None,
@@ -675,6 +694,7 @@ def process_items_individual_async(
                 s,
                 scanned=scanned_items,
                 run_ctx=run_ctx,
+                run_cache=run_cache,
                 usuario_id=usuario_id,
                 med_cache=med_cache,
                 seen_recetas=seen_recetas,

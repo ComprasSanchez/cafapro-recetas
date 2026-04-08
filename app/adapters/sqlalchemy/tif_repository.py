@@ -2,13 +2,71 @@ from __future__ import annotations
 
 from typing import cast
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.db.models import Archivo, ArchivoDetalle, Asociacion, Debitos, ObraSocial, Prestador, Recepcion, Recetas
 
 
 class TifRepository:
+    @staticmethod
+    def load_recepcion_processing_bundle(
+        session: Session,
+        *,
+        recepcion_id: int,
+    ) -> tuple[
+        list[Archivo],
+        dict[int, list[ArchivoDetalle]],
+        set[int],
+        list[tuple[str | None, str | None]],
+    ]:
+        archivos = cast(
+            list[Archivo],
+            list(
+                session.execute(
+                    select(Archivo).where(Archivo.recepcion_id == int(recepcion_id))
+                ).scalars().all()
+            ),
+        )
+
+        archivo_ids = [int(a.archivo_id) for a in archivos]
+
+        detalles_by_archivo: dict[int, list[ArchivoDetalle]] = {}
+        if archivo_ids:
+            detalles = cast(
+                list[ArchivoDetalle],
+                list(
+                    session.execute(
+                        select(ArchivoDetalle).where(ArchivoDetalle.archivo_id.in_(archivo_ids))
+                    ).scalars().all()
+                ),
+            )
+            for d in detalles:
+                detalles_by_archivo.setdefault(int(d.archivo_id), []).append(d)
+
+        asociados_rows = session.execute(
+            select(Asociacion.archivo_id)
+            .join(Recetas, Recetas.receta_id == Asociacion.receta_id)
+            .where(
+                Recetas.recepcion_id == int(recepcion_id),
+                Asociacion.vigente.is_(True),
+            )
+        ).scalars().all()
+        asociados_vigentes = {int(x) for x in asociados_rows if x is not None}
+
+        ubicaciones = cast(
+            list[tuple[str | None, str | None]],
+            list(
+                session.execute(
+                    select(Recetas.ubicacion_frente, Recetas.ubicacion_dorso).where(
+                        Recetas.recepcion_id == int(recepcion_id)
+                    )
+                ).all()
+            ),
+        )
+
+        return archivos, detalles_by_archivo, asociados_vigentes, ubicaciones
+
     @staticmethod
     def exists_processed_base_in_recepcion(session: Session, *, recepcion_id: int, base_name: str) -> bool:
         like_pat = f"%/{base_name}_%"
@@ -172,3 +230,19 @@ class TifRepository:
                 )
             ).scalars().all()
         )
+
+    @staticmethod
+    def update_archivos_vencido(
+        session: Session,
+        *,
+        estados_by_archivo_id: dict[int, bool],
+    ) -> None:
+        if not estados_by_archivo_id:
+            return
+
+        for archivo_id, vencido in estados_by_archivo_id.items():
+            session.execute(
+                update(Archivo)
+                .where(Archivo.archivo_id == int(archivo_id))
+                .values(vencido=bool(vencido))
+            )

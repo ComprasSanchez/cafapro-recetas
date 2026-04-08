@@ -7,9 +7,6 @@ import os
 
 from core.process_tif import TroquelEstado
 
-from sqlalchemy.orm import Session
-
-from app.adapters.sqlalchemy.tif_repository import TifRepository
 from app.db.models import Archivo, ArchivoDetalle, EstadoTroquelEnum
 from app.dto.medicamentos_dto import MedicamentoDTO
 from app.service.integraciones.medicamento_client import MedicamentoClient
@@ -45,51 +42,29 @@ def base_from_tif_path(full_path: str) -> str:
     return Path(full_path).stem
 
 
-def match_all_refs(
-    session: Session,
+def match_all_refs_cached(
     *,
-    recepcion_id: int,
     refs: list[str],
     only_referencia: bool,
+    ref_index: dict[str, dict[int, Archivo]],
+    receta_index: dict[str, dict[int, Archivo]],
 ) -> _MatchResult:
     refs_set = {norm_str(r) for r in refs if norm_str(r)}
     if not refs_set:
         return _MatchResult(ref_to_archivo={}, duplicated_refs=set(), missing_refs=set())
 
-    by_candidate: dict[str, set[str]] = {}
-    for ref in refs_set:
-        for cand in ref_candidates(ref):
-            by_candidate.setdefault(cand, set()).add(ref)
-
-    candidate_values = list(by_candidate.keys())
-    if not candidate_values:
-        return _MatchResult(ref_to_archivo={}, duplicated_refs=set(), missing_refs=refs_set)
-
-    rows = TifRepository.list_archivos_for_match(
-        session,
-        recepcion_id=int(recepcion_id),
-        candidate_values=candidate_values,
-        only_referencia=only_referencia,
-    )
-
     by_token: dict[str, dict[int, Archivo]] = {}
-    for a in rows:
-        tokens_to_check = [getattr(a, "nro_referencia", None)]
-        if not only_referencia:
-            tokens_to_check.append(getattr(a, "nro_receta", None))
-
-        for db_token in tokens_to_check:
-            db_candidates = ref_candidates(norm_str(db_token))
-            for cand in db_candidates:
-                matched_refs = by_candidate.get(cand, set())
-                if not matched_refs:
-                    continue
-                for ref in matched_refs:
-                    bucket = by_token.setdefault(ref, {})
-                    bucket[int(a.archivo_id)] = a
+    for ref in refs_set:
+        bucket = by_token.setdefault(ref, {})
+        for cand in ref_candidates(ref):
+            for archivo_id, archivo in ref_index.get(cand, {}).items():
+                bucket[int(archivo_id)] = archivo
+            if not only_referencia:
+                for archivo_id, archivo in receta_index.get(cand, {}).items():
+                    bucket[int(archivo_id)] = archivo
 
     duplicated = {tok for tok, arr in by_token.items() if len(arr) > 1}
-    missing = {tok for tok in refs_set if tok not in by_token}
+    missing = {tok for tok, arr in by_token.items() if not arr}
 
     ref_to_archivo: dict[str, Archivo | None] = {}
     for tok in refs_set:

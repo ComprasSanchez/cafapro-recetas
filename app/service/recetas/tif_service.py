@@ -5,10 +5,11 @@ import os
 
 from sqlalchemy.orm import Session
 
+from app.adapters.sqlalchemy.tif_repository import TifRepository
 from core.process_tif import TiffProcessor
 from app.infra.s3_storage import S3Storage
 from app.service.integraciones.medicamento_client import MedicamentoClient
-from app.service.recetas.tif_context import filter_unprocessed_items, load_run_context
+from app.service.recetas.tif_context import filter_unprocessed_items, load_run_cache, load_run_context
 from app.service.recetas.tif_workflow import (
     ChunkRuntime,
     process_items_in_chunks,
@@ -60,11 +61,11 @@ class TiffService:
     ) -> ProcesarResumen:
 
         total = ProcesarResumen()
-        run_ctx = load_run_context(s, recepcion_id=int(recepcion_id))
+        run_ctx = load_run_context(session=s, recepcion_id=int(recepcion_id))
+        run_cache = load_run_cache(session=s, recepcion_id=int(recepcion_id))
         items_filtrados, ya_asociado = filter_unprocessed_items(
-            s,
-            recepcion_id=int(recepcion_id),
             items=items,
+            run_cache=run_cache,
         )
         total.ya_asociado += ya_asociado
 
@@ -85,6 +86,7 @@ class TiffService:
                 s,
                 items_filtrados=items_filtrados,
                 run_ctx=run_ctx,
+                run_cache=run_cache,
                 usuario_id=usuario_id,
                 runtime=runtime,
                 on_chunk_processed=progress_cb,
@@ -95,6 +97,7 @@ class TiffService:
                 s,
                 items_filtrados=items_filtrados,
                 run_ctx=run_ctx,
+                run_cache=run_cache,
                 usuario_id=usuario_id,
                 chunk_size=self._chunk_size,
                 runtime=runtime,
@@ -103,5 +106,10 @@ class TiffService:
             )
 
         total.merge(processed)
+
+        TifRepository.update_archivos_vencido(
+            s,
+            estados_by_archivo_id=run_cache.vencido_updates,
+        )
 
         return total
