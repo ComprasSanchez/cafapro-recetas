@@ -67,10 +67,12 @@ def parallel_render_upload(
     upload_workers: int,
     upload_pause_ms: int,
     resumen: ProcesarResumen,
-) -> list[_UploadResult]:
+) -> tuple[list[_UploadResult], float, float]:
     results: list[_UploadResult] = []
+    render_total_seconds = 0.0
+    upload_total_seconds = 0.0
 
-    def job(w: _WorkItem) -> _UploadResult:
+    def job(w: _WorkItem) -> tuple[_UploadResult, float, float]:
         archivo = archivo_by_id.get(w.archivo_id)
 
         base_name = base_from_tif_path(w.it.full_path)
@@ -120,6 +122,7 @@ def parallel_render_upload(
             troquel_detections=w.scan.troquel_detections,
         )
 
+        render_started_at = time.perf_counter()
         files = tif.render_bytes(
             tiff_path=w.it.full_path,
             scan=scan_render,
@@ -139,38 +142,51 @@ def parallel_render_upload(
             )
             fb = files.get("front_bytes")
             bb = files.get("back_bytes")
+        render_elapsed = max(0.0, time.perf_counter() - render_started_at)
 
+        upload_started_at = time.perf_counter()
         if fb:
             storage.put_jpg(front_key, fb)
         if bb:
             storage.put_jpg(back_key, bb)
+        upload_elapsed = max(0.0, time.perf_counter() - upload_started_at)
 
         pause_ms = max(0, int(upload_pause_ms))
         if pause_ms > 0:
             time.sleep(pause_ms / 1000.0)
 
-        return _UploadResult(
-            work=w,
-            front_key=front_key if fb else None,
-            back_key=back_key if bb else None,
+        return (
+            _UploadResult(
+                work=w,
+                front_key=front_key if fb else None,
+                back_key=back_key if bb else None,
+            ),
+            render_elapsed,
+            upload_elapsed,
         )
 
     workers = max(1, int(upload_workers))
     if workers == 1:
         for w in work_items:
             try:
-                results.append(job(w))
+                out, render_elapsed, upload_elapsed = job(w)
+                results.append(out)
+                render_total_seconds += render_elapsed
+                upload_total_seconds += upload_elapsed
             except Exception as e:
                 resumen.errores.append(f"render/upload error: {e}")
-        return results
+        return results, render_total_seconds, upload_total_seconds
 
     with ThreadPoolExecutor(max_workers=workers) as ex:
         futs = [ex.submit(job, w) for w in work_items]
 
         for fut in as_completed(futs):
             try:
-                results.append(fut.result())
+                out, render_elapsed, upload_elapsed = fut.result()
+                results.append(out)
+                render_total_seconds += render_elapsed
+                upload_total_seconds += upload_elapsed
             except Exception as e:
                 resumen.errores.append(f"render/upload error: {e}")
 
-    return results
+    return results, render_total_seconds, upload_total_seconds

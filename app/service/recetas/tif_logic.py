@@ -24,7 +24,36 @@ def ref_candidates(token: str) -> list[str]:
     raw = norm_str(token)
     if not raw:
         return []
-    return [raw]
+
+    digits = "".join(ch for ch in raw if ch.isdigit())
+
+    out: list[str] = []
+    seen: set[str] = set()
+
+    def _add(value: str) -> None:
+        v = norm_str(value)
+        if not v or v in seen:
+            return
+        seen.add(v)
+        out.append(v)
+
+    _add(raw)
+    if digits and digits != raw:
+        _add(digits)
+
+    if digits:
+        if len(digits) == 12:
+            _add(f"0{digits}")
+        elif len(digits) == 13 and digits.startswith("0"):
+            _add(digits[1:])
+
+        if len(digits) >= 18:
+            for ln in (13, 12):
+                max_i = len(digits) - ln
+                for i in range(max_i + 1):
+                    _add(digits[i:i + ln])
+
+    return out
 
 
 def archivo_ts(a: Archivo) -> datetime:

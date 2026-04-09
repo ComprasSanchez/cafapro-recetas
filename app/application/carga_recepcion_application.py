@@ -52,7 +52,7 @@ class CargaRecepcionApplication:
     _STAGE_LABELS: dict[str, str] = {
         "SCAN_LOAD": "Cargando páginas TIFF",
         "SCAN_OCR": "Leyendo encabezado (OCR)",
-        "SCAN_ZBAR": "Leyendo troqueles",
+        "SCAN_ZBAR": "Leyendo códigos de barra",
         "SCAN_OTHER": "Preparando lectura",
         "MATCH": "Buscando coincidencia",
         "SELECT": "Validando receta",
@@ -60,6 +60,8 @@ class CargaRecepcionApplication:
         "MED_API": "Consultando medicamentos",
         "EVAL_MATCHED": "Evaluando troqueles asociados",
         "EVAL_REVISION": "Evaluando troqueles en revisión",
+        "RENDER": "Renderizando imágenes",
+        "UPLOAD": "Subiendo imágenes",
         "RENDER+UPLOAD": "Generando y subiendo imágenes",
         "PERSIST": "Guardando resultados",
         "COMMIT": "Confirmando cambios",
@@ -88,7 +90,12 @@ class CargaRecepcionApplication:
             item_prefix = f"[{m.group(1)}] "
             body = m.group(2)
 
-        for code, label in CargaRecepcionApplication._STAGE_LABELS.items():
+        ordered_labels = sorted(
+            CargaRecepcionApplication._STAGE_LABELS.items(),
+            key=lambda item: len(item[0]),
+            reverse=True,
+        )
+        for code, label in ordered_labels:
             body = body.replace(code, label)
 
         body = body.replace(" START", " (iniciando)")
@@ -160,7 +167,6 @@ class CargaRecepcionApplication:
                 total_safe = max(1, int(total))
                 done_safe = max(0, min(int(done), total_safe))
                 percent = 15 + int((done_safe / total_safe) * 80)
-                items_per_minute = (done_safe / elapsed) * 60.0 if done_safe > 0 else 0.0
                 stage_text = CargaRecepcionApplication._humanize_stage(stage)
                 eta_text = "--:--"
                 if done_safe > 0 and done_safe < total_safe:
@@ -171,9 +177,7 @@ class CargaRecepcionApplication:
                 msg = (
                     f"{stage_text}"
                     f" | {done_safe}/{total_safe} recetas"
-                    f" | {items_per_minute:.1f} rec/min"
                     f" | ETA {eta_text}"
-                    f" | etapa {chunk_elapsed:.1f}s"
                 )
 
                 if ctx:

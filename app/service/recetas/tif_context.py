@@ -7,8 +7,8 @@ from sqlalchemy.orm import Session
 
 from app.adapters.sqlalchemy.tif_repository import TifRepository
 from app.db.models import Archivo, ArchivoDetalle
-from app.service.recetas.tif_logic import base_from_tif_path, is_valesalud, norm_str
-from app.service.recetas.tif_types import ProcesarItemIn
+from app.service.recetas.tif_logic import base_from_tif_path, build_detalle_context, is_valesalud, norm_str
+from app.service.recetas.tif_types import ProcesarItemIn, _DetalleContext
 
 
 MOTIVO_DEBITO_RECETA_VENCIDA_ID = 11
@@ -28,6 +28,7 @@ class TifRunContext:
 class TifRunCache:
     archivo_by_id: dict[int, Archivo]
     detalles_by_archivo: dict[int, list[ArchivoDetalle]]
+    detalle_ctx_by_archivo: dict[int, _DetalleContext]
     asociados_vigentes_archivo_ids: set[int]
     processed_bases: set[str]
     ref_index: dict[str, dict[int, Archivo]]
@@ -116,12 +117,20 @@ def load_run_cache(session: Session, *, recepcion_id: int) -> TifRunCache:
         if base_dorso:
             processed_bases.add(base_dorso)
 
+    normalized_detalles = {
+        int(archivo_id): rows
+        for archivo_id, rows in detalles_by_archivo.items()
+    }
+
+    detalle_ctx_by_archivo: dict[int, _DetalleContext] = {
+        int(archivo_id): build_detalle_context(rows)
+        for archivo_id, rows in normalized_detalles.items()
+    }
+
     return TifRunCache(
         archivo_by_id=archivo_by_id,
-        detalles_by_archivo={
-            int(archivo_id): rows
-            for archivo_id, rows in detalles_by_archivo.items()
-        },
+        detalles_by_archivo=normalized_detalles,
+        detalle_ctx_by_archivo=detalle_ctx_by_archivo,
         asociados_vigentes_archivo_ids={int(x) for x in asociados_vigentes},
         processed_bases=processed_bases,
         ref_index=ref_index,

@@ -29,6 +29,7 @@ def persist_uploaded_chunk(
     archivo_by_id: dict[int, Archivo],
     troquel_evals_by_work_id: dict[int, list[_TroquelEval]],
     troquel_evals_by_archivo_id: dict[int, list[_TroquelEval]],
+    revision_reason_by_work_id: dict[int, str],
     dias_vencimiento: int | None,
     motivo_debito_receta_vencida_id: int,
     revision_counter: int,
@@ -42,13 +43,14 @@ def persist_uploaded_chunk(
 
     for u in valid_uploaded:
         if u.work.archivo_id == 0:
+            reason = str(revision_reason_by_work_id.get(id(u.work), "Revision") or "Revision")
             receta = Recetas(
                 recepcion_id=int(recepcion_id),
                 nro_receta="-",
                 ubicacion_frente=u.front_key,
                 ubicacion_dorso=u.back_key,
                 fecha_prescripcion=None,
-                observacion=None,
+                observacion=reason,
                 usuario_id=usuario_id,
                 estado_receta_id=3,
                 creado_en=datetime.now(),

@@ -149,13 +149,12 @@ class TiffZBarMaskedScanner:
 
             # HEADERS SOLO EN PRIMERA PAGINA
             if page_idx == 0:
-                ocr_started_at = time.perf_counter()
-
-                h_vals, h_dets = self._scan_page_headers(
+                h_vals, h_dets, h_ocr_seconds, h_zbar_seconds = self._scan_page_headers(
                     page_bgr,
                     page_idx=page_idx
                 )
-                ocr_seconds += max(0.0, time.perf_counter() - ocr_started_at)
+                ocr_seconds += h_ocr_seconds
+                zbar_seconds += h_zbar_seconds
 
                 headers.extend(h_vals)
                 header_dets.extend(h_dets)
@@ -189,6 +188,8 @@ class TiffZBarMaskedScanner:
 
         headers = []
         dets = []
+        ocr_seconds = 0.0
+        zbar_seconds = 0.0
 
         H, _W = page_bgr.shape[:2]
 
@@ -198,7 +199,20 @@ class TiffZBarMaskedScanner:
 
         gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
 
+        # Header first con zbar (sin rotaciones)
+        zbar_started_at = time.perf_counter()
+        zbar_headers, zbar_dets = self._scan_header_with_zbar(
+            gray,
+            page_idx=page_idx,
+            roi_top=roi_top,
+        )
+        zbar_seconds += max(0.0, time.perf_counter() - zbar_started_at)
+
+        if zbar_headers:
+            return zbar_headers, zbar_dets, ocr_seconds, zbar_seconds
+
         # fast-path: OCR liviano para extraer solo texto de headers
+        ocr_started_at = time.perf_counter()
         gray_fast = gray
         if gray_fast.shape[1] > 1400:
             gray_fast = cv2.resize(
@@ -228,7 +242,8 @@ class TiffZBarMaskedScanner:
             fast_headers.append(raw_txt)
 
         if fast_headers:
-            return fast_headers, dets
+            ocr_seconds += max(0.0, time.perf_counter() - ocr_started_at)
+            return fast_headers, dets, ocr_seconds, zbar_seconds
 
         gray = cv2.GaussianBlur(gray, (3, 3), 0)
 
@@ -268,6 +283,181 @@ class TiffZBarMaskedScanner:
                 "bbox": bbox,
                 "source": "ocr",
             })
+
+        ocr_seconds += max(0.0, time.perf_counter() - ocr_started_at)
+        return headers, dets, ocr_seconds, zbar_seconds
+
+    def _scan_header_with_zbar(
+        self,
+        gray_roi: np.ndarray,
+        *,
+        page_idx: int,
+        roi_top: int,
+    ) -> tuple[list[str], list[HeaderDet]]:
+        symbols = [ZBarSymbol.EAN13]
+
+        upca = getattr(ZBarSymbol, "UPCA", None)
+        if upca is not None:
+            symbols.append(upca)
+
+        code128 = getattr(ZBarSymbol, "CODE128", None)
+        if code128 is not None:
+            symbols.append(code128)
+
+        headers: list[str] = []
+        dets: list[HeaderDet] = []
+        seen_values: set[str] = set()
+
+        def _decode_attempt(
+            img: np.ndarray,
+            *,
+            map_rect: Callable[[tuple[int, int, int, int]], tuple[int, int, int, int]],
+            source: str,
+        ) -> None:
+            nonlocal headers, dets
+
+            hits = zbar_decode(img, symbols=symbols)
+            if not hits:
+                return
+
+            for b in hits:
+                try:
+                    raw = b.data.decode("utf-8").strip()
+                except Exception:
+                    continue
+
+                value = "".join(ch for ch in raw if ch.isdigit())
+                if not self._is_valid_header_candidate(value):
+                    continue
+                if value in seen_values:
+                    continue
+
+                seen_values.add(value)
+                headers.append(value)
+
+                x, y, w, hh = map_rect((int(b.rect[0]), int(b.rect[1]), int(b.rect[2]), int(b.rect[3])))
+                dets.append({
+                    "page_idx": page_idx,
+                    "type": str(getattr(b, "type", "BARCODE")),
+                    "value": value,
+                    "bbox": (x, y + int(roi_top), max(1, w), max(1, hh)),
+                    "source": source,
+                })
+
+        # Fase 1: sin deskew
+        _decode_attempt(
+            gray_roi,
+            map_rect=lambda r: r,
+            source="zbar_header",
+        )
+        if headers:
+            return headers, dets
+
+        if gray_roi.shape[1] > 1400:
+            resized = cv2.resize(
+                gray_roi,
+                None,
+                fx=0.8,
+                fy=0.8,
+                interpolation=cv2.INTER_AREA,
+            )
+            scale_x = float(gray_roi.shape[1]) / float(resized.shape[1])
+            scale_y = float(gray_roi.shape[0]) / float(resized.shape[0])
+
+            _decode_attempt(
+                resized,
+                map_rect=lambda r, sx=scale_x, sy=scale_y: self._scale_rect(r, sx=sx, sy=sy),
+                source="zbar_header",
+            )
+            if headers:
+                return headers, dets
+
+        eq = cv2.equalizeHist(gray_roi)
+        _decode_attempt(
+            eq,
+            map_rect=lambda r: r,
+            source="zbar_header",
+        )
+        if headers:
+            return headers, dets
+
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(gray_roi)
+        _decode_attempt(
+            clahe,
+            map_rect=lambda r: r,
+            source="zbar_header",
+        )
+        if headers:
+            return headers, dets
+
+        gamma_bright = self._apply_gamma(gray_roi, gamma=1.4)
+        _decode_attempt(
+            gamma_bright,
+            map_rect=lambda r: r,
+            source="zbar_header",
+        )
+        if headers:
+            return headers, dets
+
+        gamma_dark = self._apply_gamma(gray_roi, gamma=0.7)
+        _decode_attempt(
+            gamma_dark,
+            map_rect=lambda r: r,
+            source="zbar_header",
+        )
+        if headers:
+            return headers, dets
+
+        _th, th_img = cv2.threshold(gray_roi, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        _decode_attempt(
+            th_img,
+            map_rect=lambda r: r,
+            source="zbar_header",
+        )
+        if headers:
+            return headers, dets
+
+        adp_img = cv2.adaptiveThreshold(
+            clahe,
+            255,
+            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY,
+            31,
+            8,
+        )
+        _decode_attempt(
+            adp_img,
+            map_rect=lambda r: r,
+            source="zbar_header",
+        )
+        if headers:
+            return headers, dets
+
+        unsharp = self._unsharp_mask(clahe)
+        _decode_attempt(
+            unsharp,
+            map_rect=lambda r: r,
+            source="zbar_header",
+        )
+        if headers:
+            return headers, dets
+
+        # Fase 2: deskew SOLO de ROI de header (sin tocar imagen completa)
+        for angle in (-15, 15, -30, 30, -45, 45):
+            for base_img in (gray_roi, clahe, adp_img):
+                rot, inv_m = self._rotate_gray_with_inverse(base_img, angle=angle)
+                _decode_attempt(
+                    rot,
+                    map_rect=lambda r, inv=inv_m, ow=gray_roi.shape[1], oh=gray_roi.shape[0]: self._map_rotated_rect_to_original(
+                        r,
+                        inv_m=inv,
+                        out_width=ow,
+                        out_height=oh,
+                    ),
+                    source="zbar_header_deskew",
+                )
+                if headers:
+                    return headers, dets
 
         return headers, dets
 
@@ -362,6 +552,104 @@ class TiffZBarMaskedScanner:
         if not raw:
             return ""
         return "".join(ch for ch in raw if not ch.isspace())
+
+    @staticmethod
+    def _scale_rect(
+        rect: tuple[int, int, int, int],
+        *,
+        sx: float,
+        sy: float,
+    ) -> tuple[int, int, int, int]:
+        x, y, w, h = rect
+        return (
+            int(round(float(x) * sx)),
+            int(round(float(y) * sy)),
+            max(1, int(round(float(w) * sx))),
+            max(1, int(round(float(h) * sy))),
+        )
+
+    @staticmethod
+    def _apply_gamma(gray: np.ndarray, *, gamma: float) -> np.ndarray:
+        gamma_safe = max(0.1, float(gamma))
+        inv_gamma = 1.0 / gamma_safe
+        table = np.array(
+            [((i / 255.0) ** inv_gamma) * 255 for i in range(256)],
+            dtype=np.uint8,
+        )
+        return cv2.LUT(gray, table)
+
+    @staticmethod
+    def _unsharp_mask(gray: np.ndarray) -> np.ndarray:
+        blur = cv2.GaussianBlur(gray, (0, 0), 1.0)
+        out = cv2.addWeighted(gray, 1.35, blur, -0.35, 0)
+        return cv2.normalize(out, None, 0, 255, cv2.NORM_MINMAX)
+
+    @staticmethod
+    def _rotate_gray_with_inverse(gray: np.ndarray, *, angle: float) -> tuple[np.ndarray, np.ndarray]:
+        h, w = gray.shape[:2]
+        center = (w / 2.0, h / 2.0)
+
+        m = cv2.getRotationMatrix2D(center, float(angle), 1.0)
+        cos = abs(m[0, 0])
+        sin = abs(m[0, 1])
+
+        new_w = int((h * sin) + (w * cos))
+        new_h = int((h * cos) + (w * sin))
+
+        m[0, 2] += (new_w / 2.0) - center[0]
+        m[1, 2] += (new_h / 2.0) - center[1]
+
+        rotated = cv2.warpAffine(
+            gray,
+            m,
+            (new_w, new_h),
+            flags=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_REPLICATE,
+        )
+        inv_m = cv2.invertAffineTransform(m)
+        return rotated, inv_m
+
+    @staticmethod
+    def _map_rotated_rect_to_original(
+        rect: tuple[int, int, int, int],
+        *,
+        inv_m: np.ndarray,
+        out_width: int,
+        out_height: int,
+    ) -> tuple[int, int, int, int]:
+        x, y, w, h = rect
+        pts = np.array(
+            [
+                [x, y, 1.0],
+                [x + w, y, 1.0],
+                [x, y + h, 1.0],
+                [x + w, y + h, 1.0],
+            ],
+            dtype=np.float32,
+        )
+        mapped = pts @ inv_m.T
+
+        xs = np.clip(mapped[:, 0], 0, max(0, out_width - 1))
+        ys = np.clip(mapped[:, 1], 0, max(0, out_height - 1))
+
+        min_x = int(np.floor(float(np.min(xs))))
+        max_x = int(np.ceil(float(np.max(xs))))
+        min_y = int(np.floor(float(np.min(ys))))
+        max_y = int(np.ceil(float(np.max(ys))))
+
+        return (
+            min_x,
+            min_y,
+            max(1, max_x - min_x),
+            max(1, max_y - min_y),
+        )
+
+    @staticmethod
+    def _is_valid_header_candidate(value: str) -> bool:
+        if not value or not value.isdigit():
+            return False
+        ln = len(value)
+        return ln in (12, 13) or ln >= 18
 
 
 # ============================================================

@@ -32,6 +32,7 @@ from app.service.recetas.tif_types import (
     ProcesarItemIn,
     ProcesarResumen,
     ProcesarStats,
+    _DetalleContext,
     _MatchResult,
     _ScannedItem,
     _TroquelEval,
@@ -54,6 +55,23 @@ class WorkSelectionOut:
     archivo_ids: list[int]
     revision_items: list[_ScannedItem]
     headers_render_by_work_id: dict[int, set[str]]
+    revision_reason_by_item_id: dict[int, str]
+
+
+def _append_revision_sample(
+    resumen: ProcesarResumen,
+    *,
+    it: ProcesarItemIn,
+    reason: str,
+    refs: list[str],
+) -> None:
+    if len(resumen.revision_muestras) >= 20:
+        return
+
+    token = ", ".join(refs[:3]) if refs else "-"
+    resumen.revision_muestras.append(
+        f"{it.file_name} | {reason} | refs={token}"
+    )
 
 
 def select_work_items(
@@ -70,6 +88,7 @@ def select_work_items(
     archivo_ids: list[int] = []
     revision_items: list[_ScannedItem] = []
     headers_render_by_work_id: dict[int, set[str]] = {}
+    revision_reason_by_item_id: dict[int, str] = {}
 
     for x in scanned:
         refs = [norm_str(r) for r in (x.scan.headers or []) if norm_str(r)]
@@ -82,7 +101,11 @@ def select_work_items(
         if not refs:
             resumen.sin_match += 1
             resumen.revision_por_sin_match += 1
+            resumen.revision_por_header_vacio += 1
             revision_items.append(x)
+            reason = "Sin header"
+            revision_reason_by_item_id[id(x)] = reason
+            _append_revision_sample(resumen, it=x.it, reason=reason, refs=refs)
             continue
 
         if any(ref in match.duplicated_refs for ref in refs):
@@ -99,12 +122,19 @@ def select_work_items(
         if archivo is None:
             resumen.sin_match += 1
             resumen.revision_por_sin_match += 1
+            resumen.revision_por_header_sin_match += 1
             revision_items.append(x)
+            reason = "Header sin match"
+            revision_reason_by_item_id[id(x)] = reason
+            _append_revision_sample(resumen, it=x.it, reason=reason, refs=refs)
             continue
 
         if int(archivo.archivo_id) in asociados_vigentes_archivo_ids:
             resumen.revision_por_ya_asociado += 1
             revision_items.append(x)
+            reason = "Ya asociado"
+            revision_reason_by_item_id[id(x)] = reason
+            _append_revision_sample(resumen, it=x.it, reason=reason, refs=refs)
             continue
 
         nro_rec = norm_str(getattr(archivo, "nro_receta", None))
@@ -113,10 +143,23 @@ def select_work_items(
         if only_ref_match:
             if nro_ref and nro_ref in seen_refs:
                 revision_items.append(x)
+                resumen.revision_por_duplicado_lote_ref += 1
+                reason = "Duplicado en lote (ref)"
+                revision_reason_by_item_id[id(x)] = reason
+                _append_revision_sample(resumen, it=x.it, reason=reason, refs=refs)
                 continue
         else:
-            if (nro_rec and nro_rec in seen_recetas) or (nro_ref and nro_ref in seen_refs):
+            ref_dup = bool(nro_ref and nro_ref in seen_refs)
+            rec_dup = bool(nro_rec and nro_rec in seen_recetas)
+            if rec_dup or ref_dup:
                 revision_items.append(x)
+                if rec_dup:
+                    resumen.revision_por_duplicado_lote_receta += 1
+                if ref_dup:
+                    resumen.revision_por_duplicado_lote_ref += 1
+                reason = "Duplicado en lote (receta)" if rec_dup else "Duplicado en lote (ref)"
+                revision_reason_by_item_id[id(x)] = reason
+                _append_revision_sample(resumen, it=x.it, reason=reason, refs=refs)
                 continue
 
         if not only_ref_match and nro_rec:
@@ -147,6 +190,7 @@ def select_work_items(
         archivo_ids=archivo_ids,
         revision_items=revision_items,
         headers_render_by_work_id=headers_render_by_work_id,
+        revision_reason_by_item_id=revision_reason_by_item_id,
     )
 
 
@@ -156,6 +200,7 @@ class PrecomputeOut:
     estado_render_by_archivo_id: dict[int, dict[str, TroquelEstado]]
     troquel_evals_by_archivo_id: dict[int, list[_TroquelEval]]
     troquel_evals_by_work_id: dict[int, list[_TroquelEval]]
+    revision_reason_by_work_id: dict[int, str]
 
 
 @dataclass(frozen=True)
@@ -192,6 +237,8 @@ def precompute_render_context(
     headers_render_by_work_id: dict[int, set[str]],
     archivo_by_id: dict[int, Archivo],
     detalles_by_archivo: dict[int, list[ArchivoDetalle]],
+    detalle_ctx_by_archivo: dict[int, _DetalleContext] | None,
+    revision_reason_by_item_id: dict[int, str],
     fecha_presentacion_dt: datetime,
     dias_vencimiento: int | None,
     med_cache: dict[str, MedicamentoDTO | None],
@@ -201,6 +248,7 @@ def precompute_render_context(
     vencido_updates: dict[int, bool] | None = None,
 ) -> PrecomputeOut:
     revision_work: list[_WorkItem] = []
+    revision_reason_by_work_id: dict[int, str] = {}
     for x in revision_items:
         w_item = _WorkItem(
             it=x.it,
@@ -210,6 +258,7 @@ def precompute_render_context(
         )
         revision_work.append(w_item)
         headers_render_by_work_id[id(w_item)] = set()
+        revision_reason_by_work_id[id(w_item)] = revision_reason_by_item_id.get(id(x), "Revision")
 
     all_codebars: set[str] = set()
     for w in work:
@@ -224,6 +273,8 @@ def precompute_render_context(
             if cb_value:
                 all_codebars.add(cb_value)
 
+    if stage_cb:
+        stage_cb("MED_API START", 0.0)
     med_api_started_at = time.perf_counter()
     warm_cache(all_codebars)
     if stage_cb:
@@ -233,6 +284,8 @@ def precompute_render_context(
     troquel_evals_by_archivo_id: dict[int, list[_TroquelEval]] = {}
     troquel_evals_by_work_id: dict[int, list[_TroquelEval]] = {}
 
+    if stage_cb:
+        stage_cb("EVAL_MATCHED START", 0.0)
     eval_matched_started_at = time.perf_counter()
 
     for w in work:
@@ -248,8 +301,15 @@ def precompute_render_context(
             if vencido_updates is not None:
                 vencido_updates[int(archivo.archivo_id)] = bool(esta_vencido_value)
 
-        dets = detalles_by_archivo.get(w.archivo_id, [])
-        detalle_ctx = build_detalle_context(dets)
+        detalle_ctx = None
+        if detalle_ctx_by_archivo is not None:
+            detalle_ctx = detalle_ctx_by_archivo.get(int(w.archivo_id))
+
+        if detalle_ctx is None:
+            dets = detalles_by_archivo.get(w.archivo_id, [])
+            detalle_ctx = build_detalle_context(dets)
+            if detalle_ctx_by_archivo is not None:
+                detalle_ctx_by_archivo[int(w.archivo_id)] = detalle_ctx
 
         evals = evaluate_troqueles(
             scan_troqueles=(w.scan.troqueles or []),
@@ -264,6 +324,8 @@ def precompute_render_context(
     if stage_cb:
         stage_cb("EVAL_MATCHED", max(0.0, time.perf_counter() - eval_matched_started_at))
 
+    if stage_cb:
+        stage_cb("EVAL_REVISION START", 0.0)
     eval_revision_started_at = time.perf_counter()
 
     for w in revision_work:
@@ -281,6 +343,7 @@ def precompute_render_context(
         estado_render_by_archivo_id=estado_render_by_archivo_id,
         troquel_evals_by_archivo_id=troquel_evals_by_archivo_id,
         troquel_evals_by_work_id=troquel_evals_by_work_id,
+        revision_reason_by_work_id=revision_reason_by_work_id,
     )
 
 
@@ -360,6 +423,8 @@ def process_scanned_batch(
         headers_render_by_work_id=headers_render_by_work_id,
         archivo_by_id=archivo_by_id,
         detalles_by_archivo=detalles_by_archivo,
+        detalle_ctx_by_archivo=run_cache.detalle_ctx_by_archivo,
+        revision_reason_by_item_id=selection.revision_reason_by_item_id,
         fecha_presentacion_dt=run_ctx.fecha_presentacion_dt,
         dias_vencimiento=run_ctx.dias_vencimiento,
         med_cache=med_cache,
@@ -369,8 +434,10 @@ def process_scanned_batch(
         vencido_updates=run_cache.vencido_updates,
     )
 
+    if stage_cb:
+        stage_cb("RENDER+UPLOAD START", 0.0)
     render_upload_started_at = time.perf_counter()
-    uploaded = parallel_render_upload(
+    uploaded, render_elapsed, upload_elapsed = parallel_render_upload(
         storage=runtime.storage,
         tif=runtime.tif,
         work_items=work + precomputed.revision_work,
@@ -382,9 +449,16 @@ def process_scanned_batch(
         upload_pause_ms=runtime.upload_pause_ms,
         resumen=resumen,
     )
+    resumen.render_total_seconds += float(render_elapsed or 0.0)
+    resumen.upload_total_seconds += float(upload_elapsed or 0.0)
+    if stage_cb:
+        stage_cb("RENDER", float(render_elapsed or 0.0))
+        stage_cb("UPLOAD", float(upload_elapsed or 0.0))
     if stage_cb:
         stage_cb("RENDER+UPLOAD", max(0.0, time.perf_counter() - render_upload_started_at))
 
+    if stage_cb:
+        stage_cb("PERSIST START", 0.0)
     persist_started_at = time.perf_counter()
     valid_uploaded = filter_valid_uploaded(uploaded, resumen)
     if not valid_uploaded:
@@ -400,6 +474,7 @@ def process_scanned_batch(
         archivo_by_id=archivo_by_id,
         troquel_evals_by_work_id=precomputed.troquel_evals_by_work_id,
         troquel_evals_by_archivo_id=precomputed.troquel_evals_by_archivo_id,
+        revision_reason_by_work_id=precomputed.revision_reason_by_work_id,
         dias_vencimiento=run_ctx.dias_vencimiento,
         motivo_debito_receta_vencida_id=run_ctx.motivo_debito_receta_vencida_id,
         revision_counter=revision_counter,
@@ -511,7 +586,13 @@ def _apply_stats(
         sin_header=total.sin_header,
         revision_por_sin_match=total.revision_por_sin_match,
         revision_por_ya_asociado=total.revision_por_ya_asociado,
+        revision_por_header_vacio=total.revision_por_header_vacio,
+        revision_por_header_sin_match=total.revision_por_header_sin_match,
+        revision_por_duplicado_lote_ref=total.revision_por_duplicado_lote_ref,
+        revision_por_duplicado_lote_receta=total.revision_por_duplicado_lote_receta,
         reintentos_modo_seguro=total.reintentos_modo_seguro,
+        render_total_seconds=float(total.render_total_seconds or 0.0),
+        upload_total_seconds=float(total.upload_total_seconds or 0.0),
     )
 
 
@@ -714,6 +795,7 @@ def process_items_individual_async(
             total.merge(resumen_item)
             processed_items += 1
 
+            _emit_stage("COMMIT START", 0.0)
             commit_started_at = time.perf_counter()
             s.commit()
             _emit_stage("COMMIT", max(0.0, time.perf_counter() - commit_started_at))
@@ -730,6 +812,8 @@ def process_items_individual_async(
                     "MED_API",
                     "EVAL_MATCHED",
                     "EVAL_REVISION",
+                    "RENDER",
+                    "UPLOAD",
                     "RENDER+UPLOAD",
                     "PERSIST",
                     "COMMIT",

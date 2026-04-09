@@ -25,7 +25,14 @@ class ProcesarResumen:
     sin_header: int = 0
     revision_por_sin_match: int = 0
     revision_por_ya_asociado: int = 0
+    revision_por_header_vacio: int = 0
+    revision_por_header_sin_match: int = 0
+    revision_por_duplicado_lote_ref: int = 0
+    revision_por_duplicado_lote_receta: int = 0
     reintentos_modo_seguro: int = 0
+    render_total_seconds: float = 0.0
+    upload_total_seconds: float = 0.0
+    revision_muestras: List[str] = field(default_factory=list)
     errores: List[str] = field(default_factory=list)
     stats: Optional["ProcesarStats"] = None
 
@@ -38,7 +45,18 @@ class ProcesarResumen:
         self.sin_header += other.sin_header
         self.revision_por_sin_match += other.revision_por_sin_match
         self.revision_por_ya_asociado += other.revision_por_ya_asociado
+        self.revision_por_header_vacio += other.revision_por_header_vacio
+        self.revision_por_header_sin_match += other.revision_por_header_sin_match
+        self.revision_por_duplicado_lote_ref += other.revision_por_duplicado_lote_ref
+        self.revision_por_duplicado_lote_receta += other.revision_por_duplicado_lote_receta
         self.reintentos_modo_seguro += other.reintentos_modo_seguro
+        self.render_total_seconds += float(other.render_total_seconds or 0.0)
+        self.upload_total_seconds += float(other.upload_total_seconds or 0.0)
+        if other.revision_muestras:
+            limit = 20
+            left = max(0, limit - len(self.revision_muestras))
+            if left > 0:
+                self.revision_muestras.extend(other.revision_muestras[:left])
         self.errores.extend(other.errores)
         if other.stats is not None:
             self.stats = other.stats
@@ -59,7 +77,13 @@ class ProcesarStats:
     sin_header: int = 0
     revision_por_sin_match: int = 0
     revision_por_ya_asociado: int = 0
+    revision_por_header_vacio: int = 0
+    revision_por_header_sin_match: int = 0
+    revision_por_duplicado_lote_ref: int = 0
+    revision_por_duplicado_lote_receta: int = 0
     reintentos_modo_seguro: int = 0
+    render_total_seconds: float = 0.0
+    upload_total_seconds: float = 0.0
 
 
 @dataclass(frozen=True)
