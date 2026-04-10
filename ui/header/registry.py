@@ -1,6 +1,7 @@
 from ui.header.actions import HeaderAction
 from ui.windows.excluidos_window import ExcluidosWindow
 from ui.windows.listado_debitos_window import ListadoDebitosWindow
+from ui.windows.mal_entrego_excel_window import MalEntregoExcelWindow
 from ui.windows.motivos_debitos_window import MotivosDebitosWindow
 from ui.windows.obra_social_window import ObrasSocialesWindow
 from ui.windows.periodo_window import PeriodosWindow
@@ -32,6 +33,12 @@ def build_header_actions(main_window, current_user) -> dict[str, list[HeaderActi
                 text="Listado de débitos",
                 kind="window",
                 window_factory=lambda: ListadoDebitosWindow(main_window),
+            ),
+            HeaderAction(
+                key="mal_entrego_excel_window",
+                text="Bajar Mal Entregado General",
+                kind="window",
+                window_factory=lambda: MalEntregoExcelWindow(main_window),
             ),
             HeaderAction(
                 key="exluidos_window",

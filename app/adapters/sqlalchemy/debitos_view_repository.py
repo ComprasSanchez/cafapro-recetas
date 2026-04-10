@@ -48,6 +48,33 @@ class DebitosViewRepository:
         return q.all()
 
     @staticmethod
+    def list_wrong_debitos_month(
+        session: Session,
+        *,
+        obra_social_id: int,
+        anio: int,
+        mes: int,
+    ) -> list[VwArchivoRecetaDebitos]:
+        q = (
+            session.query(VwArchivoRecetaDebitos)
+            .join(Recepcion, Recepcion.recepcion_id == VwArchivoRecetaDebitos.recepcion_id)
+            .join(Periodo, Periodo.periodo_id == Recepcion.periodo_id)
+            .filter(
+                Recepcion.obra_social_id == int(obra_social_id),
+                Periodo.anio == int(anio),
+                Periodo.mes == int(mes),
+                VwArchivoRecetaDebitos.motivo_debito_id == 9,
+            )
+            .order_by(
+                VwArchivoRecetaDebitos.recepcion_numero.asc(),
+                VwArchivoRecetaDebitos.orden_lote.asc(),
+                VwArchivoRecetaDebitos.nro_receta.asc(),
+            )
+        )
+
+        return q.all()
+
+    @staticmethod
     def get_periodo_parts(session: Session, *, recepcion_id: int) -> tuple[int, int, int] | None:
         row = (
             session.query(Periodo.anio, Periodo.mes, Periodo.quincena)

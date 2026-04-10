@@ -1,9 +1,11 @@
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date
+from pathlib import Path
 import re
 
 import unicodedata
+import xlsxwriter
 
 from app.adapters.sqlalchemy.debitos_view_repository import DebitosViewRepository
 from app.db.session import session_scope
@@ -11,6 +13,20 @@ from app.db.view import VwArchivoRecetaDebitos
 
 
 class ViewDebitos:
+    _MESES_ES = {
+        1: "ENERO",
+        2: "FEBRERO",
+        3: "MARZO",
+        4: "ABRIL",
+        5: "MAYO",
+        6: "JUNIO",
+        7: "JULIO",
+        8: "AGOSTO",
+        9: "SEPTIEMBRE",
+        10: "OCTUBRE",
+        11: "NOVIEMBRE",
+        12: "DICIEMBRE",
+    }
 
     @staticmethod
     def list_recepciones() -> list[tuple[int, int]]:
@@ -61,6 +77,132 @@ class ViewDebitos:
             return f"{int(anio):04d}-{int(mes):02d}-q{int(quincena)}"
         except Exception:
             return "sin-periodo"
+
+    @staticmethod
+    def list_wrong_debitos_month(
+        *,
+        obra_social_id: int,
+        anio: int,
+        mes: int,
+    ) -> list[VwArchivoRecetaDebitos]:
+        with session_scope() as s:
+            return DebitosViewRepository.list_wrong_debitos_month(
+                s,
+                obra_social_id=int(obra_social_id),
+                anio=int(anio),
+                mes=int(mes),
+            )
+
+    @staticmethod
+    def export_wrong_debitos_excel(
+        *,
+        rows: list[VwArchivoRecetaDebitos],
+        folder: str,
+        obra_social_nombre: str,
+        anio: int,
+        mes: int,
+    ) -> str:
+        if not rows:
+            raise ValueError("No hay débitos mal entregados para exportar.")
+
+        file_name = ViewDebitos.build_wrong_excel_filename(
+            obra_social_nombre=obra_social_nombre,
+            anio=int(anio),
+            mes=int(mes),
+        )
+        output_path = Path(folder) / file_name
+
+        workbook = xlsxwriter.Workbook(str(output_path))
+        try:
+            ws = workbook.add_worksheet("Mal Entrego")
+
+            fmt_header = workbook.add_format({
+                "bold": True,
+                "bg_color": "#E6E6E6",
+                "border": 1,
+                "align": "center",
+                "valign": "vcenter",
+            })
+            fmt_cell = workbook.add_format({"border": 1, "valign": "vcenter"})
+            fmt_money = workbook.add_format({"border": 1, "num_format": "#,##0.00"})
+            fmt_date = workbook.add_format({"border": 1, "num_format": "dd/mm/yyyy"})
+
+            headers = [
+                "Farmacia",
+                "Obra social",
+                "N° Recepción",
+                "Orden lote",
+                "N° receta",
+                "N° referencia",
+                "Fecha auditoría",
+                "Total",
+                "A cargo OBS",
+                "Débito",
+                "Estado seguimiento",
+                "Detalle",
+                "Vendedor",
+            ]
+
+            obra_social_txt = str(obra_social_nombre or "").strip()
+
+            for col, title in enumerate(headers):
+                ws.write(0, col, title, fmt_header)
+
+            ws.set_column(0, 0, 30)
+            ws.set_column(1, 1, 28)
+            ws.set_column(2, 2, 14)
+            ws.set_column(3, 3, 10)
+            ws.set_column(4, 4, 14)
+            ws.set_column(5, 5, 16)
+            ws.set_column(6, 6, 15)
+            ws.set_column(7, 8, 12)
+            ws.set_column(9, 9, 34)
+            ws.set_column(10, 10, 24)
+            ws.set_column(11, 11, 44)
+            ws.set_column(12, 12, 24)
+            ws.freeze_panes(1, 0)
+
+            for i, r in enumerate(rows, start=1):
+                ws.write(i, 0, str(getattr(r, "prestador_nombre", "") or ""), fmt_cell)
+                ws.write(i, 1, obra_social_txt, fmt_cell)
+                ws.write(i, 2, getattr(r, "recepcion_numero", "") or "", fmt_cell)
+                ws.write(i, 3, getattr(r, "orden_lote", "") or "", fmt_cell)
+                ws.write(i, 4, str(getattr(r, "nro_receta", "") or ""), fmt_cell)
+                ws.write(i, 5, str(getattr(r, "nro_referencia", "") or ""), fmt_cell)
+
+                creado_en = getattr(r, "creado_en", None)
+                if creado_en is not None:
+                    try:
+                        ws.write_datetime(i, 6, creado_en, fmt_date)
+                    except Exception:
+                        ws.write(i, 6, str(creado_en), fmt_cell)
+                else:
+                    ws.write(i, 6, "", fmt_cell)
+
+                try:
+                    ws.write_number(i, 7, float(getattr(r, "importe_bruto", 0) or 0), fmt_money)
+                except Exception:
+                    ws.write(i, 7, str(getattr(r, "importe_bruto", "") or ""), fmt_cell)
+
+                try:
+                    ws.write_number(i, 8, float(getattr(r, "importe_cobertura", 0) or 0), fmt_money)
+                except Exception:
+                    ws.write(i, 8, str(getattr(r, "importe_cobertura", "") or ""), fmt_cell)
+
+                ws.write(i, 9, str(getattr(r, "descripcion_debito", "") or ""), fmt_cell)
+                ws.write(i, 10, str(getattr(r, "estado_seguimiento", "") or ""), fmt_cell)
+                ws.write(i, 11, str(getattr(r, "detalle", "") or ""), fmt_cell)
+                ws.write(i, 12, str(getattr(r, "vendedor_nombre", "") or ""), fmt_cell)
+        finally:
+            workbook.close()
+
+        return str(output_path)
+
+    @staticmethod
+    def build_wrong_excel_filename(*, obra_social_nombre: str, anio: int, mes: int) -> str:
+        os_slug = ViewDebitos._sanitize_filename_part(obra_social_nombre, fallback="OBRA_SOCIAL")
+        mes_txt = ViewDebitos._MESES_ES.get(int(mes), f"MES_{int(mes):02d}")
+        return f"MAL_ENTREGO_{os_slug}_{mes_txt}_{int(anio):04d}.xlsx"
 
     @staticmethod
     def download_wrong_debitos(rows, folder, s3):
@@ -157,3 +299,15 @@ class ViewDebitos:
         text = text.replace(" ", "_")
 
         return re.sub(r"[^a-z0-9_]", "", text)
+
+    @staticmethod
+    def _sanitize_filename_part(text: str | None, *, fallback: str) -> str:
+        raw = (text or "").strip()
+        if not raw:
+            return fallback
+
+        raw = unicodedata.normalize("NFD", raw)
+        raw = raw.encode("ascii", "ignore").decode("utf-8")
+        raw = re.sub(r"[^A-Za-z0-9]+", "_", raw).strip("_")
+        up = raw.upper()
+        return up or fallback

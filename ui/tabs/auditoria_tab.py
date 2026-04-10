@@ -73,6 +73,21 @@ class RowOutlineDelegate(QStyledItemDelegate):
         painter.restore()
 
 
+class SortableTableWidgetItem(QTableWidgetItem):
+    SORT_ROLE = Qt.ItemDataRole.UserRole + 50
+
+    def __lt__(self, other) -> bool:
+        if isinstance(other, QTableWidgetItem):
+            left = self.data(self.SORT_ROLE)
+            right = other.data(self.SORT_ROLE)
+            if left is not None and right is not None:
+                try:
+                    return float(left) < float(right)
+                except Exception:
+                    pass
+        return super().__lt__(other)
+
+
 class AuditoriaTab(BaseTabWidget):
     ROW_H = 32  # un toque más compacta
 
@@ -694,6 +709,31 @@ class AuditoriaTab(BaseTabWidget):
         it.setFlags(it.flags() & ~Qt.ItemFlag.ItemIsEditable & ~Qt.ItemFlag.ItemIsSelectable)
         self.tbl.setItem(row, col, it)
 
+    def _set_item_sortable(
+        self,
+        row: int,
+        col: int,
+        text: str,
+        *,
+        sort_value: float,
+        align: Qt.AlignmentFlag | None = None,
+    ) -> None:
+        it = SortableTableWidgetItem(text)
+        it.setData(SortableTableWidgetItem.SORT_ROLE, float(sort_value))
+        it.setTextAlignment(Qt.AlignVCenter | (align if align is not None else Qt.AlignLeft))
+        it.setFlags(it.flags() & ~Qt.ItemFlag.ItemIsEditable & ~Qt.ItemFlag.ItemIsSelectable)
+        self.tbl.setItem(row, col, it)
+
+    @staticmethod
+    def _lote_sort_value(raw_lote: str) -> float:
+        value = str(raw_lote or "").strip()
+        if not value or value == "-":
+            return 1e15
+        try:
+            return float(int(value))
+        except Exception:
+            return 1e15
+
     # -------------------------
     # Selection -> Preview
     # -------------------------
@@ -1130,7 +1170,13 @@ class AuditoriaTab(BaseTabWidget):
 
         self._set_item(i, self.COL_RECETA, r.numero_receta)
         self._set_item(i, self.COL_REF, ref)
-        self._set_item(i, self.COL_LOTE, lote)
+        self._set_item_sortable(
+            i,
+            self.COL_LOTE,
+            lote,
+            sort_value=self._lote_sort_value(lote),
+            align=Qt.AlignCenter,
+        )
 
         self._set_item(i, self.COL_RECETA_OK, "Sí" if r.existe_receta else "No", align=Qt.AlignCenter)
         self._set_item(i, self.COL_ARCHIVO_OK, "Sí" if r.existe_archivo else "No", align=Qt.AlignCenter)
