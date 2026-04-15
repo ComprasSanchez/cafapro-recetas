@@ -1,29 +1,61 @@
 from __future__ import annotations
 
 import os
+import time
 from datetime import date
 from typing import Any
 
 import httpx
 
 
+def _env_float(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if raw is None:
+        return float(default)
+    try:
+        return float(str(raw).strip())
+    except Exception:
+        return float(default)
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return int(default)
+    try:
+        return int(str(raw).strip())
+    except Exception:
+        return int(default)
+
+
 class ValidatorsClient:
     def __init__(
         self,
         base_url: str | None = None,
-        timeout_s: float = 20.0,
-        retries: int = 2,
+        timeout_s: float = 180.0,
+        retries: int = 1,
     ) -> None:
         self.base_url = (
             base_url
             or os.getenv("VALIDATORS_API_BASE_URL")
             or "https://recetas-api-production.up.railway.app"
         ).rstrip("/")
-        self.retries = max(0, int(retries))
+
+        self.retries = max(0, _env_int("VALIDATORS_RETRIES", retries))
+        self._timeout_connect_s = _env_float("VALIDATORS_TIMEOUT_CONNECT_S", 10.0)
+        self._timeout_read_s = _env_float("VALIDATORS_TIMEOUT_READ_S", timeout_s)
+        self._timeout_write_s = _env_float("VALIDATORS_TIMEOUT_WRITE_S", 30.0)
+        self._timeout_pool_s = _env_float("VALIDATORS_TIMEOUT_POOL_S", 30.0)
+
         self._client = httpx.Client(
             base_url=self.base_url,
             headers={"accept": "application/json", "content-type": "application/json"},
-            timeout=httpx.Timeout(timeout_s),
+            timeout=httpx.Timeout(
+                connect=self._timeout_connect_s,
+                read=self._timeout_read_s,
+                write=self._timeout_write_s,
+                pool=self._timeout_pool_s,
+            ),
         )
 
     def get_pendientes(
@@ -44,7 +76,7 @@ class ValidatorsClient:
         attempts = 1 + self.retries
         last_exc: Exception | None = None
 
-        for _ in range(attempts):
+        for i in range(attempts):
             try:
                 r = self._client.post("/validators/pendientes", json=payload)
                 r.raise_for_status()
@@ -56,23 +88,36 @@ class ValidatorsClient:
                     if isinstance(items, list):
                         return [x for x in items if isinstance(x, dict)]
                 return []
-            except (httpx.TimeoutException, httpx.HTTPStatusError) as e:
+            except httpx.TimeoutException as e:
                 last_exc = e
-                if isinstance(e, httpx.HTTPStatusError):
+                if i + 1 < attempts:
+                    time.sleep(0.8 * (i + 1))
+                continue
+            except httpx.HTTPStatusError as e:
+                last_exc = e
+                body = ""
+                try:
+                    body = e.response.text
+                except Exception:
                     body = ""
-                    try:
-                        body = e.response.text
-                    except Exception:
-                        body = ""
-                    status = e.response.status_code
-                    if status == 400:
-                        raise ValueError(f"Error API Validators (400): {body}") from e
-                    if status == 401:
-                        raise ValueError("Error API Validators (401): acceso no autorizado.") from e
+                status = e.response.status_code
+                if status == 400:
+                    raise ValueError(f"Error API Validators (400): {body}") from e
+                if status == 401:
+                    raise ValueError("Error API Validators (401): acceso no autorizado.") from e
+
+                if i + 1 < attempts:
+                    time.sleep(0.8 * (i + 1))
                 continue
             except httpx.HTTPError as e:
                 last_exc = e
                 break
+
+        if isinstance(last_exc, httpx.TimeoutException):
+            raise TimeoutError(
+                "La API de validadores tardó demasiado en responder "
+                f"(timeout de lectura: {int(self._timeout_read_s)}s)."
+            ) from last_exc
 
         raise last_exc if last_exc else RuntimeError("Error desconocido consultando Validators API")
 
@@ -109,7 +154,7 @@ class ValidatorsClient:
         attempts = 1 + self.retries
         last_exc: Exception | None = None
 
-        for _ in range(attempts):
+        for i in range(attempts):
             try:
                 r = self._client.post("/validators/incluir_excluir_recetas", json=payload)
                 r.raise_for_status()
@@ -120,22 +165,35 @@ class ValidatorsClient:
                 if isinstance(data, list):
                     return {"items": data}
                 return {"ok": True}
-            except (httpx.TimeoutException, httpx.HTTPStatusError) as e:
+            except httpx.TimeoutException as e:
                 last_exc = e
-                if isinstance(e, httpx.HTTPStatusError):
+                if i + 1 < attempts:
+                    time.sleep(0.8 * (i + 1))
+                continue
+            except httpx.HTTPStatusError as e:
+                last_exc = e
+                body = ""
+                try:
+                    body = e.response.text
+                except Exception:
                     body = ""
-                    try:
-                        body = e.response.text
-                    except Exception:
-                        body = ""
-                    status = e.response.status_code
-                    if status == 400:
-                        raise ValueError(f"Error API Validators (400): {body}") from e
-                    if status == 401:
-                        raise ValueError("Error API Validators (401): acceso no autorizado.") from e
+                status = e.response.status_code
+                if status == 400:
+                    raise ValueError(f"Error API Validators (400): {body}") from e
+                if status == 401:
+                    raise ValueError("Error API Validators (401): acceso no autorizado.") from e
+
+                if i + 1 < attempts:
+                    time.sleep(0.8 * (i + 1))
                 continue
             except httpx.HTTPError as e:
                 last_exc = e
                 break
+
+        if isinstance(last_exc, httpx.TimeoutException):
+            raise TimeoutError(
+                "La API de validadores tardó demasiado en responder "
+                f"(timeout de lectura: {int(self._timeout_read_s)}s)."
+            ) from last_exc
 
         raise last_exc if last_exc else RuntimeError("Error desconocido consultando Validators API")

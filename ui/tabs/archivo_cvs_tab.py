@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import date
-from decimal import Decimal, InvalidOperation
 
 from PySide6.QtCore import Qt, QDate
 from PySide6.QtWidgets import (
@@ -62,50 +61,6 @@ class ArchivoCvsTab(BaseTabWidget):
         le.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         return le
 
-    @staticmethod
-    def _dec_from_any(v) -> Decimal:
-        if v is None:
-            return Decimal("0")
-        s = str(v).strip()
-        if not s:
-            return Decimal("0")
-
-        if "," in s:
-            s = s.replace(".", "").replace(",", ".")
-
-        try:
-            return Decimal(s)
-        except (InvalidOperation, ValueError):
-            return Decimal("0")
-
-    @staticmethod
-    def _parse_desc_percent(desc_raw) -> Decimal:
-        s = str(desc_raw or "").strip()
-        if not s:
-            return Decimal("0")
-
-        if s.endswith("%"):
-            s = s[:-1].strip()
-
-        if "," in s:
-            s = s.replace(".", "").replace(",", ".")
-
-        try:
-            pct = Decimal(s)
-        except (InvalidOperation, ValueError):
-            return Decimal("0")
-
-        if pct < 0:
-            return Decimal("0")
-        if pct > 100:
-            return Decimal("100")
-        return pct
-
-    @staticmethod
-    def _fmt_dec(v: Decimal) -> str:
-        q = v.quantize(Decimal("0.01"))
-        return format(q, "f").replace(".", ",")
-
     def _build_header(self) -> QFrame:
         header = QFrame()
         header.setObjectName("card")
@@ -146,6 +101,7 @@ class ArchivoCvsTab(BaseTabWidget):
         self.de_fecha.setDate(QDate.currentDate())
         self.de_fecha.setDisplayFormat("dd/MM/yyyy")
         self.de_fecha.setFixedSize(110, 26)
+        self.de_fecha.setEnabled(False)
 
         # ===== Botones derecha =====
         self.btn_cargar = QPushButton("Cargar")
@@ -318,8 +274,7 @@ class ArchivoCvsTab(BaseTabWidget):
         self._codigo_financiador = out.codigo_financiador
         self.in_imed.setText(self.imed)
 
-        usa_csv = self._validador == "imed"
-        self.de_fecha.setEnabled(usa_csv)
+        self.de_fecha.setEnabled(False)
 
         # al cambiar recepción: limpiar tablas / cache
         self._recetas_por_ref = {}
@@ -347,7 +302,7 @@ class ArchivoCvsTab(BaseTabWidget):
             QMessageBox.warning(self, "Atención", "Primero seleccioná una recepción (para tener IMED).")
             return
 
-        if self._validador != "imed" and self._codigo_financiador is None:
+        if self._codigo_financiador is None:
             QMessageBox.warning(self, "Atención", "La obra social no tiene código financiador configurado.")
             return
 
@@ -408,18 +363,9 @@ class ArchivoCvsTab(BaseTabWidget):
                 imp_pami = receta.get("Importe_Pami") or receta.get("Importe Pami") or ""
                 cargo_entidad = receta.get("A_Cargo_Entidad") or receta.get("A Cargo Entidad") or ""
 
-                if self._validador == "imed":
-                    total_dec = self._dec_from_any(imp_pami)
-                    cargo_obs_dec = self._dec_from_any(cargo_entidad)
-                    afiliado_dec = total_dec - cargo_obs_dec
-
-                    self.tbl_recetas.setItem(r, 5, QTableWidgetItem(self._fmt_dec(total_dec)))
-                    self.tbl_recetas.setItem(r, 6, QTableWidgetItem(self._fmt_dec(cargo_obs_dec)))
-                    self.tbl_recetas.setItem(r, 7, QTableWidgetItem(self._fmt_dec(afiliado_dec)))
-                else:
-                    self.tbl_recetas.setItem(r, 5, QTableWidgetItem(str(imp_gral)))
-                    self.tbl_recetas.setItem(r, 6, QTableWidgetItem(str(imp_pami)))
-                    self.tbl_recetas.setItem(r, 7, QTableWidgetItem(str(cargo_entidad)))
+                self.tbl_recetas.setItem(r, 5, QTableWidgetItem(str(imp_gral)))
+                self.tbl_recetas.setItem(r, 6, QTableWidgetItem(str(imp_pami)))
+                self.tbl_recetas.setItem(r, 7, QTableWidgetItem(str(cargo_entidad)))
 
                 orden = receta.get("Orden_Del_Lote") or receta.get("Orden Del Lote") or ""
                 self.tbl_recetas.setItem(r, 8, QTableWidgetItem(str(orden)))
@@ -467,14 +413,6 @@ class ArchivoCvsTab(BaseTabWidget):
                 igr = d.get("importe_gral") or ""
                 ipa = d.get("importe_pami") or ""
                 des = d.get("desc") or ""
-
-                if self._validador == "imed":
-                    imp_pami_dec = self._dec_from_any(ipa)
-                    pct_desc = self._parse_desc_percent(des)
-
-                    igr = self._fmt_dec(imp_pami_dec)
-                    descuento_monto = imp_pami_dec * (pct_desc / Decimal("100"))
-                    ipa = self._fmt_dec(descuento_monto)
 
                 self.tbl_detalles.setItem(r, 0, QTableWidgetItem(str(cod)))
                 self.tbl_detalles.setItem(r, 1, QTableWidgetItem(str(nom)))

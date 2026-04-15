@@ -9,7 +9,6 @@ from app.service.integraciones.validators_client import ValidatorsClient
 from app.service.recepcion.arrastre_exclusivos_service import ArrastreExcluidosService
 from app.service.recepcion.recepcion_service import RecepcionService
 from app.service.recetas.archivo_service import ArchivoService
-from core.imed_cvs_handler import ImedCvsHandler
 
 
 def parse_aut_ts(receta: dict) -> datetime:
@@ -87,6 +86,32 @@ def _to_hhmmss(v: str | None) -> str:
     return "00:00:00"
 
 
+def _to_iso_yyyy_mm_dd(v: str | None) -> str:
+    s = str(v or "").strip()
+    if not s:
+        raise ValueError("La fecha es obligatoria para consultar validador IMED.")
+
+    if len(s) == 10 and s[2] == "/" and s[5] == "/":
+        try:
+            return datetime.strptime(s, "%d/%m/%Y").date().isoformat()
+        except ValueError as e:
+            raise ValueError("Fecha inválida. Use formato dd/MM/yyyy.") from e
+
+    if "T" in s:
+        s = s.split("T", 1)[0]
+    elif " " in s:
+        s = s.split(" ", 1)[0]
+
+    if len(s) == 10 and s[4] == "-" and s[7] == "-":
+        try:
+            datetime.strptime(s, "%Y-%m-%d")
+            return s
+        except ValueError as e:
+            raise ValueError("Fecha inválida para fechaHasta.") from e
+
+    raise ValueError("Fecha inválida. Use formato dd/MM/yyyy.")
+
+
 @dataclass(frozen=True)
 class RecepcionOut:
     recepcion_id: int
@@ -117,7 +142,6 @@ class SubirOut:
 
 class ArchivoCvsApplication:
     def __init__(self) -> None:
-        self._cvs = ImedCvsHandler()
         self._validators = ValidatorsClient()
 
     @staticmethod
@@ -157,22 +181,6 @@ class ArchivoCvsApplication:
     ) -> CsvOut:
         validador_norm = (validador or "imed").strip().lower()
 
-        if validador_norm == "imed":
-            if ctx:
-                ctx.emit_progress(10, "Leyendo CSV IMED...")
-
-            recetas, detalles = self._cvs.read_cvs_by_imed_and_date(imed=imed, date=fecha_str, obs=obs)
-            recetas = recetas or {}
-            detalles = detalles or {}
-
-            recetas_norm = {str(k): dict(v) for k, v in recetas.items()}
-            detalles_norm = {str(k): [dict(d) for d in arr] for k, arr in detalles.items()}
-
-            if ctx:
-                ctx.emit_progress(90, f"CSV listo: {len(recetas_norm)} recetas")
-
-            return CsvOut(recetas_por_ref=recetas_norm, detalles_por_ref=detalles_norm)
-
         if not nro_prestador:
             raise ValueError("La recepcion no tiene prestador.imed para consultar API.")
         if codigo_financiador is None:
@@ -183,14 +191,18 @@ class ArchivoCvsApplication:
         except Exception as e:
             raise ValueError("Prestador.imed debe ser numerico para consultar API.") from e
 
+        fecha_hasta = date.today().isoformat()
+        if validador_norm == "imed":
+            fecha_hasta = _to_iso_yyyy_mm_dd(fecha_str)
+
         if ctx:
-            ctx.emit_progress(10, "Consultando API de validadores...")
+            ctx.emit_progress(10, "Consultando API de validadores (puede demorar varios minutos)...")
 
         raw = self._validators.get_pendientes(
             validador=validador_norm,
             nro_prestador=nro_prestador_int,
             cod_financiador=int(codigo_financiador),
-            fecha_hasta=date.today().isoformat(),
+            fecha_hasta=fecha_hasta,
         )
 
         recetas, detalles = self._api_to_internal(raw)
