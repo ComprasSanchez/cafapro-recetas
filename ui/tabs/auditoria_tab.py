@@ -102,10 +102,11 @@ class AuditoriaTab(BaseTabWidget):
     COL_DEBITOS = 8
     COL_ARCHIVOS = 9
 
-    def __init__(self, parent=None, creado_por_usuario_id: int | None = None):
+    def __init__(self, parent=None, creado_por_usuario_id: int | None = None, current_user=None):
         super().__init__(parent)
         self.footer_channel = "auditoria"
         self.creado_por_usuario_id = creado_por_usuario_id
+        self.current_user = current_user
 
         self._recepcion_id: int | None = None
         self._rows_view: list = []
@@ -972,6 +973,7 @@ class AuditoriaTab(BaseTabWidget):
             start_index=0,
             parent=self,
             creado_por_usuario_id=self.creado_por_usuario_id,
+            current_user=self.current_user,
         )
 
         dlg.exec()

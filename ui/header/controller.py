@@ -1,4 +1,7 @@
+from PySide6.QtWidgets import QMessageBox
+
 from ui.header.actions import HeaderAction
+from ui.security.permissions import can_access_header_action
 from ui.window_manager import WindowManager
 
 class HeaderController:
@@ -8,6 +11,19 @@ class HeaderController:
         self.windows = window_manager
 
     def handle(self, action: HeaderAction):
+        if not can_access_header_action(
+            user=getattr(self.main_window, "current_user", None),
+            action_key=action.key,
+            kind=action.kind,
+            tab_key=action.tab_key,
+        ):
+            QMessageBox.warning(
+                self.main_window,
+                "Sin permisos",
+                "No tenés permisos para acceder a esta opción.",
+            )
+            return
+
         if action.kind == "tab":
             if not action.tab_key:
                 raise ValueError(f"Action {action.key} es tab pero no tiene tab_key")

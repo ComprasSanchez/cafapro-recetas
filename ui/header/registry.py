@@ -11,10 +11,11 @@ from ui.windows.recepcion_window import RecepcionesWindow
 from ui.windows.resumen_recepcion_window import ResumenRecepcionWindow
 from ui.windows.usuario_window import UsuariosWindow
 from ui.windows.vendedor_window import VendedoresWindow
+from ui.security.permissions import can_access_header_action
 
 
 def build_header_actions(main_window, current_user) -> dict[str, list[HeaderAction]]:
-    return {
+    actions_by_group = {
         "Recepción": [
             HeaderAction(
                 key="recepcion_window",
@@ -118,3 +119,20 @@ def build_header_actions(main_window, current_user) -> dict[str, list[HeaderActi
             )
         ]
     }
+
+    filtered: dict[str, list[HeaderAction]] = {}
+    for group, actions in actions_by_group.items():
+        allowed = [
+            action
+            for action in actions
+            if can_access_header_action(
+                user=current_user,
+                action_key=action.key,
+                kind=action.kind,
+                tab_key=action.tab_key,
+            )
+        ]
+        if allowed:
+            filtered[group] = allowed
+
+    return filtered

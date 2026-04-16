@@ -1,5 +1,6 @@
-from PySide6.QtWidgets import QTabWidget
+from PySide6.QtWidgets import QMessageBox, QTabWidget
 
+from ui.security.permissions import can_access_tab
 from ui.tabs.archivo_cvs_tab import ArchivoCvsTab
 from ui.tabs.auditoria_tab import AuditoriaTab
 from ui.tabs.carga_recepcion_tab import CargaRecepcionTab
@@ -14,6 +15,14 @@ class TabsManager(QTabWidget):
         self._index_by_key: dict[str, int] = {}
 
     def open_tab(self, key: str):
+        if not can_access_tab(user=self.current_user, tab_key=key):
+            QMessageBox.warning(
+                self,
+                "Sin permisos",
+                "No tenés permisos para acceder a esta pestaña.",
+            )
+            return
+
         # si ya está abierto → foco
         if key in self._index_by_key:
             self.setCurrentIndex(self._index_by_key[key])
@@ -33,10 +42,18 @@ class TabsManager(QTabWidget):
 
     def _create_tab(self, key: str):
         if key == "carga-recepcion-handler":
-            return CargaRecepcionTab(creado_por_usuario_id=self.current_user.usuario_id, parent=self), "Carga de recepción"
+            return CargaRecepcionTab(
+                creado_por_usuario_id=self.current_user.usuario_id,
+                current_user=self.current_user,
+                parent=self,
+            ), "Carga de recepción"
         if key == "archivo-cvs":
             return ArchivoCvsTab(self), "Archivo CSV"
         if key == "auditoria":
-            return AuditoriaTab(self, creado_por_usuario_id=self.current_user.usuario_id), "Auditoría"
+            return AuditoriaTab(
+                self,
+                creado_por_usuario_id=self.current_user.usuario_id,
+                current_user=self.current_user,
+            ), "Auditoría"
 
         raise KeyError(f"Tab no registrada: {key}")

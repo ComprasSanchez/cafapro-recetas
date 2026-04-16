@@ -39,6 +39,7 @@ from ui.dialogs.auditoria_visual_troqueles_helpers import (
     estado_permite_eliminar,
     read_troquel_row,
 )
+from ui.security.permissions import is_auditor
 from ui.state.auditoria_state import AuditoriaState
 from ui.usecase.auditoria_visual_usecase import AuditoriaVisualUseCase
 from ui.utils.worker import Worker
@@ -65,6 +66,7 @@ class AuditoriaVisualDialog(QDialog):
         start_index: int = 0,
         parent=None,
         creado_por_usuario_id=None,
+        current_user=None,
     ):
         super().__init__(parent)
         self._pool = QThreadPool(self)
@@ -76,6 +78,8 @@ class AuditoriaVisualDialog(QDialog):
         self._last_preview_path: dict[str, str | None] = {"F": None, "D": None}
 
         self.creado_por_usuario_id = creado_por_usuario_id
+        self.current_user = current_user
+        self._is_auditor = is_auditor(current_user)
         self.data = None
         self.state = AuditoriaState()
 
@@ -852,25 +856,30 @@ class AuditoriaVisualDialog(QDialog):
         estado_seg_id: int | None = None
 
         if debitos_inputs:
-            dlg = EstadoSeguimientoPickDialog(self)
-            if dlg.exec() != dlg.DialogCode.Accepted:
-                QMessageBox.warning(
-                    self,
-                    "Falta estado",
-                    "Tenés que seleccionar un estado de seguimiento para finalizar."
-                )
-                return
+            if self._is_auditor:
+                receta = getattr(self.data, "receta", None)
+                current_estado = getattr(receta, "estado_seguimiento_id", None)
+                estado_seg_id = int(current_estado) if current_estado else None
+            else:
+                dlg = EstadoSeguimientoPickDialog(self)
+                if dlg.exec() != dlg.DialogCode.Accepted:
+                    QMessageBox.warning(
+                        self,
+                        "Falta estado",
+                        "Tenés que seleccionar un estado de seguimiento para finalizar."
+                    )
+                    return
 
-            estado_seg_id = dlg.selected_estado_seguimiento_id()
-            if not estado_seg_id:
-                QMessageBox.warning(
-                    self,
-                    "Falta estado",
-                    "Tenés que seleccionar un estado de seguimiento para finalizar."
-                )
-                return
+                estado_seg_id = dlg.selected_estado_seguimiento_id()
+                if not estado_seg_id:
+                    QMessageBox.warning(
+                        self,
+                        "Falta estado",
+                        "Tenés que seleccionar un estado de seguimiento para finalizar."
+                    )
+                    return
 
-            estado_seg_id = int(estado_seg_id)
+                estado_seg_id = int(estado_seg_id)
 
         try:
             usuario_id = self.creado_por_usuario_id

@@ -15,6 +15,7 @@ from ui.dialogs.recepcion_create_dialog import RecepcionCreateDialog
 from ui.dialogs.recepcion_pick_dialog import RecepcionPickDialog
 
 from ui.tabs.base_tab import BaseTabWidget
+from ui.security.permissions import can_open_carga_debitos_excluidos
 from ui.usecase.carga_recepcion_usecase import (
     CargaRecepcionUseCase,
     LoadRecepcionOut,
@@ -27,10 +28,11 @@ from ui.windows.listado_debitos_window import ListadoDebitosWindow
 
 
 class CargaRecepcionTab(BaseTabWidget):
-    def __init__(self, creado_por_usuario_id, parent=None):
+    def __init__(self, creado_por_usuario_id, current_user=None, parent=None):
         super().__init__(parent)
         self.footer_channel = "carga_recepcion"
         self.creado_por_usuario_id = creado_por_usuario_id
+        self.current_user = current_user
         self.cfg = ConfigManager()
         self._recepcion_id: int | None = None
         self._fecha: datetime | None = None
@@ -38,6 +40,7 @@ class CargaRecepcionTab(BaseTabWidget):
         self._loading_images = False
         self._processing = False
         self._closing_recepcion = False
+        self._allow_debitos_excluidos = can_open_carga_debitos_excluidos(self.current_user)
 
         self.imed: str | None = None
         self.obs: str | None = None
@@ -50,6 +53,7 @@ class CargaRecepcionTab(BaseTabWidget):
 
         root.addWidget(self._build_header(), 0)
         root.addWidget(self._build_table_card(), 1)
+        self._apply_role_permissions()
         self._refresh_action_buttons()
 
     # --------------------------
@@ -111,10 +115,18 @@ class CargaRecepcionTab(BaseTabWidget):
             enabled and has_recepcion and not self._is_busy() and self.tbl_imgs.rowCount() > 0
         )
         self.btn_cerrar.setEnabled(enabled and has_recepcion and not self._is_busy())
-        self.btn_debitos.setEnabled(enabled and has_recepcion and not self._is_busy())
-        self.btn_excluidos.setEnabled(enabled and has_recepcion and not self._is_busy())
+        can_open_aux = self._allow_debitos_excluidos
+        self.btn_debitos.setEnabled(enabled and has_recepcion and not self._is_busy() and can_open_aux)
+        self.btn_excluidos.setEnabled(enabled and has_recepcion and not self._is_busy() and can_open_aux)
         self.btn_dias_descargados.setEnabled(enabled and has_recepcion and not self._is_busy())
         self.de_fecha.setEnabled(enabled and not self._is_busy())
+
+    def _apply_role_permissions(self) -> None:
+        if self._allow_debitos_excluidos:
+            return
+
+        self.btn_debitos.setToolTip("Solo ADMIN")
+        self.btn_excluidos.setToolTip("Solo ADMIN")
 
     def _show_job_error(self, err: str) -> None:
         QMessageBox.critical(self, "Error del proceso", err)
@@ -485,6 +497,10 @@ class CargaRecepcionTab(BaseTabWidget):
         QMessageBox.information(self, "Resultado del procesamiento", msg)
 
     def _on_open_debitos(self) -> None:
+        if not self._allow_debitos_excluidos:
+            QMessageBox.warning(self, "Sin permisos", "No tenés permisos para abrir Débitos.")
+            return
+
         if not self._recepcion_id:
             QMessageBox.warning(self, "Atención", "Primero seleccioná una recepción.")
             return
@@ -498,6 +514,10 @@ class CargaRecepcionTab(BaseTabWidget):
         dlg.exec()
 
     def _on_open_excluidos(self) -> None:
+        if not self._allow_debitos_excluidos:
+            QMessageBox.warning(self, "Sin permisos", "No tenés permisos para abrir Excluidos.")
+            return
+
         if not self._recepcion_id:
             QMessageBox.warning(self, "Atención", "Primero seleccioná una recepción.")
             return
