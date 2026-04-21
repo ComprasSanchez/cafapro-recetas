@@ -23,6 +23,7 @@ from app.service.recetas.tif_logic import (
     evaluate_troqueles,
     match_all_refs_cached,
     norm_str,
+    ref_candidates,
     to_render_states,
     warm_medicamento_cache,
 )
@@ -74,11 +75,82 @@ def _append_revision_sample(
     )
 
 
+def _normalize_header_token(value: str) -> str:
+    raw = norm_str(value)
+    if not raw:
+        return ""
+    digits = "".join(ch for ch in raw if ch.isdigit())
+    return digits or raw
+
+
+def _candidate_archivo_ids(token: str, *, index: dict[str, dict[int, Archivo]]) -> set[int]:
+    ids: set[int] = set()
+    for cand in ref_candidates(token):
+        for archivo_id in index.get(cand, {}):
+            ids.add(int(archivo_id))
+    return ids
+
+
+def _resolve_unique_from_headers(
+    *,
+    refs: list[str],
+    index: dict[str, dict[int, Archivo]],
+) -> int | None:
+    resolved_ids: set[int] = set()
+
+    for ref in refs:
+        ids = _candidate_archivo_ids(ref, index=index)
+        if len(ids) > 1:
+            return None
+        if len(ids) == 1:
+            resolved_ids.update(ids)
+            if len(resolved_ids) > 1:
+                return None
+
+    if len(resolved_ids) == 1:
+        return next(iter(resolved_ids))
+    return None
+
+
+def _extract_short_long_pair(refs: list[str]) -> tuple[str, str] | None:
+    if len(refs) != 2:
+        return None
+
+    short_vals = [x for x in refs if len(x) in (12, 13)]
+    long_vals = [x for x in refs if len(x) >= 18]
+    if len(short_vals) != 1 or len(long_vals) != 1:
+        return None
+
+    return short_vals[0], long_vals[0]
+
+
+def _is_ref_matched_to_archivo(
+    *,
+    ref: str,
+    archivo_id: int,
+    ref_index: dict[str, dict[int, Archivo]],
+    receta_index: dict[str, dict[int, Archivo]],
+    only_ref_match: bool,
+) -> bool:
+    ref_ids = _candidate_archivo_ids(ref, index=ref_index)
+    if archivo_id in ref_ids:
+        return True
+
+    if only_ref_match:
+        return False
+
+    rec_ids = _candidate_archivo_ids(ref, index=receta_index)
+    return archivo_id in rec_ids
+
+
 def select_work_items(
     *,
     scanned: list[_ScannedItem],
     match: _MatchResult,
     only_ref_match: bool,
+    archivo_by_id: dict[int, Archivo],
+    ref_index: dict[str, dict[int, Archivo]],
+    receta_index: dict[str, dict[int, Archivo]],
     seen_recetas: set[str],
     seen_refs: set[str],
     resumen: ProcesarResumen,
@@ -91,7 +163,11 @@ def select_work_items(
     revision_reason_by_item_id: dict[int, str] = {}
 
     for x in scanned:
-        refs = [norm_str(r) for r in (x.scan.headers or []) if norm_str(r)]
+        refs: list[str] = []
+        for raw in (x.scan.headers or []):
+            token = _normalize_header_token(raw)
+            if token:
+                refs.append(token)
 
         if refs:
             resumen.con_header += 1
@@ -113,11 +189,27 @@ def select_work_items(
             continue
 
         archivo: Archivo | None = None
-        for ref in refs:
-            a = match.ref_to_archivo.get(ref)
-            if a is not None:
-                archivo = a
-                break
+        archivo_id: int | None = None
+
+        pair = _extract_short_long_pair(refs)
+        if pair is not None and not only_ref_match:
+            short_ref, long_ref = pair
+            receta_ids = _candidate_archivo_ids(long_ref, index=receta_index)
+            referencia_ids = _candidate_archivo_ids(short_ref, index=ref_index)
+            if len(receta_ids) == 1 and len(referencia_ids) == 1:
+                receta_id = next(iter(receta_ids))
+                referencia_id = next(iter(referencia_ids))
+                if receta_id == referencia_id:
+                    archivo_id = receta_id
+
+        if archivo_id is None and not only_ref_match:
+            archivo_id = _resolve_unique_from_headers(refs=refs, index=receta_index)
+
+        if archivo_id is None:
+            archivo_id = _resolve_unique_from_headers(refs=refs, index=ref_index)
+
+        if archivo_id is not None:
+            archivo = archivo_by_id.get(int(archivo_id))
 
         if archivo is None:
             resumen.sin_match += 1
@@ -169,10 +261,13 @@ def select_work_items(
 
         matched_refs_for_archivo: set[str] = set()
         for ref in refs:
-            a = match.ref_to_archivo.get(ref)
-            if a is None:
-                continue
-            if int(a.archivo_id) == int(archivo.archivo_id):
+            if _is_ref_matched_to_archivo(
+                ref=ref,
+                archivo_id=int(archivo.archivo_id),
+                ref_index=ref_index,
+                receta_index=receta_index,
+                only_ref_match=only_ref_match,
+            ):
                 matched_refs_for_archivo.add(ref)
 
         w_item = _WorkItem(
@@ -386,6 +481,9 @@ def process_scanned_batch(
         scanned=scanned,
         match=match,
         only_ref_match=run_ctx.only_ref_match,
+        archivo_by_id=run_cache.archivo_by_id,
+        ref_index=run_cache.ref_index,
+        receta_index=run_cache.receta_index,
         seen_recetas=seen_recetas,
         seen_refs=seen_refs,
         resumen=resumen,
