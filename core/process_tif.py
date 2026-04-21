@@ -662,7 +662,6 @@ class TiffScanRenderer:
 
         self.jpg_quality = jpg_quality
 
-        self.C_HEADER = (255,0,0)
         self.C_V = (0,181,26)
         self.C_A = (0,255,255)
         self.C_R = (0,0,255)
@@ -698,23 +697,6 @@ class TiffScanRenderer:
         for page_idx, img in enumerate(pages[:2]):
 
             canvas = img.copy()
-
-            # HEADERS
-
-            for d in scan.header_detections:
-
-                if d["page_idx"] != page_idx:
-                    continue
-
-                x,y,w,h = d["bbox"]
-                self._draw_center_line(
-                    canvas,
-                    (x, y, w, h),
-                    self.C_HEADER,
-                    min_thickness=1,
-                    scale=0.05,
-                    y_factor=-0.55,
-                )
 
             # TROQUELES
 
