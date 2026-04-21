@@ -151,10 +151,11 @@ def select_work_items(
     archivo_by_id: dict[int, Archivo],
     ref_index: dict[str, dict[int, Archivo]],
     receta_index: dict[str, dict[int, Archivo]],
+    seen_archivo_ids: set[int],
+    asociados_vigentes_iniciales: set[int],
     seen_recetas: set[str],
     seen_refs: set[str],
     resumen: ProcesarResumen,
-    asociados_vigentes_archivo_ids: set[int],
 ) -> WorkSelectionOut:
     work: list[_WorkItem] = []
     archivo_ids: list[int] = []
@@ -185,7 +186,13 @@ def select_work_items(
             continue
 
         if any(ref in match.duplicated_refs for ref in refs):
-            resumen.duplicados += 1
+            resumen.sin_match += 1
+            resumen.revision_por_sin_match += 1
+            resumen.revision_por_header_sin_match += 1
+            revision_items.append(x)
+            reason = "Header ambiguo"
+            revision_reason_by_item_id[id(x)] = reason
+            _append_revision_sample(resumen, it=x.it, reason=reason, refs=refs)
             continue
 
         archivo: Archivo | None = None
@@ -221,7 +228,20 @@ def select_work_items(
             _append_revision_sample(resumen, it=x.it, reason=reason, refs=refs)
             continue
 
-        if int(archivo.archivo_id) in asociados_vigentes_archivo_ids:
+        if int(archivo.archivo_id) in seen_archivo_ids:
+            revision_items.append(x)
+            resumen.duplicados += 1
+            if only_ref_match:
+                resumen.revision_por_duplicado_lote_ref += 1
+                reason = "Duplicado en lote (ref)"
+            else:
+                resumen.revision_por_duplicado_lote_receta += 1
+                reason = "Duplicado en lote (receta)"
+            revision_reason_by_item_id[id(x)] = reason
+            _append_revision_sample(resumen, it=x.it, reason=reason, refs=refs)
+            continue
+
+        if int(archivo.archivo_id) in asociados_vigentes_iniciales:
             resumen.revision_por_ya_asociado += 1
             revision_items.append(x)
             reason = "Ya asociado"
@@ -235,6 +255,7 @@ def select_work_items(
         if only_ref_match:
             if nro_ref and nro_ref in seen_refs:
                 revision_items.append(x)
+                resumen.duplicados += 1
                 resumen.revision_por_duplicado_lote_ref += 1
                 reason = "Duplicado en lote (ref)"
                 revision_reason_by_item_id[id(x)] = reason
@@ -245,6 +266,7 @@ def select_work_items(
             rec_dup = bool(nro_rec and nro_rec in seen_recetas)
             if rec_dup or ref_dup:
                 revision_items.append(x)
+                resumen.duplicados += 1
                 if rec_dup:
                     resumen.revision_por_duplicado_lote_receta += 1
                 if ref_dup:
@@ -258,6 +280,7 @@ def select_work_items(
             seen_recetas.add(nro_rec)
         if nro_ref:
             seen_refs.add(nro_ref)
+        seen_archivo_ids.add(int(archivo.archivo_id))
 
         matched_refs_for_archivo: set[str] = set()
         for ref in refs:
@@ -450,6 +473,8 @@ def process_scanned_batch(
     run_cache: TifRunCache,
     usuario_id: int,
     med_cache: dict[str, MedicamentoDTO | None],
+    seen_archivo_ids: set[int],
+    asociados_vigentes_iniciales: set[int],
     seen_recetas: set[str],
     seen_refs: set[str],
     revision_counter: int,
@@ -484,10 +509,11 @@ def process_scanned_batch(
         archivo_by_id=run_cache.archivo_by_id,
         ref_index=run_cache.ref_index,
         receta_index=run_cache.receta_index,
+        seen_archivo_ids=seen_archivo_ids,
+        asociados_vigentes_iniciales=asociados_vigentes_iniciales,
         seen_recetas=seen_recetas,
         seen_refs=seen_refs,
         resumen=resumen,
-        asociados_vigentes_archivo_ids=run_cache.asociados_vigentes_archivo_ids,
     )
     if stage_cb:
         stage_cb("SELECT", max(0.0, time.perf_counter() - select_started_at))
@@ -604,6 +630,8 @@ def process_chunk(
     run_cache: TifRunCache,
     usuario_id: int,
     med_cache: dict[str, MedicamentoDTO | None],
+    seen_archivo_ids: set[int],
+    asociados_vigentes_iniciales: set[int],
     seen_recetas: set[str],
     seen_refs: set[str],
     revision_counter: int,
@@ -638,6 +666,8 @@ def process_chunk(
         run_cache=run_cache,
         usuario_id=usuario_id,
         med_cache=med_cache,
+        seen_archivo_ids=seen_archivo_ids,
+        asociados_vigentes_iniciales=asociados_vigentes_iniciales,
         seen_recetas=seen_recetas,
         seen_refs=seen_refs,
         revision_counter=revision_counter,
@@ -708,6 +738,8 @@ def process_items_in_chunks(
 ) -> ProcesarResumen:
     total = ProcesarResumen()
     med_cache: dict[str, MedicamentoDTO | None] = {}
+    seen_archivo_ids: set[int] = set()
+    asociados_vigentes_iniciales = set(run_cache.asociados_vigentes_archivo_ids)
     seen_recetas: set[str] = set()
     seen_refs: set[str] = set()
     revision_counter = 1
@@ -728,6 +760,8 @@ def process_items_in_chunks(
             run_cache=run_cache,
             usuario_id=usuario_id,
             med_cache=med_cache,
+            seen_archivo_ids=seen_archivo_ids,
+            asociados_vigentes_iniciales=asociados_vigentes_iniciales,
             seen_recetas=seen_recetas,
             seen_refs=seen_refs,
             revision_counter=revision_counter,
@@ -783,6 +817,8 @@ def process_items_individual_async(
 ) -> ProcesarResumen:
     total = ProcesarResumen()
     med_cache: dict[str, MedicamentoDTO | None] = {}
+    seen_archivo_ids: set[int] = set()
+    asociados_vigentes_iniciales = set(run_cache.asociados_vigentes_archivo_ids)
     seen_recetas: set[str] = set()
     seen_refs: set[str] = set()
     revision_counter = 1
@@ -876,6 +912,8 @@ def process_items_individual_async(
                 run_cache=run_cache,
                 usuario_id=usuario_id,
                 med_cache=med_cache,
+                seen_archivo_ids=seen_archivo_ids,
+                asociados_vigentes_iniciales=asociados_vigentes_iniciales,
                 seen_recetas=seen_recetas,
                 seen_refs=seen_refs,
                 revision_counter=revision_counter,

@@ -472,7 +472,7 @@ class CargaRecepcionTab(BaseTabWidget):
         msg = (
             f"Procesadas: {resumen.ok}\n"
             f"Sin coincidencia: {resumen.sin_match}\n"
-            f"Duplicadas (nro_referencia en múltiples archivos): {resumen.duplicados}\n"
+            f"Duplicadas: {resumen.duplicados}\n"
             f"Ya asociadas: {resumen.ya_asociado}"
         )
         if getattr(resumen, "errores", None):
