@@ -121,6 +121,15 @@ class RecepcionService:
         if not estado_recepcion_id:
             raise ValueError("estado_recepcion es obligatorio.")
 
+        if RecepcionRepository.exists_open_by_obra_prestador(
+            s,
+            obra_social_id=int(obra_social_id),
+            prestador_id=int(prestador_id),
+        ):
+            raise RuntimeError(
+                "Tiene un período anterior sin cerrar."
+            )
+
         if RecepcionRepository.exists_same_scope(
             s,
             obra_social_id=int(obra_social_id),

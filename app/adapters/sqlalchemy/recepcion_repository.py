@@ -93,6 +93,23 @@ class RecepcionRepository:
         return existe is not None
 
     @staticmethod
+    def exists_open_by_obra_prestador(
+        session: Session,
+        *,
+        obra_social_id: int,
+        prestador_id: int,
+    ) -> bool:
+        existe = session.execute(
+            select(Recepcion.recepcion_id).where(
+                Recepcion.obra_social_id == int(obra_social_id),
+                Recepcion.prestador_id == int(prestador_id),
+                Recepcion.estado_recepcion_id == 1,
+            )
+        ).scalar_one_or_none()
+
+        return existe is not None
+
+    @staticmethod
     def create(
         session: Session,
         *,

@@ -131,6 +131,17 @@ class CargaRecepcionTab(BaseTabWidget):
     def _show_job_error(self, err: str) -> None:
         QMessageBox.critical(self, "Error del proceso", err)
 
+    def _confirmar_warning_csv(self) -> bool:
+        ans = QMessageBox.warning(
+            self,
+            "Atención",
+            "Recordá cargar/subir el CSV antes de Cargar o Procesar esta recepción.\n"
+            "¿Querés continuar igual?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        return ans == QMessageBox.StandardButton.Yes
+
     def _on_load_images_finished(self) -> None:
         self._loading_images = False
         self._refresh_action_buttons()
@@ -371,6 +382,8 @@ class CargaRecepcionTab(BaseTabWidget):
         if self._processing or self._closing_recepcion:
             self.footer_set(info="Hay otra operación en curso. Esperá a que finalice.")
             return
+        if not self._confirmar_warning_csv():
+            return
 
         self._clear_images_table()
         self._refresh_action_buttons()
@@ -431,6 +444,8 @@ class CargaRecepcionTab(BaseTabWidget):
             return
         if self._loading_images or self._closing_recepcion:
             self.footer_set(info="Hay otra operación en curso. Esperá a que finalice.")
+            return
+        if not self._confirmar_warning_csv():
             return
 
         if not self._recepcion_id:
