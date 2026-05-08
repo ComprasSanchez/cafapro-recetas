@@ -22,6 +22,7 @@ from ui.tabs.base_tab import BaseTabWidget
 from ui.dialogs.recepcion_pick_dialog import RecepcionPickDialog
 from ui.dialogs.auditoria_visual_dialog import AuditoriaVisualDialog
 from ui.jobs.jobs_service import ServiceJob
+from ui.security.permissions import is_admin
 
 from ui.usecase.auditoria_usecase import (
     AuditoriaUseCase, RecepcionOut, EstadosOut, AuditoriaRowsOut, PreviewBytesOut
@@ -91,6 +92,7 @@ class SortableTableWidgetItem(QTableWidgetItem):
 
 class AuditoriaTab(BaseTabWidget):
     ROW_H = 32  # un toque más compacta
+    ESTADO_RECETA_REVISION_ID = 3
 
     COL_RECETA = 0
     COL_REF = 1
@@ -102,12 +104,14 @@ class AuditoriaTab(BaseTabWidget):
     COL_ESTADO = 7
     COL_DEBITOS = 8
     COL_ARCHIVOS = 9
+    COL_ELIMINAR = 10
 
     def __init__(self, parent=None, creado_por_usuario_id: int | None = None, current_user=None):
         super().__init__(parent)
         self.footer_channel = "auditoria"
         self.creado_por_usuario_id = creado_por_usuario_id
         self.current_user = current_user
+        self._is_admin = is_admin(current_user)
 
         self._recepcion_id: int | None = None
         self._rows_view: list = []
@@ -122,6 +126,10 @@ class AuditoriaTab(BaseTabWidget):
         self._preview_runner.setMaxThreadCount(1)
         self._active_preview_jobs: set[ServiceJob] = set()
         self._preview_request_id = 0
+        self.btn_delete_revisiones: QPushButton | None = None
+        self.btn_mark_revisiones: QPushButton | None = None
+        self.btn_clear_revisiones: QPushButton | None = None
+        self._marked_revision_ids: set[int] = set()
 
         # evita que se dispare preview mientras re-renderizamos
         self._rendering_table = False
@@ -296,8 +304,10 @@ class AuditoriaTab(BaseTabWidget):
         self.in_quincena.setText(quincena)
 
         self._rows_view = []
+        self._marked_revision_ids.clear()
         self._clear_table_and_preview()
         self._update_reload_button_state()
+        self._refresh_admin_actions_state()
         self._request_reload_auditoria(title="Cargando auditoría…")
 
     # -------------------------
@@ -326,13 +336,13 @@ class AuditoriaTab(BaseTabWidget):
         left_l.setContentsMargins(0, 0, 0, 0)
         left_l.setSpacing(0)
 
-        self.tbl = QTableWidget(0, 10)
+        self.tbl = QTableWidget(0, 11)
         self.tbl.setObjectName("auditoria_rows_table")
         self.tbl.setHorizontalHeaderLabels([
             "Receta", "Referencia", "Lote",
             "Receta OK", "Archivo OK",
             "Reconocido", "Oficial", "Estado",
-            "Débitos", "Archivo"
+            "Débitos", "Archivo", "Eliminar"
         ])
 
         self.tbl.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -392,12 +402,17 @@ class AuditoriaTab(BaseTabWidget):
         hh.resizeSection(self.COL_OFI, 90)
         hh.resizeSection(self.COL_ESTADO, 80)
         hh.resizeSection(self.COL_DEBITOS, 80)
+        hh.resizeSection(self.COL_ELIMINAR, 85)
 
         hh.setContextMenuPolicy(Qt.CustomContextMenu)
         hh.customContextMenuRequested.connect(self._show_column_menu)
 
         self.tbl.cellClicked.connect(self._on_cell_clicked)
         self.tbl.currentCellChanged.connect(self._on_current_cell_changed)
+        self.tbl.itemChanged.connect(self._on_table_item_changed)
+
+        if not self._is_admin:
+            self.tbl.setColumnHidden(self.COL_ELIMINAR, True)
 
         left_l.addWidget(self.tbl, 1)
         split.addWidget(left)
@@ -412,6 +427,11 @@ class AuditoriaTab(BaseTabWidget):
         title = QLabel("Vista previa")
         title.setProperty("role", "subtitle")
         rp_l.addWidget(title, 0)
+
+        self.lb_preview_delete = QLabel("")
+        self.lb_preview_delete.setVisible(False)
+        self.lb_preview_delete.setObjectName("muted")
+        rp_l.addWidget(self.lb_preview_delete, 0)
 
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
@@ -475,6 +495,23 @@ class AuditoriaTab(BaseTabWidget):
         self.lb_filtered.setObjectName("muted")
         l.addWidget(self.lb_filtered, 0)
 
+        if self._is_admin:
+            self.btn_mark_revisiones = QPushButton("Marcar revisiones")
+            self.btn_mark_revisiones.setMinimumHeight(28)
+            self.btn_mark_revisiones.clicked.connect(self._on_mark_revisiones)
+            l.addWidget(self.btn_mark_revisiones, 0)
+
+            self.btn_clear_revisiones = QPushButton("Limpiar selección")
+            self.btn_clear_revisiones.setMinimumHeight(28)
+            self.btn_clear_revisiones.clicked.connect(self._on_clear_revisiones)
+            l.addWidget(self.btn_clear_revisiones, 0)
+
+            self.btn_delete_revisiones = QPushButton("Eliminar revisiones")
+            self.btn_delete_revisiones.setProperty("danger", True)
+            self.btn_delete_revisiones.setMinimumHeight(28)
+            self.btn_delete_revisiones.clicked.connect(self._on_delete_revisiones)
+            l.addWidget(self.btn_delete_revisiones, 0)
+
         l.addStretch(1)
         return bar
 
@@ -482,6 +519,9 @@ class AuditoriaTab(BaseTabWidget):
         menu = QMenu(self)
 
         for col in range(self.tbl.columnCount()):
+            if (not self._is_admin) and col == self.COL_ELIMINAR:
+                continue
+
             col_name = self.tbl.horizontalHeaderItem(col).text()
             action = menu.addAction(col_name)
             action.setCheckable(True)
@@ -544,10 +584,11 @@ class AuditoriaTab(BaseTabWidget):
                 lambda: self._duplicar_receta(receta_id)
             )
 
-            act_del = menu.addAction("Eliminar / Sobrante")
-            act_del.triggered.connect(
-                lambda: self._eliminar_sobrante(receta_id)
-            )
+            if self._is_admin:
+                act_del = menu.addAction("Eliminar / Sobrante")
+                act_del.triggered.connect(
+                    lambda: self._eliminar_sobrante(receta_id)
+                )
 
             act_reasociar = menu.addAction("Reasociar receta")
 
@@ -581,6 +622,7 @@ class AuditoriaTab(BaseTabWidget):
             self.cb_estado.addItem(str(desc), int(eid))
 
         self.cb_estado.blockSignals(False)
+        self._refresh_admin_actions_state()
 
     def _apply_auditoria_rows(self, out: AuditoriaRowsOut) -> None:
         self._rows_view = self._map_rows(out.rows)
@@ -595,6 +637,10 @@ class AuditoriaTab(BaseTabWidget):
     def _request_reload_auditoria(self, *, title: str) -> None:
         if not self._recepcion_id:
             return
+
+        self._marked_revision_ids.clear()
+        self._sync_preview_delete_marker()
+        self._refresh_admin_actions_state()
 
         if self._auditoria_loading:
             self.footer_set(info="La auditoría ya se está actualizando.")
@@ -628,6 +674,7 @@ class AuditoriaTab(BaseTabWidget):
     def _on_reload_finished(self) -> None:
         self._auditoria_loading = False
         self._update_reload_button_state()
+        self._refresh_admin_actions_state()
 
     # -------------------------
     # Filters (en memoria)
@@ -686,6 +733,7 @@ class AuditoriaTab(BaseTabWidget):
         rows = [base_rows[i] for i in idxs]
         self._render_table(rows)
         self.lb_filtered.setText(f"Mostrando {len(rows)} de {total}")
+        self._refresh_admin_actions_state()
 
     def _render_table(self, rows):
 
@@ -760,6 +808,7 @@ class AuditoriaTab(BaseTabWidget):
             self._paint_active_row(self._active_row, active=True)
 
         self.tbl.viewport().update()
+        self._sync_preview_delete_marker()
 
     def _paint_active_row(self, row: int, *, active: bool) -> None:
         if row < 0 or row >= self.tbl.rowCount():
@@ -806,6 +855,32 @@ class AuditoriaTab(BaseTabWidget):
 
         self._on_item_clicked(it)
 
+    def _on_table_item_changed(self, item: QTableWidgetItem) -> None:
+        if self._rendering_table or not self._is_admin:
+            return
+
+        if item.column() != self.COL_ELIMINAR:
+            return
+
+        c0 = self.tbl.item(item.row(), self.COL_RECETA)
+        if not c0:
+            return
+
+        data = c0.data(Qt.UserRole) or {}
+        receta_id = int(data.get("receta_id", 0) or 0)
+        estado_id = int(data.get("estado_id", 0) or 0)
+
+        if receta_id <= 0 or estado_id != self.ESTADO_RECETA_REVISION_ID:
+            return
+
+        if item.checkState() == Qt.CheckState.Checked:
+            self._marked_revision_ids.add(receta_id)
+        else:
+            self._marked_revision_ids.discard(receta_id)
+
+        self._sync_preview_delete_marker()
+        self._refresh_admin_actions_state()
+
     def eventFilter(self, obj, event):
         if obj is getattr(self, "tbl", None) and event.type() == QEvent.Type.KeyPress:
             key = event.key()
@@ -846,6 +921,7 @@ class AuditoriaTab(BaseTabWidget):
             self._clear_preview()
             self._last_preview_path = None
             self._sync_visual_button_state()
+            self._sync_preview_delete_marker()
             return
 
         src = self._uc.resolve_preview_src(raw)
@@ -855,6 +931,7 @@ class AuditoriaTab(BaseTabWidget):
         self._load_preview_async(src)
 
         self._sync_visual_button_state()
+        self._sync_preview_delete_marker()
 
     def _load_preview_async(self, path: str) -> None:
         vw = max(200, self.scroll.viewport().width() - 12)
@@ -912,14 +989,38 @@ class AuditoriaTab(BaseTabWidget):
         self._preview_request_id += 1
         self.img_preview.setPixmap(QPixmap())
         self.img_preview.setText("Sin imagen")
+        self.lb_preview_delete.setVisible(False)
+        self.lb_preview_delete.setText("")
         self._last_preview_path = None
         self.btn_visual.setEnabled(False)
+
+    def _sync_preview_delete_marker(self) -> None:
+        if not self._is_admin:
+            self.lb_preview_delete.setVisible(False)
+            self.lb_preview_delete.setText("")
+            return
+
+        row = self._active_row if self._active_row >= 0 else self.tbl.currentRow()
+        if row < 0:
+            self.lb_preview_delete.setVisible(False)
+            self.lb_preview_delete.setText("")
+            return
+
+        it = self.tbl.item(row, self.COL_ELIMINAR)
+        if not it or it.checkState() != Qt.CheckState.Checked:
+            self.lb_preview_delete.setVisible(False)
+            self.lb_preview_delete.setText("")
+            return
+
+        self.lb_preview_delete.setText("Marcada para eliminar")
+        self.lb_preview_delete.setVisible(True)
 
     def _clear_table_and_preview(self) -> None:
         self.tbl.setRowCount(0)
         self.lb_status.setText("Cargando auditoría…")
         self.lb_filtered.setText("")
         self._clear_preview()
+        self._refresh_admin_actions_state()
 
     def resize_event(self, event) -> None:
         super().resizeEvent(event)
@@ -988,6 +1089,189 @@ class AuditoriaTab(BaseTabWidget):
     def _on_open_historial_search(self) -> None:
         dlg = HistorialSearchDialog(parent=self)
         dlg.exec()
+
+    def _refresh_admin_actions_state(self) -> None:
+        if not self._is_admin or not self.btn_delete_revisiones:
+            return
+
+        has_recepcion = bool(self._recepcion_id)
+        has_marked = bool(self._collect_marked_revision_receta_ids())
+        has_visible_revisiones = bool(self._collect_visible_revision_receta_ids())
+
+        can_delete = (
+            has_recepcion
+            and not self._auditoria_loading
+            and self._is_estado_revision_selected()
+            and has_marked
+        )
+        self.btn_delete_revisiones.setEnabled(can_delete)
+
+        if self.btn_mark_revisiones:
+            self.btn_mark_revisiones.setEnabled(
+                has_recepcion
+                and not self._auditoria_loading
+                and self._is_estado_revision_selected()
+                and has_visible_revisiones
+            )
+
+        if self.btn_clear_revisiones:
+            self.btn_clear_revisiones.setEnabled(
+                has_recepcion
+                and not self._auditoria_loading
+                and has_marked
+            )
+
+    def _is_estado_revision_selected(self) -> bool:
+        if not hasattr(self, "cb_estado"):
+            return False
+        data = self.cb_estado.currentData()
+        if data is None or data == "SIN_ASOC":
+            return False
+        try:
+            return int(data) == self.ESTADO_RECETA_REVISION_ID
+        except Exception:
+            return False
+
+    def _collect_visible_revision_receta_ids(self) -> list[int]:
+        ids: list[int] = []
+        seen: set[int] = set()
+
+        for row in range(self.tbl.rowCount()):
+            c0 = self.tbl.item(row, self.COL_RECETA)
+            if not c0:
+                continue
+
+            data = c0.data(Qt.UserRole) or {}
+            estado_id = int(data.get("estado_id", 0) or 0)
+            receta_id = int(data.get("receta_id", 0) or 0)
+
+            if estado_id != self.ESTADO_RECETA_REVISION_ID or receta_id <= 0:
+                continue
+            if receta_id in seen:
+                continue
+
+            seen.add(receta_id)
+            ids.append(receta_id)
+
+        return ids
+
+    def _collect_marked_revision_receta_ids(self) -> list[int]:
+        ids: list[int] = []
+        seen: set[int] = set()
+
+        for row in range(self.tbl.rowCount()):
+            mark_it = self.tbl.item(row, self.COL_ELIMINAR)
+            if not mark_it or mark_it.checkState() != Qt.CheckState.Checked:
+                continue
+
+            c0 = self.tbl.item(row, self.COL_RECETA)
+            if not c0:
+                continue
+
+            data = c0.data(Qt.UserRole) or {}
+            estado_id = int(data.get("estado_id", 0) or 0)
+            receta_id = int(data.get("receta_id", 0) or 0)
+
+            if estado_id != self.ESTADO_RECETA_REVISION_ID or receta_id <= 0:
+                continue
+            if receta_id in seen:
+                continue
+
+            seen.add(receta_id)
+            ids.append(receta_id)
+
+        return ids
+
+    def _set_mark_for_visible_revisiones(self, *, checked: bool) -> None:
+        self.tbl.blockSignals(True)
+        try:
+            for row in range(self.tbl.rowCount()):
+                c0 = self.tbl.item(row, self.COL_RECETA)
+                mark_it = self.tbl.item(row, self.COL_ELIMINAR)
+                if not c0 or not mark_it:
+                    continue
+
+                data = c0.data(Qt.UserRole) or {}
+                estado_id = int(data.get("estado_id", 0) or 0)
+                receta_id = int(data.get("receta_id", 0) or 0)
+
+                if estado_id != self.ESTADO_RECETA_REVISION_ID or receta_id <= 0:
+                    continue
+
+                mark_it.setCheckState(Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
+
+                if checked:
+                    self._marked_revision_ids.add(receta_id)
+                else:
+                    self._marked_revision_ids.discard(receta_id)
+        finally:
+            self.tbl.blockSignals(False)
+
+        self._sync_preview_delete_marker()
+        self._refresh_admin_actions_state()
+
+    def _on_mark_revisiones(self) -> None:
+        if not self._is_admin:
+            return
+        self._set_mark_for_visible_revisiones(checked=True)
+
+    def _on_clear_revisiones(self) -> None:
+        if not self._is_admin:
+            return
+        self._marked_revision_ids.clear()
+        self._set_mark_for_visible_revisiones(checked=False)
+
+    def _on_delete_revisiones(self) -> None:
+        if not self._is_admin:
+            return
+
+        receta_ids = self._collect_marked_revision_receta_ids()
+        if not receta_ids:
+            QMessageBox.information(self, "Sin datos", "No hay recetas marcadas para eliminar.")
+            return
+
+        ans = QMessageBox.warning(
+            self,
+            "Eliminar revisiones",
+            (
+                f"Se eliminarán {len(receta_ids)} recetas en revisión.\n\n"
+                "También se eliminarán imágenes y datos asociados.\n"
+                "Esta acción no se puede deshacer."
+            ),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if ans != QMessageBox.StandardButton.Yes:
+            return
+
+        self.run_job(
+            self._uc.eliminar_sobrantes_bulk,
+            receta_ids=receta_ids,
+            title="Eliminando recetas en revisión...",
+            on_result=self._on_delete_revisiones_done,
+            on_error=self._ui_error,
+            job_key=f"auditoria:eliminar_bulk:{int(self._recepcion_id or 0)}",
+        )
+
+    def _on_delete_revisiones_done(self, out: dict) -> None:
+        total = int(out.get("total", 0) or 0)
+        eliminadas = int(out.get("eliminadas", 0) or 0)
+        omitidas = int(out.get("omitidas", 0) or 0)
+        errores = list(out.get("errores") or [])
+
+        msg = [
+            f"Total evaluadas: {total}",
+            f"Eliminadas: {eliminadas}",
+            f"Omitidas: {omitidas}",
+        ]
+        if errores:
+            msg.append(f"Errores: {len(errores)}")
+
+        QMessageBox.information(self, "Eliminación masiva completada", "\n".join(msg))
+        self._marked_revision_ids.clear()
+        self._sync_preview_delete_marker()
+        self._refresh_admin_actions_state()
+        self._reload_auditoria()
 
     # -------------------------
     # UI error helpers
@@ -1095,6 +1379,8 @@ class AuditoriaTab(BaseTabWidget):
         )
 
     def _eliminar_sobrante(self, receta_id: int):
+        if not self._is_admin:
+            return
 
         resp = QMessageBox.warning(
             self,
@@ -1114,9 +1400,15 @@ class AuditoriaTab(BaseTabWidget):
             self._uc.eliminar_sobrante,
             receta_id=receta_id,
             title="Eliminando receta...",
-            on_result=lambda _out: self._reload_auditoria(),
+            on_result=lambda _out, rid=receta_id: self._on_delete_single_done(int(rid)),
             job_key=f"auditoria:eliminar:{int(receta_id)}",
         )
+
+    def _on_delete_single_done(self, receta_id: int) -> None:
+        self._marked_revision_ids.discard(int(receta_id))
+        self._sync_preview_delete_marker()
+        self._refresh_admin_actions_state()
+        self._reload_auditoria()
 
     def _desasociar_receta(self, receta_id: int):
 
@@ -1208,6 +1500,8 @@ class AuditoriaTab(BaseTabWidget):
         nombre_archivo = Path(r.frente_jpg).name if r.frente_jpg else ""
         self._set_item(i, self.COL_ARCHIVOS, nombre_archivo)
 
+        self._set_delete_marker_item(i, r)
+
     def _store_row_data(self, row, r: AuditoriaRowVM):
 
         it = self.tbl.item(row, self.COL_RECETA)
@@ -1224,6 +1518,28 @@ class AuditoriaTab(BaseTabWidget):
         }
 
         it.setData(Qt.UserRole, data)
+
+    def _set_delete_marker_item(self, row: int, r: AuditoriaRowVM) -> None:
+        it = QTableWidgetItem("")
+        it.setTextAlignment(Qt.AlignCenter)
+
+        if self._is_admin and r.es_revision and int(r.receta_id or 0) > 0:
+            flags = it.flags()
+            flags |= Qt.ItemFlag.ItemIsUserCheckable
+            flags |= Qt.ItemFlag.ItemIsEnabled
+            flags &= ~Qt.ItemFlag.ItemIsEditable
+            flags &= ~Qt.ItemFlag.ItemIsSelectable
+            it.setFlags(flags)
+
+            rid = int(r.receta_id)
+            it.setCheckState(
+                Qt.CheckState.Checked if rid in self._marked_revision_ids else Qt.CheckState.Unchecked
+            )
+        else:
+            it.setText("-")
+            it.setFlags(it.flags() & ~Qt.ItemFlag.ItemIsEditable & ~Qt.ItemFlag.ItemIsSelectable)
+
+        self.tbl.setItem(row, self.COL_ELIMINAR, it)
 
     def _apply_row_colors(self, row, r: AuditoriaRowVM):
 

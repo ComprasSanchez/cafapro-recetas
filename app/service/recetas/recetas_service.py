@@ -259,5 +259,49 @@ class RecetaService:
         s.delete(receta)
         s.flush()
 
+    @staticmethod
+    def eliminar_sobrantes_bulk(
+            s: Session,
+            *,
+            receta_ids: list[int],
+    ) -> dict:
+        ids: list[int] = []
+        seen: set[int] = set()
+
+        for raw in receta_ids or []:
+            rid = int(raw or 0)
+            if rid <= 0 or rid in seen:
+                continue
+            seen.add(rid)
+            ids.append(rid)
+
+        eliminadas = 0
+        omitidas = 0
+        errores: list[dict[str, str | int]] = []
+
+        for rid in ids:
+            rec = s.get(Recetas, int(rid))
+            if not rec:
+                omitidas += 1
+                continue
+
+            estado_id = int(getattr(rec, "estado_receta_id", 0) or 0)
+            if estado_id != RecetaService.ESTADO_RECETA_REVISION:
+                omitidas += 1
+                continue
+
+            try:
+                RecetaService.eliminar_sobrante(s, receta_id=int(rid))
+                eliminadas += 1
+            except Exception as e:
+                errores.append({"receta_id": int(rid), "error": str(e)})
+
+        return {
+            "total": len(ids),
+            "eliminadas": eliminadas,
+            "omitidas": omitidas,
+            "errores": errores,
+        }
+
 
 

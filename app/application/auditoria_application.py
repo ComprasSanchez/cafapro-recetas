@@ -282,6 +282,14 @@ class AuditoriaApplication:
             )
 
     @staticmethod
+    def eliminar_sobrantes_bulk(*, receta_ids: list[int]) -> dict:
+        with session_scope() as s:
+            return RecetaService.eliminar_sobrantes_bulk(
+                s,
+                receta_ids=list(receta_ids or []),
+            )
+
+    @staticmethod
     def desasociar_receta(*, receta_id: int) -> None:
         with session_scope() as s:
             AsociacionService.desasociar(
