@@ -48,6 +48,22 @@ class DebitosViewRepository:
         return q.all()
 
     @staticmethod
+    def has_debitos_sin_estado_by_recepcion(
+        session: Session,
+        *,
+        recepcion_id: int,
+    ) -> bool:
+        row = (
+            session.query(VwArchivoRecetaDebitos.receta_id)
+            .filter(
+                VwArchivoRecetaDebitos.recepcion_id == int(recepcion_id),
+                VwArchivoRecetaDebitos.estado_seguimiento_id.is_(None),
+            )
+            .first()
+        )
+        return row is not None
+
+    @staticmethod
     def list_wrong_debitos_month(
         session: Session,
         *,

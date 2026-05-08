@@ -30,6 +30,7 @@ class ExcluidosWindow(QDialog):
         self._recepcion_fija = recepcion_id is not None
         self._validador = "imed"
         self._rows_cache: list = []
+        self._has_debitos_sin_estado = False
         self._sync_running = False
         self._worker: Worker | None = None
         self._pool = QThreadPool(self)
@@ -55,6 +56,12 @@ class ExcluidosWindow(QDialog):
         head.addWidget(self.btn_reload, 0)
 
         root.addLayout(head)
+
+        self.lb_estado_warning = QLabel("")
+        self.lb_estado_warning.setWordWrap(True)
+        self.lb_estado_warning.setStyleSheet("color: #B00020;")
+        self.lb_estado_warning.setVisible(False)
+        root.addWidget(self.lb_estado_warning, 0)
 
         # Table
         self.table = QTableWidget(0, 6)
@@ -149,6 +156,14 @@ class ExcluidosWindow(QDialog):
             return
 
         try:
+            self._has_debitos_sin_estado = RecepcionesWindowsUseCase.has_debitos_sin_estado_by_recepcion(
+                recepcion_id=int(self._recepcion_id),
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"No se pudo validar estados de seguimiento:\n{e}")
+            return
+
+        try:
             rows = RecepcionesWindowsUseCase.list_excluidos_by_recepcion(
                 recepcion_id=self._recepcion_id,
             )
@@ -175,18 +190,32 @@ class ExcluidosWindow(QDialog):
             self._set(i, 4, self._fmt_ar(imp_bruto), align_center=True)
             self._set(i, 5, self._fmt_ar(imp_cobertura), align_center=True)
 
-        self.btn_copy.setEnabled(self.table.rowCount() > 0)
         self._refresh_validators_actions()
 
     def _refresh_validators_actions(self) -> None:
         enabled_for_os = self._validador == "preserfar"
         has_refs = bool(self._collect_referencias())
-        can_run = enabled_for_os and has_refs and not self._sync_running
+        blocked_by_estado = self._has_debitos_sin_estado
+        has_rows = self.table.rowCount() > 0
+
+        can_run = enabled_for_os and has_refs and not self._sync_running and not blocked_by_estado
+        can_copy = has_rows and not self._sync_running and not blocked_by_estado
 
         self.btn_excluir_todos.setVisible(enabled_for_os)
         self.btn_incluir_todos.setVisible(enabled_for_os)
         self.btn_excluir_todos.setEnabled(can_run)
         self.btn_incluir_todos.setEnabled(can_run)
+        self.btn_copy.setEnabled(can_copy)
+
+        if blocked_by_estado:
+            self.lb_estado_warning.setText(
+                "Hay débitos sin estado de seguimiento en esta recepción. "
+                "Resolvelos en Débitos antes de usar Excluidos."
+            )
+            self.lb_estado_warning.setVisible(True)
+        else:
+            self.lb_estado_warning.setVisible(False)
+            self.lb_estado_warning.setText("")
 
     def _collect_referencias(self) -> list[str]:
         refs: list[str] = []
@@ -209,6 +238,14 @@ class ExcluidosWindow(QDialog):
 
     def _run_sync_validadores(self, accion: str) -> None:
         if not self._recepcion_id:
+            return
+        if self._has_debitos_sin_estado:
+            QMessageBox.warning(
+                self,
+                "Acción bloqueada",
+                "Hay débitos sin estado de seguimiento en esta recepción. "
+                "Resolvelos en Débitos antes de usar Excluidos.",
+            )
             return
         if self._validador != "preserfar":
             QMessageBox.information(
@@ -280,6 +317,15 @@ class ExcluidosWindow(QDialog):
         QMessageBox.critical(self, "Error", f"No se pudo sincronizar con el validador:\n{err}")
 
     def _copy_table_to_clipboard(self) -> None:
+        if self._has_debitos_sin_estado:
+            QMessageBox.warning(
+                self,
+                "Acción bloqueada",
+                "Hay débitos sin estado de seguimiento en esta recepción. "
+                "Resolvelos en Débitos antes de usar Excluidos.",
+            )
+            return
+
         # Formato: TAB separated (ideal para pegar en Excel/Sheets)
         # Encabezados pedidos (sin "Etiqueta")
         headers = ["Nº Referencia", "Nº Receta", "Fecha", "Hora", "Total"]

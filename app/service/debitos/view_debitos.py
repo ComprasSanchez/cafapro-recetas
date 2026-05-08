@@ -59,6 +59,14 @@ class ViewDebitos:
             )
 
     @staticmethod
+    def has_debitos_sin_estado_by_recepcion(*, recepcion_id: int) -> bool:
+        with session_scope() as s:
+            return DebitosViewRepository.has_debitos_sin_estado_by_recepcion(
+                s,
+                recepcion_id=int(recepcion_id),
+            )
+
+    @staticmethod
     def get_periodo_label(recepcion_id: int) -> str:
         if not recepcion_id:
             return "sin-periodo"
@@ -191,7 +199,7 @@ class ViewDebitos:
 
                 ws.write(i, 9, str(getattr(r, "descripcion_debito", "") or ""), fmt_cell)
                 estado_seguimiento = getattr(r, "estado_seguimiento", None)
-                estado_text = str(estado_seguimiento or "").strip() or "Sin estado (NULL)"
+                estado_text = str(estado_seguimiento or "").strip() or "Sin estado"
                 ws.write(i, 10, estado_text, fmt_cell)
                 ws.write(i, 11, str(getattr(r, "detalle", "") or ""), fmt_cell)
                 ws.write(i, 12, str(getattr(r, "vendedor_nombre", "") or ""), fmt_cell)

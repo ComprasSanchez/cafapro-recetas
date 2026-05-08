@@ -13,6 +13,7 @@ from app.service.integraciones.validators_client import ValidatorsClient
 from app.service.recepcion.estado_recepcion_service import EstadoRecepcionService
 from app.service.recepcion.recepcion_service import RecepcionService
 from app.service.recepcion.view_resumen_recepcion_service import ViewResumenRecepcionService
+from app.service.debitos.view_debitos import ViewDebitos
 
 
 @dataclass(frozen=True)
@@ -130,12 +131,22 @@ class RecepcionesApplication:
         )
 
     @staticmethod
+    def has_debitos_sin_estado_by_recepcion(*, recepcion_id: int) -> bool:
+        return ViewDebitos.has_debitos_sin_estado_by_recepcion(recepcion_id=int(recepcion_id))
+
+    @staticmethod
     def incluir_excluir_recetas_en_validador(
         *,
         recepcion_id: int,
         accion: str,
         referencias: list[str],
     ) -> ValidatorsSyncOut:
+        if RecepcionesApplication.has_debitos_sin_estado_by_recepcion(recepcion_id=int(recepcion_id)):
+            raise ValueError(
+                "Hay débitos sin estado de seguimiento en esta recepción. "
+                "Resolvelos en Débitos antes de usar Excluidos."
+            )
+
         ctx = RecepcionesApplication.get_recepcion_integracion_context(recepcion_id=int(recepcion_id))
 
         if ctx.validador != "preserfar":

@@ -44,6 +44,10 @@ class RecepcionesWindowsUseCase:
         return RecepcionesApplication.get_recepcion_integracion_context(recepcion_id=int(recepcion_id))
 
     @staticmethod
+    def has_debitos_sin_estado_by_recepcion(*, recepcion_id: int) -> bool:
+        return RecepcionesApplication.has_debitos_sin_estado_by_recepcion(recepcion_id=int(recepcion_id))
+
+    @staticmethod
     def incluir_excluir_recetas_en_validador(
         *,
         recepcion_id: int,

@@ -632,7 +632,7 @@ class ListadoDebitosWindow(QDialog):
 
         for r in rows:
             estado_seguimiento = getattr(r, "estado_seguimiento", None)
-            estado_text = str(estado_seguimiento or "").strip() or "Sin estado (NULL)"
+            estado_text = str(estado_seguimiento or "").strip() or "Sin estado"
             html += f"""
                     <tr>
                         <td>{r.prestador_nombre or ''}</td>
