@@ -857,9 +857,7 @@ class AuditoriaVisualDialog(QDialog):
 
         if debitos_inputs:
             if self._is_auditor:
-                receta = getattr(self.data, "receta", None)
-                current_estado = getattr(receta, "estado_seguimiento_id", None)
-                estado_seg_id = int(current_estado) if current_estado else None
+                estado_seg_id = None
             else:
                 dlg = EstadoSeguimientoPickDialog(self)
                 if dlg.exec() != dlg.DialogCode.Accepted:

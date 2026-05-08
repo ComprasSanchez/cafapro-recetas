@@ -190,7 +190,9 @@ class ViewDebitos:
                     ws.write(i, 8, str(getattr(r, "importe_cobertura", "") or ""), fmt_cell)
 
                 ws.write(i, 9, str(getattr(r, "descripcion_debito", "") or ""), fmt_cell)
-                ws.write(i, 10, str(getattr(r, "estado_seguimiento", "") or ""), fmt_cell)
+                estado_seguimiento = getattr(r, "estado_seguimiento", None)
+                estado_text = str(estado_seguimiento or "").strip() or "Sin estado (NULL)"
+                ws.write(i, 10, estado_text, fmt_cell)
                 ws.write(i, 11, str(getattr(r, "detalle", "") or ""), fmt_cell)
                 ws.write(i, 12, str(getattr(r, "vendedor_nombre", "") or ""), fmt_cell)
         finally:

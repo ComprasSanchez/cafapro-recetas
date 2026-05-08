@@ -305,15 +305,15 @@ class ListadoDebitosWindow(QDialog):
 
                 with QSignalBlocker(cb):
                     cb.clear()
+                    cb.addItem("Sin estado", None)
                     for estado_id, desc in self._estados:
                         cb.addItem(desc, estado_id)
 
                     cur = getattr(r, "estado_seguimiento_id", None)
                     cur_id = int(cur) if cur is not None else None
-                    if cur_id is not None:
-                        idx = cb.findData(cur_id)
-                        if idx >= 0:
-                            cb.setCurrentIndex(idx)
+                    idx = cb.findData(cur_id)
+                    if idx >= 0:
+                        cb.setCurrentIndex(idx)
 
                 cb.setProperty("estado_prev_id", cb.currentData())
                 cb.setToolTip(cb.currentText())
@@ -631,6 +631,8 @@ class ListadoDebitosWindow(QDialog):
         """
 
         for r in rows:
+            estado_seguimiento = getattr(r, "estado_seguimiento", None)
+            estado_text = str(estado_seguimiento or "").strip() or "Sin estado (NULL)"
             html += f"""
                     <tr>
                         <td>{r.prestador_nombre or ''}</td>
@@ -641,7 +643,7 @@ class ListadoDebitosWindow(QDialog):
                         <td class="right">{r.importe_cobertura or ''}</td>
                         <td>{r.descripcion_debito or ''}</td>
                         <td>{r.detalle or ''}</td>
-                        <td>{r.estado_seguimiento or ''}</td>
+                        <td>{estado_text}</td>
                         <td>{r.vendedor_nombre or ''}</td>
                         <td>{r.creado_en.strftime("%d/%m/%Y") if r.creado_en else ''}</td>
                     </tr>
