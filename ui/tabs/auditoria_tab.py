@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 from ui.dialogs.forzar_asociacion_dialog import ForzarAsociacionDialog
 from ui.dialogs.numero_receta_dialog import NumeroRecetaDialog
 from ui.dialogs.reasociar_receta_dialog import ReasociarRecetaDialog
+from ui.dialogs.historial_search_dialog import HistorialSearchDialog
 from ui.models.auditoria_row_vm import AuditoriaRowVM
 from ui.tabs.base_tab import BaseTabWidget
 from ui.dialogs.recepcion_pick_dialog import RecepcionPickDialog
@@ -191,6 +192,10 @@ class AuditoriaTab(BaseTabWidget):
         self.btn_reload.clicked.connect(self._reload_auditoria)
         self.btn_reload.setEnabled(False)
 
+        self.btn_buscar_receta = QPushButton("Buscar receta")
+        self.btn_buscar_receta.setMinimumHeight(32)
+        self.btn_buscar_receta.clicked.connect(self._on_open_historial_search)
+
         num_box = QWidget()
         num_l = QHBoxLayout(num_box)
         num_l.setContentsMargins(0, 0, 0, 0)
@@ -206,6 +211,7 @@ class AuditoriaTab(BaseTabWidget):
         row0_l.addWidget(self.btn_visual, 0)
         row0_l.addWidget(self.btn_reload, 0)
         row0_l.addStretch(1)
+        row0_l.addWidget(self.btn_buscar_receta, 0)
 
         lb_obs = QLabel("Obra social:")
         self.in_obs = self._ro_line("-")
@@ -978,6 +984,10 @@ class AuditoriaTab(BaseTabWidget):
 
         dlg.exec()
         self._reload_auditoria()
+
+    def _on_open_historial_search(self) -> None:
+        dlg = HistorialSearchDialog(parent=self)
+        dlg.exec()
 
     # -------------------------
     # UI error helpers

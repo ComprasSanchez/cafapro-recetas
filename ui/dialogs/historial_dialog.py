@@ -159,8 +159,10 @@ class HistorialDialog(QDialog):
         lay.addWidget(self.lb_info)
 
         self.tbl_debitos = QTableWidget()
-        self.tbl_debitos.setColumnCount(2)
-        self.tbl_debitos.setHorizontalHeaderLabels(["Motivo", "Detalle"])
+        self.tbl_debitos.setColumnCount(5)
+        self.tbl_debitos.setHorizontalHeaderLabels(
+            ["Motivo", "Detalle", "Reportó", "Vendedor", "Marcado en"]
+        )
         self.tbl_debitos.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tbl_debitos.verticalHeader().setVisible(False)
         self.tbl_debitos.horizontalHeader().setStretchLastSection(True)
@@ -262,8 +264,11 @@ class HistorialDialog(QDialog):
         # 🔹 Render débitos
         self.tbl_debitos.setRowCount(len(debs))
         for i, d in enumerate(debs):
-            self.tbl_debitos.setItem(i, 0, QTableWidgetItem(d["motivo"]))
-            self.tbl_debitos.setItem(i, 1, QTableWidgetItem(d["detalle"]))
+            self.tbl_debitos.setItem(i, 0, QTableWidgetItem(str(d.get("motivo") or "")))
+            self.tbl_debitos.setItem(i, 1, QTableWidgetItem(str(d.get("detalle") or "")))
+            self.tbl_debitos.setItem(i, 2, QTableWidgetItem(str(d.get("reportado_por") or "-")))
+            self.tbl_debitos.setItem(i, 3, QTableWidgetItem(str(d.get("vendedor") or "-")))
+            self.tbl_debitos.setItem(i, 4, QTableWidgetItem(str(d.get("marcado_en") or "-")))
 
         # 🔹 Render imágenes async
         if imgs.get("frente"):

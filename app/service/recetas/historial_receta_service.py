@@ -11,7 +11,10 @@ from app.db.models import (
     Debitos,
     MotivoDebito,
     Usuarios,
-    EstadoReceta, Archivo,
+    Vendedores,
+    EstadoReceta,
+    Archivo,
+    Recepcion,
 )
 
 
@@ -131,12 +134,18 @@ class HistorialRecetaService:
             select(
                 MotivoDebito.descripcion.label("motivo"),
                 Debitos.detalle.label("detalle"),
+                Usuarios.username.label("reportado_por"),
+                Vendedores.descripcion.label("vendedor"),
+                Recetas.creado_en.label("marcado_en"),
             )
             .select_from(Debitos)
+            .join(Recetas, Recetas.receta_id == Debitos.receta_id)
             .join(
                 MotivoDebito,
                 MotivoDebito.motivo_debito_id == Debitos.motivo_debito_id,
             )
+            .outerjoin(Usuarios, Usuarios.usuario_id == Recetas.usuario_id)
+            .outerjoin(Vendedores, Vendedores.vendedor_id == Recetas.vendedor_id)
             .where(Debitos.receta_id == int(receta_id))
             .order_by(MotivoDebito.descripcion.asc())
         )
@@ -145,9 +154,85 @@ class HistorialRecetaService:
             {
                 "motivo": r["motivo"] or "",
                 "detalle": r["detalle"] or "",
+                "reportado_por": r["reportado_por"] or "",
+                "vendedor": r["vendedor"] or "",
+                "marcado_en": (r["marcado_en"].strftime("%d/%m/%Y %H:%M") if r["marcado_en"] else ""),
             }
             for r in s.execute(q).mappings().all()
         ]
+
+    @staticmethod
+    def search_historial_by_numero_receta(s: Session, *, nro_receta: str) -> list[dict]:
+        return HistorialRecetaService._search_historial(
+            s,
+            filter_expr=(Archivo.nro_receta == str(nro_receta).strip()),
+        )
+
+    @staticmethod
+    def search_historial_by_numero_referencia(s: Session, *, nro_referencia: str) -> list[dict]:
+        return HistorialRecetaService._search_historial(
+            s,
+            filter_expr=(Archivo.nro_referencia == str(nro_referencia).strip()),
+        )
+
+    @staticmethod
+    def _search_historial(s: Session, *, filter_expr) -> list[dict]:
+        q = (
+            select(
+                Recetas.receta_id.label("receta_id"),
+                Recetas.vigente.label("vigente"),
+                Usuarios.username.label("auditor_username"),
+                EstadoReceta.descripcion.label("estado_receta"),
+                Recetas.creado_en.label("auditado_en"),
+                func.count(Debitos.debito_id).label("cantidad_debitos"),
+                Archivo.nro_receta.label("nro_receta"),
+                Archivo.nro_referencia.label("nro_referencia"),
+                Recepcion.numero.label("recepcion_numero"),
+            )
+            .select_from(Asociacion)
+            .join(Recetas, Recetas.receta_id == Asociacion.receta_id)
+            .join(Archivo, Archivo.archivo_id == Asociacion.archivo_id)
+            .outerjoin(Recepcion, Recepcion.recepcion_id == Recetas.recepcion_id)
+            .outerjoin(Debitos, Debitos.receta_id == Recetas.receta_id)
+            .outerjoin(Usuarios, Usuarios.usuario_id == Recetas.usuario_id)
+            .outerjoin(
+                EstadoReceta,
+                EstadoReceta.estado_receta_id == Recetas.estado_receta_id,
+            )
+            .where(filter_expr)
+            .group_by(
+                Recetas.receta_id,
+                Recetas.vigente,
+                Usuarios.username,
+                EstadoReceta.descripcion,
+                Recetas.creado_en,
+                Archivo.nro_receta,
+                Archivo.nro_referencia,
+                Recepcion.numero,
+            )
+            .order_by(Recetas.creado_en.desc(), Recetas.receta_id.desc())
+            .limit(1000)
+        )
+
+        rows = []
+        for r in s.execute(q).mappings().all():
+            fecha = r["auditado_en"]
+            fecha_txt = fecha.strftime("%d/%m/%Y %H:%M") if fecha else None
+            rows.append(
+                {
+                    "receta_id": int(r["receta_id"]),
+                    "vigente": bool(r["vigente"]),
+                    "auditor_username": r["auditor_username"],
+                    "estado_receta": r["estado_receta"],
+                    "auditado_en": fecha_txt,
+                    "cantidad_debitos": int(r["cantidad_debitos"] or 0),
+                    "nro_receta": r["nro_receta"],
+                    "nro_referencia": r["nro_referencia"],
+                    "recepcion_numero": r["recepcion_numero"],
+                }
+            )
+
+        return rows
 
     # -------------------------------------------------
     # Cargar imágenes por receta

@@ -319,3 +319,27 @@ class AuditoriaApplication:
             )
 
         return debs, imgs
+
+    @staticmethod
+    def search_historial_by_numero_receta(*, nro_receta: str) -> list[dict]:
+        value = str(nro_receta or "").strip()
+        if not value:
+            raise ValueError("Debés ingresar un número de receta.")
+
+        with session_scope() as s:
+            return HistorialRecetaService.search_historial_by_numero_receta(
+                s,
+                nro_receta=value,
+            )
+
+    @staticmethod
+    def search_historial_by_numero_referencia(*, nro_referencia: str) -> list[dict]:
+        value = str(nro_referencia or "").strip()
+        if not value:
+            raise ValueError("Debés ingresar un número de referencia.")
+
+        with session_scope() as s:
+            return HistorialRecetaService.search_historial_by_numero_referencia(
+                s,
+                nro_referencia=value,
+            )
