@@ -68,6 +68,38 @@ class TifRepository:
         return archivos, detalles_by_archivo, asociados_vigentes, ubicaciones
 
     @staticmethod
+    def load_vigente_receta_by_archivo(
+        session: Session,
+        *,
+        recepcion_id: int,
+    ) -> dict[int, tuple[int, int | None, int | None]]:
+        rows = session.execute(
+            select(
+                Asociacion.archivo_id,
+                Recetas.receta_id,
+                Recetas.estado_receta_id,
+                Recetas.estado_seguimiento_id,
+            )
+            .join(Recetas, Recetas.receta_id == Asociacion.receta_id)
+            .where(
+                Recetas.recepcion_id == int(recepcion_id),
+                Recetas.vigente.is_(True),
+                Asociacion.vigente.is_(True),
+            )
+        ).all()
+
+        out: dict[int, tuple[int, int | None, int | None]] = {}
+        for archivo_id, receta_id, estado_receta_id, estado_seguimiento_id in rows:
+            if archivo_id is None or receta_id is None:
+                continue
+            out[int(archivo_id)] = (
+                int(receta_id),
+                int(estado_receta_id) if estado_receta_id is not None else None,
+                int(estado_seguimiento_id) if estado_seguimiento_id is not None else None,
+            )
+        return out
+
+    @staticmethod
     def exists_processed_base_in_recepcion(session: Session, *, recepcion_id: int, base_name: str) -> bool:
         like_pat = f"%/{base_name}_%"
         rid = (

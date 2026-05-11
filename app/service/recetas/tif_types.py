@@ -106,6 +106,7 @@ class _WorkItem:
     scan: ScanOut
     archivo_id: int
     pages: List[Any] | None = None
+    replace_receta_id: int | None = None
 
 
 @dataclass(frozen=True)

@@ -151,6 +151,7 @@ def select_work_items(
     archivo_by_id: dict[int, Archivo],
     ref_index: dict[str, dict[int, Archivo]],
     receta_index: dict[str, dict[int, Archivo]],
+    receta_vigente_by_archivo_id: dict[int, tuple[int, int | None, int | None]],
     seen_archivo_ids: set[int],
     asociados_vigentes_iniciales: set[int],
     seen_recetas: set[str],
@@ -197,6 +198,7 @@ def select_work_items(
 
         archivo: Archivo | None = None
         archivo_id: int | None = None
+        replace_receta_id: int | None = None
 
         pair = _extract_short_long_pair(refs)
         if pair is not None and not only_ref_match:
@@ -242,12 +244,23 @@ def select_work_items(
             continue
 
         if int(archivo.archivo_id) in asociados_vigentes_iniciales:
-            resumen.revision_por_ya_asociado += 1
-            revision_items.append(x)
-            reason = "Ya asociado"
-            revision_reason_by_item_id[id(x)] = reason
-            _append_revision_sample(resumen, it=x.it, reason=reason, refs=refs)
-            continue
+            vigente_info = receta_vigente_by_archivo_id.get(int(archivo.archivo_id))
+            if vigente_info is not None:
+                prev_receta_id, prev_estado_receta_id, prev_estado_seguimiento_id = vigente_info
+                if (
+                    int(prev_receta_id) > 0
+                    and int(prev_estado_receta_id or 0) == 1
+                    and int(prev_estado_seguimiento_id or 0) == 3
+                ):
+                    replace_receta_id = int(prev_receta_id)
+
+            if replace_receta_id is None:
+                resumen.revision_por_ya_asociado += 1
+                revision_items.append(x)
+                reason = "Ya asociado"
+                revision_reason_by_item_id[id(x)] = reason
+                _append_revision_sample(resumen, it=x.it, reason=reason, refs=refs)
+                continue
 
         nro_rec = norm_str(getattr(archivo, "nro_receta", None))
         nro_ref = norm_str(getattr(archivo, "nro_referencia", None))
@@ -298,6 +311,7 @@ def select_work_items(
             scan=x.scan,
             archivo_id=int(archivo.archivo_id),
             pages=x.pages,
+            replace_receta_id=replace_receta_id,
         )
         work.append(w_item)
         headers_render_by_work_id[id(w_item)] = matched_refs_for_archivo
@@ -509,6 +523,7 @@ def process_scanned_batch(
         archivo_by_id=run_cache.archivo_by_id,
         ref_index=run_cache.ref_index,
         receta_index=run_cache.receta_index,
+        receta_vigente_by_archivo_id=run_cache.receta_vigente_by_archivo_id,
         seen_archivo_ids=seen_archivo_ids,
         asociados_vigentes_iniciales=asociados_vigentes_iniciales,
         seen_recetas=seen_recetas,

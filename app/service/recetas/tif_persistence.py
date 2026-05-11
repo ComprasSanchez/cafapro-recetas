@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from app.adapters.sqlalchemy.tif_repository import TifRepository
@@ -84,6 +85,7 @@ def persist_uploaded_chunk(
     session.flush()
 
     recetas_vencidas_ids: list[int] = []
+    replaced_receta_ids: set[int] = set()
 
     for u in valid_uploaded:
         w = u.work
@@ -111,6 +113,26 @@ def persist_uploaded_chunk(
 
         archivo = archivo_by_id[w.archivo_id]
         receta = receta_by_archivo_id[w.archivo_id]
+
+        replace_receta_id = int(getattr(w, "replace_receta_id", 0) or 0)
+        if replace_receta_id > 0 and replace_receta_id not in replaced_receta_ids:
+            session.execute(
+                update(Asociacion)
+                .where(
+                    Asociacion.receta_id == replace_receta_id,
+                    Asociacion.vigente.is_(True),
+                )
+                .values(vigente=False)
+            )
+            session.execute(
+                update(Recetas)
+                .where(
+                    Recetas.receta_id == replace_receta_id,
+                    Recetas.vigente.is_(True),
+                )
+                .values(vigente=False)
+            )
+            replaced_receta_ids.add(replace_receta_id)
 
         asoc_to_add.append(Asociacion(receta_id=receta.receta_id, archivo_id=w.archivo_id, vigente=True))
 

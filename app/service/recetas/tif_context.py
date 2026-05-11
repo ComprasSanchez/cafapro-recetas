@@ -30,6 +30,7 @@ class TifRunCache:
     detalles_by_archivo: dict[int, list[ArchivoDetalle]]
     detalle_ctx_by_archivo: dict[int, _DetalleContext]
     asociados_vigentes_archivo_ids: set[int]
+    receta_vigente_by_archivo_id: dict[int, tuple[int, int | None, int | None]]
     processed_bases: set[str]
     ref_index: dict[str, dict[int, Archivo]]
     receta_index: dict[str, dict[int, Archivo]]
@@ -88,6 +89,10 @@ def load_run_cache(session: Session, *, recepcion_id: int) -> TifRunCache:
         session,
         recepcion_id=int(recepcion_id),
     )
+    receta_vigente_by_archivo_id = TifRepository.load_vigente_receta_by_archivo(
+        session,
+        recepcion_id=int(recepcion_id),
+    )
 
     archivo_by_id: dict[int, Archivo] = {
         int(a.archivo_id): a for a in archivos
@@ -132,6 +137,11 @@ def load_run_cache(session: Session, *, recepcion_id: int) -> TifRunCache:
         detalles_by_archivo=normalized_detalles,
         detalle_ctx_by_archivo=detalle_ctx_by_archivo,
         asociados_vigentes_archivo_ids={int(x) for x in asociados_vigentes},
+        receta_vigente_by_archivo_id={
+            int(archivo_id): (int(receta_id), estado_receta_id, estado_seguimiento_id)
+            for archivo_id, (receta_id, estado_receta_id, estado_seguimiento_id)
+            in receta_vigente_by_archivo_id.items()
+        },
         processed_bases=processed_bases,
         ref_index=ref_index,
         receta_index=receta_index,
