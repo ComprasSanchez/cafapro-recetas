@@ -131,6 +131,7 @@ class AsociacionService:
         # ------------------------------------------------
         receta.estado_receta_id = 3
         receta.nro_receta = "-"
+        receta.estado_seguimiento_id = None
 
         # ------------------------------------------------
         # 4) restaurar historial

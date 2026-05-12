@@ -596,7 +596,11 @@ class AuditoriaTab(BaseTabWidget):
                 lambda: self._open_reasociar_receta(receta_id)
             )
 
-        if asociacion_id and estado_id == 2:
+        can_desasociar = asociacion_id and (
+            estado_id == 2
+            or (estado_id == 1 and self._is_admin)
+        )
+        if can_desasociar:
             menu.addSeparator()
 
             act_desasociar = menu.addAction("Desasociar receta")
