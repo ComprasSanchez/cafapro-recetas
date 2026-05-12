@@ -164,6 +164,8 @@ class RecetaService:
 
         receta.estado_seguimiento_id = 3
 
+        receta.creado_en = datetime.now()
+
         # evitar duplicar debito
         existe = s.execute(
             select(Debitos.debito_id)
@@ -196,6 +198,8 @@ class RecetaService:
         receta.estado_receta_id = 5
 
         receta.estado_seguimiento_id = 3
+
+        receta.creado_en = datetime.now()
 
         # evitar duplicar debito
         existe = s.execute(
