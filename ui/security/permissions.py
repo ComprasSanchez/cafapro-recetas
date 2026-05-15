@@ -10,6 +10,7 @@ ALLOWED_AUDITOR_ACTION_KEYS = {
     "carga_recepcion_tab",
     "archivo_cvs_tab",
     "tab_auditoria",
+    "toggle_theme",
 }
 
 ALLOWED_AUDITOR_TAB_KEYS = {

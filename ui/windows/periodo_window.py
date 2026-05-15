@@ -3,12 +3,15 @@ from __future__ import annotations
 from datetime import date
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QBrush
 from PySide6.QtWidgets import (
-    QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton,
     QTableWidget, QTableWidgetItem, QSpinBox, QMessageBox, QDialog,
-    QComboBox, QFrame, QHeaderView
+    QComboBox, QFrame, QHeaderView, QLineEdit
 )
 
+from ui.theme.delegates import BackgroundPriorityDelegate
+from ui.theme.row_colors import ok_bg, warn_bg
 from ui.usecase.catalogos_windows_usecase import CatalogosWindowsUseCase
 
 
@@ -26,81 +29,87 @@ class PeriodosWindow(QDialog):
         self.setMinimumSize(900, 520)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(12, 12, 12, 12)
-        root.setSpacing(10)
+        root.setContentsMargins(16, 16, 16, 16)
+        root.setSpacing(12)
 
-        # ===== Header (card) =====
-        header = QFrame()
-        header.setObjectName("card")
-        hl = QHBoxLayout(header)
-        hl.setContentsMargins(12, 10, 12, 10)
-        hl.setSpacing(10)
+        # ===== form_card =====
+        form_card = QFrame()
+        form_card.setObjectName("card")
+        form_l = QVBoxLayout(form_card)
+        form_l.setContentsMargins(16, 16, 16, 16)
+        form_l.setSpacing(12)
 
+        # header row
+        header_row = QHBoxLayout()
+        header_row.setSpacing(8)
         title = QLabel("Períodos")
         title.setProperty("role", "title")
-        hl.addWidget(title)
-        hl.addStretch(1)
+        self.btn_refresh = QPushButton("Refrescar")
+        self.btn_refresh.setProperty("variant", "ghost")
+        header_row.addWidget(title)
+        header_row.addStretch(1)
+        header_row.addWidget(self.btn_refresh)
+        form_l.addLayout(header_row)
 
-        root.addWidget(header)
-
-        # ===== Panel Alta (card) =====
-        card = QFrame()
-        card.setObjectName("card")
-        card_layout = QHBoxLayout(card)
-        card_layout.setContentsMargins(12, 10, 12, 10)
-        card_layout.setSpacing(10)
+        # field_grid
+        field_grid = QGridLayout()
+        field_grid.setHorizontalSpacing(12)
+        field_grid.setVerticalSpacing(8)
+        field_grid.setColumnStretch(1, 1)
+        field_grid.setColumnStretch(3, 1)
 
         self.sp_anio = QSpinBox()
         self.sp_anio.setRange(2000, 2100)
         self.sp_anio.setValue(date.today().year)
-        self.sp_anio.setMinimumHeight(28)
-        self.sp_anio.setFixedWidth(110)
 
         self.cb_mes = QComboBox()
-        self.cb_mes.setMinimumHeight(28)
-        self.cb_mes.setMinimumWidth(160)
         for num, nombre in MESES:
             self.cb_mes.addItem(nombre, num)
         self.cb_mes.setCurrentIndex(date.today().month - 1)
 
         self.cb_quincena = QComboBox()
-        self.cb_quincena.setMinimumHeight(28)
-        self.cb_quincena.setMinimumWidth(160)
         self.cb_quincena.addItem("1ª quincena", 1)
         self.cb_quincena.addItem("2ª quincena", 2)
 
-        self.btn_refresh = QPushButton("Refrescar")
-        self.btn_refresh.setProperty("variant", "ghost")
-        self.btn_refresh.setMinimumHeight(32)
+        # Row 0: Año | sp_anio | Mes | cb_mes
+        field_grid.addWidget(QLabel("Año"), 0, 0)
+        field_grid.addWidget(self.sp_anio, 0, 1)
+        field_grid.addWidget(QLabel("Mes"), 0, 2)
+        field_grid.addWidget(self.cb_mes, 0, 3)
+
+        # Row 1: Quincena | cb_quincena
+        field_grid.addWidget(QLabel("Quincena"), 1, 0)
+        field_grid.addWidget(self.cb_quincena, 1, 1)
+
+        form_l.addLayout(field_grid)
+
+        # actions row
+        actions_row = QHBoxLayout()
+        actions_row.setSpacing(8)
+
+        self.in_filter = QLineEdit()
+        self.in_filter.setPlaceholderText("Buscar en tabla…")
 
         self.btn_create = QPushButton("Crear")
         self.btn_create.setProperty("variant", "primary")
-        self.btn_create.setMinimumHeight(32)
 
         self.btn_toggle = QPushButton("Eliminar")
         self.btn_toggle.setProperty("variant", "ghost")
-        self.btn_toggle.setMinimumHeight(32)
         self.btn_toggle.setEnabled(False)
 
-        card_layout.addWidget(QLabel("Año"))
-        card_layout.addWidget(self.sp_anio)
-        card_layout.addWidget(QLabel("Mes"))
-        card_layout.addWidget(self.cb_mes)
-        card_layout.addWidget(QLabel("Quincena"))
-        card_layout.addWidget(self.cb_quincena)
-        card_layout.addStretch(1)
-        card_layout.addWidget(self.btn_refresh)
-        card_layout.addWidget(self.btn_create)
-        card_layout.addWidget(self.btn_toggle)
+        actions_row.addWidget(self.in_filter, 1)
+        actions_row.addWidget(self.btn_create)
+        actions_row.addWidget(self.btn_toggle)
+        form_l.addLayout(actions_row)
 
-        root.addWidget(card)
+        root.addWidget(form_card)
 
-        # ===== Tabla (card) =====
+        # ===== table_card =====
         table_card = QFrame()
         table_card.setObjectName("card")
         tl = QVBoxLayout(table_card)
         tl.setContentsMargins(12, 12, 12, 12)
-        tl.setSpacing(8)
+        tl.setSpacing(0)
 
         self.table = QTableWidget(0, 4)
         self.table.setHorizontalHeaderLabels(["Año", "Mes", "Quincena", "Estado"])
@@ -109,6 +118,7 @@ class PeriodosWindow(QDialog):
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
         self.table.setAlternatingRowColors(True)
+        self.table.setItemDelegate(BackgroundPriorityDelegate(self.table))
 
         hh = self.table.horizontalHeader()
         hh.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
@@ -124,8 +134,19 @@ class PeriodosWindow(QDialog):
         self.btn_create.clicked.connect(self.on_create)
         self.btn_toggle.clicked.connect(self.on_toggle_activo)
         self.table.itemSelectionChanged.connect(self._update_action_state)
+        self.in_filter.textChanged.connect(self._apply_filter)
 
         self.load_data()
+
+    # ---------------- filter ----------------
+    def _apply_filter(self, text: str) -> None:
+        txt = text.strip().lower()
+        for row in range(self.table.rowCount()):
+            visible = not txt or any(
+                txt in (self.table.item(row, c).text().lower() if self.table.item(row, c) else "")
+                for c in range(self.table.columnCount())
+            )
+            self.table.setRowHidden(row, not visible)
 
     # ---------------- selection helpers ----------------
     def _selected(self) -> tuple[int | None, bool | None]:
@@ -187,6 +208,7 @@ class PeriodosWindow(QDialog):
             # col 3: estado
             it_estado = QTableWidgetItem("Activo" if p.activo else "Inactivo")
             it_estado.setTextAlignment(Qt.AlignCenter)
+            it_estado.setData(Qt.ItemDataRole.BackgroundRole, QBrush(ok_bg() if p.activo else warn_bg()))
             self.table.setItem(r, 3, it_estado)
 
         self._update_action_state()

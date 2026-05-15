@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QBrush
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QFrame, QLabel,
+    QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QFrame, QLabel,
     QPushButton, QTableWidget, QTableWidgetItem, QMessageBox,
-    QHeaderView, QLineEdit
+    QHeaderView, QLineEdit, QSizePolicy
 )
 
+from ui.theme.delegates import BackgroundPriorityDelegate
+from ui.theme.row_colors import ok_bg, warn_bg
 from ui.usecase.catalogos_windows_usecase import CatalogosWindowsUseCase
 
 
@@ -17,76 +20,88 @@ class VendedoresWindow(QDialog):
         self.setMinimumSize(950, 560)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(12, 12, 12, 12)
-        root.setSpacing(10)
+        root.setContentsMargins(16, 16, 16, 16)
+        root.setSpacing(12)
 
-        # ===== Header =====
-        header = QFrame()
-        header.setObjectName("card")
-        hl = QHBoxLayout(header)
-        hl.setContentsMargins(12, 10, 12, 10)
-        hl.setSpacing(10)
+        # ===== Form card (header + fields + actions) =====
+        form_card = QFrame()
+        form_card.setObjectName("card")
+        form_layout = QVBoxLayout(form_card)
+        form_layout.setContentsMargins(16, 16, 16, 16)
+        form_layout.setSpacing(12)
+
+        # --- Header row ---
+        header_row = QHBoxLayout()
+        header_row.setSpacing(8)
 
         title = QLabel("Vendedores")
         title.setProperty("role", "title")
-        hl.addWidget(title)
-        hl.addStretch(1)
-
-        root.addWidget(header)
-
-        # ===== CRUD panel =====
-        card = QFrame()
-        card.setObjectName("card")
-        cl = QHBoxLayout(card)
-        cl.setContentsMargins(12, 10, 12, 10)
-        cl.setSpacing(10)
-
-        self.in_codigo = QLineEdit()
-        self.in_codigo.setPlaceholderText("Código (único)")
-        self.in_codigo.setMinimumHeight(28)
-        self.in_codigo.setFixedWidth(180)
-
-        self.in_descripcion = QLineEdit()
-        self.in_descripcion.setPlaceholderText("Descripción")
-        self.in_descripcion.setMinimumHeight(28)
-        self.in_descripcion.setMinimumWidth(220)
+        header_row.addWidget(title)
+        header_row.addStretch(1)
 
         self.btn_refresh = QPushButton("Refrescar")
         self.btn_refresh.setProperty("variant", "ghost")
-        self.btn_refresh.setMinimumHeight(32)
+        header_row.addWidget(self.btn_refresh)
+
+        form_layout.addLayout(header_row)
+
+        # --- Field grid ---
+        field_grid = QGridLayout()
+        field_grid.setHorizontalSpacing(12)
+        field_grid.setVerticalSpacing(8)
+        field_grid.setColumnStretch(1, 1)
+        field_grid.setColumnStretch(3, 1)
+
+        self.in_codigo = QLineEdit()
+        self.in_codigo.setPlaceholderText("Código (único)")
+        self.in_codigo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+        self.in_descripcion = QLineEdit()
+        self.in_descripcion.setPlaceholderText("Descripción")
+        self.in_descripcion.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+        # Row 0: Código | in_codigo | Descripción | in_descripcion
+        field_grid.addWidget(QLabel("Código"), 0, 0)
+        field_grid.addWidget(self.in_codigo, 0, 1)
+        field_grid.addWidget(QLabel("Descripción"), 0, 2)
+        field_grid.addWidget(self.in_descripcion, 0, 3)
+
+        form_layout.addLayout(field_grid)
+
+        # --- Actions row ---
+        actions_row = QHBoxLayout()
+        actions_row.setSpacing(8)
+
+        self.in_filter = QLineEdit()
+        self.in_filter.setPlaceholderText("Buscar en tabla…")
+        self.in_filter.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
         self.btn_create = QPushButton("Crear")
         self.btn_create.setProperty("variant", "primary")
-        self.btn_create.setMinimumHeight(32)
 
         self.btn_update = QPushButton("Actualizar seleccionado")
         self.btn_update.setProperty("variant", "ghost")
-        self.btn_update.setMinimumHeight(32)
         self.btn_update.setEnabled(False)
 
         self.btn_toggle = QPushButton("Inactivar")
         self.btn_toggle.setProperty("variant", "ghost")
-        self.btn_toggle.setMinimumHeight(32)
         self.btn_toggle.setEnabled(False)
 
-        cl.addWidget(QLabel("Código"))
-        cl.addWidget(self.in_codigo)
-        cl.addWidget(QLabel("Descripción"))
-        cl.addWidget(self.in_descripcion)
-        cl.addStretch(1)
-        cl.addWidget(self.btn_refresh)
-        cl.addWidget(self.btn_create)
-        cl.addWidget(self.btn_update)
-        cl.addWidget(self.btn_toggle)
+        actions_row.addWidget(self.in_filter, 1)
+        actions_row.addWidget(self.btn_create)
+        actions_row.addWidget(self.btn_update)
+        actions_row.addWidget(self.btn_toggle)
 
-        root.addWidget(card)
+        form_layout.addLayout(actions_row)
 
-        # ===== Table =====
+        root.addWidget(form_card)
+
+        # ===== Table card =====
         table_card = QFrame()
         table_card.setObjectName("card")
         tl = QVBoxLayout(table_card)
         tl.setContentsMargins(12, 12, 12, 12)
-        tl.setSpacing(8)
+        tl.setSpacing(0)
 
         self.table = QTableWidget(0, 3)
         self.table.setHorizontalHeaderLabels(["Código", "Descripción", "Estado"])
@@ -95,6 +110,7 @@ class VendedoresWindow(QDialog):
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
         self.table.setAlternatingRowColors(True)
+        self.table.setItemDelegate(BackgroundPriorityDelegate(self.table))
 
         hh = self.table.horizontalHeader()
         hh.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
@@ -111,8 +127,19 @@ class VendedoresWindow(QDialog):
         self.btn_update.clicked.connect(self.on_update)
         self.btn_toggle.clicked.connect(self.on_toggle_activo)
         self.table.itemSelectionChanged.connect(self._on_selected_row_changed)
+        self.in_filter.textChanged.connect(self._apply_filter)
 
         self.load_data()
+
+    # ---------------- filter ----------------
+    def _apply_filter(self, text: str) -> None:
+        txt = text.strip().lower()
+        for row in range(self.table.rowCount()):
+            visible = not txt or any(
+                txt in (self.table.item(row, c).text().lower() if self.table.item(row, c) else "")
+                for c in range(self.table.columnCount())
+            )
+            self.table.setRowHidden(row, not visible)
 
     # ---------------- selection helpers ----------------
     def _selected(self) -> tuple[int | None, bool | None]:
@@ -177,7 +204,8 @@ class VendedoresWindow(QDialog):
             self.table.setItem(r, 1, it_desc)
 
             it_estado = QTableWidgetItem("Activo" if v.activo else "Inactivo")
-            it_estado.setTextAlignment(Qt.AlignCenter)
+            it_estado.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            it_estado.setData(Qt.ItemDataRole.BackgroundRole, QBrush(ok_bg() if v.activo else warn_bg()))
             self.table.setItem(r, 2, it_estado)
 
         # reset estado botones

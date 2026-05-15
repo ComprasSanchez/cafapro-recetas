@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit,
     QTableWidget, QTableWidgetItem, QMessageBox, QDialog,
     QFrame, QHeaderView
 )
 
 from ui.dialogs.usuario_create_dialog import UsuarioCreateDialog
+from ui.theme.delegates import BackgroundPriorityDelegate
 from ui.usecase.catalogos_windows_usecase import CatalogosWindowsUseCase
 
 
@@ -18,46 +19,46 @@ class UsuariosWindow(QDialog):
         self.setMinimumSize(900, 520)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(12, 12, 12, 12)
-        root.setSpacing(10)
+        root.setContentsMargins(16, 16, 16, 16)
+        root.setSpacing(12)
 
-        # ===== Header (card) =====
-        header = QFrame()
-        header.setObjectName("card")
-        hl = QHBoxLayout(header)
-        hl.setContentsMargins(12, 10, 12, 10)
+        # ===== Toolbar (card) =====
+        toolbar = QFrame()
+        toolbar.setObjectName("card")
+        hl = QHBoxLayout(toolbar)
+        hl.setContentsMargins(16, 12, 16, 12)
         hl.setSpacing(10)
 
         title = QLabel("Usuarios")
         title.setProperty("role", "title")
 
+        self.in_filter = QLineEdit()
+        self.in_filter.setPlaceholderText("Buscar…")
+
         self.btn_refresh = QPushButton("Refrescar")
         self.btn_refresh.setProperty("variant", "ghost")
-        self.btn_refresh.setMinimumHeight(32)
 
         self.btn_create = QPushButton("Crear")
         self.btn_create.setProperty("variant", "primary")
-        self.btn_create.setMinimumHeight(32)
 
         self.btn_delete = QPushButton("Eliminar seleccionado")
-        self.btn_delete.setProperty("variant", "ghost")
-        self.btn_delete.setMinimumHeight(32)
+        self.btn_delete.setProperty("variant", "danger")
         self.btn_delete.setEnabled(False)
 
         hl.addWidget(title)
-        hl.addStretch(1)
+        hl.addWidget(self.in_filter, 1)
         hl.addWidget(self.btn_refresh)
         hl.addWidget(self.btn_create)
         hl.addWidget(self.btn_delete)
 
-        root.addWidget(header)
+        root.addWidget(toolbar)
 
         # ===== Tabla (card) =====
         table_card = QFrame()
         table_card.setObjectName("card")
         tl = QVBoxLayout(table_card)
         tl.setContentsMargins(12, 12, 12, 12)
-        tl.setSpacing(8)
+        tl.setSpacing(0)
 
         self.table = QTableWidget(0, 4)
         self.table.setHorizontalHeaderLabels(["Nombre", "Rol", "Activo", "Últ. login"])
@@ -66,6 +67,7 @@ class UsuariosWindow(QDialog):
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
         self.table.setAlternatingRowColors(True)
+        self.table.setItemDelegate(BackgroundPriorityDelegate(self.table))
 
         hh = self.table.horizontalHeader()
         hh.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
@@ -73,7 +75,7 @@ class UsuariosWindow(QDialog):
         hh.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
         hh.setHighlightSections(False)
 
-        tl.addWidget(self.table, 1)
+        tl.addWidget(self.table)
         root.addWidget(table_card, 1)
 
         # señales
@@ -81,8 +83,18 @@ class UsuariosWindow(QDialog):
         self.btn_create.clicked.connect(self.open_create_dialog)
         self.btn_delete.clicked.connect(self.on_delete)
         self.table.itemSelectionChanged.connect(self._update_delete_state)
+        self.in_filter.textChanged.connect(self._apply_filter)
 
         self.load_data()
+
+    def _apply_filter(self, text: str) -> None:
+        txt = text.strip().lower()
+        for row in range(self.table.rowCount()):
+            visible = not txt or any(
+                txt in (self.table.item(row, c).text().lower() if self.table.item(row, c) else "")
+                for c in range(self.table.columnCount())
+            )
+            self.table.setRowHidden(row, not visible)
 
     def _update_delete_state(self) -> None:
         self.btn_delete.setEnabled(self._selected_user_id() is not None)

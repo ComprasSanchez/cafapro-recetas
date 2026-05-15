@@ -1,4 +1,5 @@
 from ui.header.actions import HeaderAction
+from ui.theme.theme_manager import theme_manager
 from ui.windows.excluidos_window import ExcluidosWindow
 from ui.windows.listado_debitos_window import ListadoDebitosWindow
 from ui.windows.mal_entrego_excel_window import MalEntregoExcelWindow
@@ -119,6 +120,15 @@ def build_header_actions(main_window, current_user) -> dict[str, list[HeaderActi
             )
         ]
     }
+
+    actions_by_group["Vista"] = [
+        HeaderAction(
+            key="toggle_theme",
+            text="Cambiar apariencia (oscuro / claro)",
+            kind="callback",
+            callback=theme_manager.toggle,
+        )
+    ]
 
     filtered: dict[str, list[HeaderAction]] = {}
     for group, actions in actions_by_group.items():

@@ -10,6 +10,7 @@ from core.updater import apply_update, get_pending_update
 from ui.dialogs.startup_status_dialog import StartupStatusDialog
 from ui.main_window import MainWindow
 from ui.dialogs.login_dialog import LoginDialog
+from ui.theme.theme_manager import theme_manager
 
 
 def app_dir() -> Path:
@@ -22,7 +23,6 @@ def main() -> int:
     app = QApplication(sys.argv)
     base = app_dir()
     icon_path = base / "resources" / "logo.ico"
-    qss_path = base / "resources" / "style.qss"
 
     update_info = get_pending_update()
     if update_info:
@@ -76,8 +76,7 @@ def main() -> int:
         if icon_path.exists():
             app.setWindowIcon(QIcon(str(icon_path)))
 
-        if qss_path.exists():
-            app.setStyleSheet(qss_path.read_text(encoding="utf-8"))
+        theme_manager.apply()
 
         init_dlg.set_status("Preparando inicio de sesión…")
     except Exception as e:

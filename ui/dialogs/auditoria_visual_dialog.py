@@ -41,6 +41,7 @@ from ui.dialogs.auditoria_visual_troqueles_helpers import (
 )
 from ui.security.permissions import is_auditor
 from ui.state.auditoria_state import AuditoriaState
+from ui.theme.delegates import BackgroundPriorityDelegate
 from ui.usecase.auditoria_visual_usecase import AuditoriaVisualUseCase
 from ui.utils.worker import Worker
 
@@ -287,6 +288,7 @@ class AuditoriaVisualDialog(QDialog):
         ])
         self.tbl_troqueles.setColumnHidden(6, True)
         self._setup_table(self.tbl_troqueles)
+        self.tbl_troqueles.setItemDelegate(BackgroundPriorityDelegate(self.tbl_troqueles))
         left_l.addWidget(self.tbl_troqueles, 1)
 
         split.addWidget(left)
@@ -308,6 +310,7 @@ class AuditoriaVisualDialog(QDialog):
             "Código de barra", "Código Medic.", "Nombre", "Presentación", "Estado", "N° Aut.", "Cant.", "Imp. neto", "Imp. O.S.", "Desc."
         ])
         self._setup_table(self.tbl_arch_det)
+        self.tbl_arch_det.setItemDelegate(BackgroundPriorityDelegate(self.tbl_arch_det))
         right_l.addWidget(self.tbl_arch_det, 1)
 
         split.addWidget(right)
@@ -315,8 +318,6 @@ class AuditoriaVisualDialog(QDialog):
         split.setStretchFactor(0, 1)
         split.setStretchFactor(1, 2)
 
-        max_height = (self.ROW_H * 2) + 100
-        w.setMaximumHeight(max_height)
         return w
 
     @staticmethod

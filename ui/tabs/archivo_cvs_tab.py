@@ -64,8 +64,6 @@ class ArchivoCvsTab(BaseTabWidget):
     def _build_header(self) -> QFrame:
         header = QFrame()
         header.setObjectName("card")
-        header.setMaximumHeight(90)
-
         grid = QGridLayout(header)
         grid.setContentsMargins(12, 10, 12, 10)
         grid.setHorizontalSpacing(10)

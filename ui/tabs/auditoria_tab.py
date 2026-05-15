@@ -10,8 +10,9 @@ from PySide6.QtWidgets import (
     QMessageBox, QTableWidget, QTableWidgetItem,
     QHeaderView, QAbstractItemView, QSplitter, QScrollArea,
     QComboBox, QCheckBox, QMenu, QApplication, QStyle,
-    QStyledItemDelegate,
 )
+
+from ui.theme.delegates import BackgroundPriorityDelegate
 
 from ui.dialogs.forzar_asociacion_dialog import ForzarAsociacionDialog
 from ui.dialogs.numero_receta_dialog import NumeroRecetaDialog
@@ -29,12 +30,10 @@ from ui.usecase.auditoria_usecase import (
 )
 
 
-class RowOutlineDelegate(QStyledItemDelegate):
+class RowOutlineDelegate(BackgroundPriorityDelegate):
     def __init__(self, table: QTableWidget):
         super().__init__(table)
         self._table = table
-        self._pen = QPen(QColor(75, 85, 99))
-        self._pen.setWidth(1)
 
     def paint(self, painter, option, index) -> None:
         super().paint(painter, option, index)
@@ -67,11 +66,14 @@ class RowOutlineDelegate(QStyledItemDelegate):
         row_bottom = first_rect.bottom() - 1
         row_right = right_rect.right() - 1
 
+        from ui.theme.row_colors import outline_color
+        pen = QPen(outline_color())
+        pen.setWidth(1)
+
         painter.save()
-        painter.setPen(self._pen)
+        painter.setPen(pen)
         painter.drawLine(row_left, row_top, row_right, row_top)
         painter.drawLine(row_left, row_bottom, row_right, row_bottom)
-
         painter.restore()
 
 
@@ -169,8 +171,6 @@ class AuditoriaTab(BaseTabWidget):
     def _build_header(self) -> QFrame:
         header = QFrame()
         header.setObjectName("card")
-        header.setMaximumHeight(130)
-
         grid = QGridLayout(header)
         grid.setContentsMargins(12, 10, 12, 10)
         grid.setHorizontalSpacing(10)
@@ -358,21 +358,19 @@ class AuditoriaTab(BaseTabWidget):
         self.tbl.setStyleSheet(
             "QTableWidget#auditoria_rows_table {"
             " selection-background-color: transparent;"
-            " selection-color: #111827;"
             " outline: none;"
             "}"
             "QTableWidget#auditoria_rows_table::item:selected,"
             "QTableWidget#auditoria_rows_table::item:selected:active,"
             "QTableWidget#auditoria_rows_table::item:selected:!active {"
             " background: transparent;"
-            " color: #111827;"
             " border: none;"
             " outline: none;"
             "}"
             "QTableWidget#auditoria_rows_table::item:focus {"
             " outline: none;"
             " border: 0px;"
-            " background-color:transparent;"
+            " background-color: transparent;"
             "}"
         )
         self.tbl.setItemDelegate(RowOutlineDelegate(self.tbl))
@@ -1546,17 +1544,13 @@ class AuditoriaTab(BaseTabWidget):
         self.tbl.setItem(row, self.COL_ELIMINAR, it)
 
     def _apply_row_colors(self, row, r: AuditoriaRowVM):
+        from ui.theme.row_colors import ok_bg, warn_bg, error_bg
 
         if r.auditada:
-            color = QColor(252, 209, 22) if r.flag_debitos else Qt.green
-            self._set_bg(row, self.COL_DEBITOS, color)
+            self._set_bg(row, self.COL_DEBITOS, warn_bg() if r.flag_debitos else ok_bg())
 
-        self._set_bg(row, self.COL_OFI, Qt.green)
-
-        if r.diferencia_montos:
-            self._set_bg(row, self.COL_RECON, Qt.red)
-        else:
-            self._set_bg(row, self.COL_RECON, Qt.green)
+        self._set_bg(row, self.COL_OFI, ok_bg())
+        self._set_bg(row, self.COL_RECON, error_bg() if r.diferencia_montos else ok_bg())
 
     def _reload_auditoria(self):
         self._request_reload_auditoria(title="Actualizando auditoría...")
