@@ -61,7 +61,6 @@ class MalEntregoExcelWindow(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Bajar Mal Entregado General")
         self.setMinimumSize(920, 290)
-        self.setWindowState(Qt.WindowState.WindowMaximized)
 
         self._pool = QThreadPool(self)
         self._pool.setMaxThreadCount(1)
