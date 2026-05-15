@@ -22,6 +22,7 @@ class MotivosDebitosWindow(QDialog):
         self.setWindowTitle("Motivos de Débito")
         self.setMinimumSize(700, 500)
         self.setModal(True)
+        self.setWindowState(Qt.WindowState.WindowMaximized)
 
         self._build_ui()
         self._load_data()

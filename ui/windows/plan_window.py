@@ -18,6 +18,7 @@ class PlanWindow(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Planes")
         self.setMinimumSize(1050, 600)
+        self.setWindowState(Qt.WindowState.WindowMaximized)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(16, 16, 16, 16)

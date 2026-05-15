@@ -18,6 +18,7 @@ class VendedoresWindow(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Vendedores")
         self.setMinimumSize(950, 560)
+        self.setWindowState(Qt.WindowState.WindowMaximized)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(16, 16, 16, 16)

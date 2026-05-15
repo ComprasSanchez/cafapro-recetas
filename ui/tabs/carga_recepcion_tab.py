@@ -5,8 +5,8 @@ from datetime import date, datetime
 from PySide6.QtCore import Qt, QDate
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QFrame, QHBoxLayout, QLabel, QPushButton,
-    QDateEdit, QMessageBox, QLineEdit, QSizePolicy, QGridLayout,
-    QTableWidgetItem, QTableWidget, QAbstractItemView
+    QDateEdit, QMessageBox, QLineEdit, QSizePolicy,
+    QTableWidgetItem, QTableWidget, QAbstractItemView, QStyle
 )
 
 from config.config_manager import ConfigManager
@@ -160,108 +160,87 @@ class CargaRecepcionTab(BaseTabWidget):
     def _build_header(self) -> QFrame:
         header = QFrame()
         header.setObjectName("card")
-        grid = QGridLayout(header)
-        grid.setContentsMargins(12, 10, 12, 10)
-        grid.setHorizontalSpacing(10)
-        grid.setVerticalSpacing(6)
+        vl = QVBoxLayout(header)
+        vl.setContentsMargins(14, 10, 14, 10)
+        vl.setSpacing(8)
 
-        lb_num = QLabel("N° Recepción:")
+        # ── top row: navigation + primary actions ────────────
+        top = QHBoxLayout()
+        top.setSpacing(8)
+
+        top.addWidget(QLabel("N° Recepción:"))
+
         self.in_numero = self._ro_line()
-        self.in_numero.setMinimumWidth(120)
+        top.addWidget(self.in_numero, 1)
 
-        self.btn_pick_recepcion = self._btn("…", variant="ghost", size="sm", w=32, h=28)
-        self.btn_new_recepcion = self._btn("+", variant="ghost", size="sm", w=32, h=28)
+        self.btn_pick_recepcion = QPushButton()
+        self.btn_pick_recepcion.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView))
+        self.btn_pick_recepcion.setToolTip("Seleccionar recepción")
+        self.btn_pick_recepcion.setProperty("variant", "ghost")
+        self.btn_pick_recepcion.setProperty("size", "icon")
+        top.addWidget(self.btn_pick_recepcion)
 
-        lb_obra = QLabel("Obra social:")
+        self.btn_new_recepcion = QPushButton()
+        self.btn_new_recepcion.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogNewFolder))
+        self.btn_new_recepcion.setToolTip("Nueva recepción")
+        self.btn_new_recepcion.setProperty("variant", "ghost")
+        self.btn_new_recepcion.setProperty("size", "icon")
+        top.addWidget(self.btn_new_recepcion)
+
+        top.addStretch(1)
+
+        self.btn_cargar = self._btn("Cargar", variant="ghost", size="md")
+        self.btn_procesar = self._btn("Procesar", variant="primary", size="md")
+        self.btn_cerrar = self._btn("Cerrar recepción", variant="ghost", size="md")
+        top.addWidget(self.btn_cargar)
+        top.addWidget(self.btn_procesar)
+        top.addWidget(self.btn_cerrar)
+
+        vl.addLayout(top)
+
+        # ── bottom row: info fields + secondary actions ───────
+        bot = QHBoxLayout()
+        bot.setSpacing(10)
+
+        bot.addWidget(QLabel("Obra social:"))
         self.in_obra = self._ro_line()
-        self.in_obra.setMinimumWidth(300)
+        bot.addWidget(self.in_obra, 3)
 
-        lb_prest = QLabel("Prestador:")
+        bot.addWidget(QLabel("Prestador:"))
         self.in_prestador = self._ro_line()
-        self.in_prestador.setMinimumWidth(300)
+        bot.addWidget(self.in_prestador, 3)
 
-        lb_periodo = QLabel("Período:")
+        bot.addWidget(QLabel("Período:"))
         self.in_periodo = self._ro_line()
-        self.in_periodo.setMinimumWidth(120)
+        self.in_periodo.setMaximumWidth(130)
+        bot.addWidget(self.in_periodo, 1)
 
-        lb_quincena = QLabel("Quincena:")
+        bot.addWidget(QLabel("Quincena:"))
         self.in_quincena = self._ro_line()
-        self.in_quincena.setFixedWidth(70)
         self.in_quincena.setAlignment(Qt.AlignCenter)
+        self.in_quincena.setMaximumWidth(70)
+        bot.addWidget(self.in_quincena)
 
         self.de_fecha = QDateEdit()
         self.de_fecha.setCalendarPopup(True)
         self.de_fecha.setDate(QDate.currentDate())
         self.de_fecha.setDisplayFormat("dd/MM/yyyy")
         self.de_fecha.setMinimumHeight(28)
-        self.de_fecha.setFixedWidth(120)
-        self.btn_dias_descargados = self._btn("Días descargados", variant="ghost", size="md", w=140, h=32)
+        bot.addWidget(self.de_fecha)
 
-        self.btn_cargar = self._btn("Cargar", variant="ghost", size="md", w=90, h=32)
-        self.btn_procesar = self._btn("Procesar", variant="primary", size="md", w=90, h=32)
+        self.btn_dias_descargados = self._btn("Días descargados", variant="ghost", size="md")
+        bot.addWidget(self.btn_dias_descargados)
 
-        self.btn_cerrar = self._btn("Cerrar recepción", variant="ghost", size="md", w=140, h=32)
-        self.btn_debitos = self._btn("Débitos", variant="ghost", size="md", w=90, h=32)
-        self.btn_excluidos = self._btn("Excluidos", variant="ghost", size="md", w=90, h=32)
+        bot.addStretch(1)
 
-        fecha_box = QWidget()
-        fecha_l = QHBoxLayout(fecha_box)
-        fecha_l.setContentsMargins(0, 0, 0, 0)
-        fecha_l.setSpacing(6)
-        fecha_l.addWidget(self.de_fecha)
+        self.btn_debitos = self._btn("Débitos", variant="ghost", size="md")
+        self.btn_excluidos = self._btn("Excluidos", variant="ghost", size="md")
+        bot.addWidget(self.btn_debitos)
+        bot.addWidget(self.btn_excluidos)
 
-        right_box = QWidget()
-        right_l = QVBoxLayout(right_box)
-        right_l.setContentsMargins(0, 0, 0, 0)
-        right_l.setSpacing(6)
+        vl.addLayout(bot)
 
-        right_top = QWidget()
-        right_top_l = QHBoxLayout(right_top)
-        right_top_l.setContentsMargins(0, 0, 0, 0)
-        right_top_l.setSpacing(8)
-        right_top_l.addWidget(self.btn_cargar)
-        right_top_l.addWidget(self.btn_procesar)
-        right_top_l.addWidget(self.btn_cerrar)
-
-        right_bottom = QWidget()
-        right_bottom_l = QHBoxLayout(right_bottom)
-        right_bottom_l.setContentsMargins(0, 0, 0, 0)
-        right_bottom_l.setSpacing(8)
-        right_bottom_l.addWidget(self.btn_debitos)
-        right_bottom_l.addWidget(self.btn_excluidos)
-        right_bottom_l.addWidget(self.btn_dias_descargados)
-
-        right_l.addWidget(right_top)
-        right_l.addWidget(right_bottom)
-
-        num_box = QWidget()
-        num_l = QHBoxLayout(num_box)
-        num_l.setContentsMargins(0, 0, 0, 0)
-        num_l.setSpacing(6)
-        num_l.addWidget(self.in_numero, 1)
-        num_l.addWidget(self.btn_pick_recepcion, 0)
-        num_l.addWidget(self.btn_new_recepcion, 0)
-
-        grid.addWidget(lb_num, 0, 0, Qt.AlignmentFlag.AlignRight)
-        grid.addWidget(num_box, 0, 1, 1, 3)
-
-        grid.addWidget(lb_obra, 0, 4, Qt.AlignmentFlag.AlignRight)
-        grid.addWidget(self.in_obra, 0, 5, 1, 4)
-
-        grid.addWidget(lb_prest, 1, 0, Qt.AlignmentFlag.AlignRight)
-        grid.addWidget(self.in_prestador, 1, 1, 1, 3)
-
-        grid.addWidget(lb_periodo, 1, 4, Qt.AlignmentFlag.AlignRight)
-        grid.addWidget(self.in_periodo, 1, 5)
-
-        grid.addWidget(lb_quincena, 1, 6, Qt.AlignmentFlag.AlignRight)
-        grid.addWidget(self.in_quincena, 1, 7)
-
-        grid.addWidget(fecha_box, 1, 9)
-
-        grid.setColumnStretch(8, 1)
-        grid.addWidget(right_box, 0, 10, 2, 1, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-
+        # signals
         self.btn_pick_recepcion.clicked.connect(self._on_pick_recepcion)
         self.btn_new_recepcion.clicked.connect(self._on_new_recepcion)
         self.btn_cargar.clicked.connect(self._on_cargar)

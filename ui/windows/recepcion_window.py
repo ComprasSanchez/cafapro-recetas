@@ -20,6 +20,7 @@ class RecepcionesWindow(QDialog):
 
         self.setWindowTitle("Listado Recepciones")
         self.setMinimumSize(1100, 560)
+        self.setWindowState(Qt.WindowState.WindowMaximized)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(16, 16, 16, 16)

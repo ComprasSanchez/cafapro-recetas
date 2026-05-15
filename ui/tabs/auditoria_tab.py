@@ -5,7 +5,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QEvent, QThreadPool, QTimer
 from PySide6.QtGui import QPixmap, QColor, QPen, QIcon
 from PySide6.QtWidgets import (
-    QWidget, QFrame, QVBoxLayout, QGridLayout, QHBoxLayout,
+    QWidget, QFrame, QVBoxLayout, QHBoxLayout,
     QLabel, QLineEdit, QPushButton, QSizePolicy,
     QMessageBox, QTableWidget, QTableWidgetItem,
     QHeaderView, QAbstractItemView, QSplitter, QScrollArea,
@@ -171,103 +171,79 @@ class AuditoriaTab(BaseTabWidget):
     def _build_header(self) -> QFrame:
         header = QFrame()
         header.setObjectName("card")
-        grid = QGridLayout(header)
-        grid.setContentsMargins(12, 10, 12, 10)
-        grid.setHorizontalSpacing(10)
-        grid.setVerticalSpacing(8)
+        vl = QVBoxLayout(header)
+        vl.setContentsMargins(14, 10, 14, 10)
+        vl.setSpacing(8)
 
-        lb_num = QLabel("N° Recepción:")
+        # ── actions row ──────────────────────────────────────
+        act = QHBoxLayout()
+        act.setSpacing(8)
+
+        act.addWidget(QLabel("N° Recepción:"))
+
         self.in_numero = self._ro_line("-")
-        self.in_numero.setFixedWidth(140)
+        self.in_numero.setMinimumWidth(110)
+        self.in_numero.setMaximumWidth(160)
+        act.addWidget(self.in_numero)
 
-        self.btn_pick_recepcion = QPushButton("…")
-        self.btn_pick_recepcion.setFixedSize(32, 28)
+        self.btn_pick_recepcion = QPushButton()
+        self.btn_pick_recepcion.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView))
+        self.btn_pick_recepcion.setToolTip("Seleccionar recepción")
+        self.btn_pick_recepcion.setProperty("variant", "ghost")
+        self.btn_pick_recepcion.setProperty("size", "icon")
         self.btn_pick_recepcion.clicked.connect(self._on_pick_recepcion)
+        act.addWidget(self.btn_pick_recepcion)
 
         self.btn_visual = QPushButton("Auditoría visual")
         self.btn_visual.setProperty("variant", "primary")
-        self.btn_visual.setMinimumHeight(32)
+        self.btn_visual.setProperty("size", "md")
         self.btn_visual.setEnabled(False)
         self.btn_visual.clicked.connect(self._on_open_auditoria_visual)
+        act.addWidget(self.btn_visual)
 
         self.btn_reload = QPushButton()
+        self.btn_reload.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload))
         self.btn_reload.setToolTip("Recargar auditoría")
-        self.btn_reload.setMinimumHeight(32)
-
-        icon = self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload)
-        self.btn_reload.setIcon(icon)
-
-        self.btn_reload.clicked.connect(self._reload_auditoria)
+        self.btn_reload.setProperty("variant", "ghost")
+        self.btn_reload.setProperty("size", "icon")
         self.btn_reload.setEnabled(False)
+        self.btn_reload.clicked.connect(self._reload_auditoria)
+        act.addWidget(self.btn_reload)
+
+        act.addStretch(1)
 
         self.btn_buscar_receta = QPushButton("Buscar receta")
-        self.btn_buscar_receta.setMinimumHeight(32)
+        self.btn_buscar_receta.setProperty("variant", "ghost")
+        self.btn_buscar_receta.setProperty("size", "md")
         self.btn_buscar_receta.clicked.connect(self._on_open_historial_search)
+        act.addWidget(self.btn_buscar_receta)
 
-        num_box = QWidget()
-        num_l = QHBoxLayout(num_box)
-        num_l.setContentsMargins(0, 0, 0, 0)
-        num_l.setSpacing(6)
-        num_l.addWidget(self.in_numero, 0)
-        num_l.addWidget(self.btn_pick_recepcion, 0)
+        vl.addLayout(act)
 
-        row0_box = QWidget()
-        row0_l = QHBoxLayout(row0_box)
-        row0_l.setContentsMargins(0, 0, 0, 0)
-        row0_l.setSpacing(10)
-        row0_l.addWidget(num_box, 0)
-        row0_l.addWidget(self.btn_visual, 0)
-        row0_l.addWidget(self.btn_reload, 0)
-        row0_l.addStretch(1)
-        row0_l.addWidget(self.btn_buscar_receta, 0)
+        # ── info row ─────────────────────────────────────────
+        info = QHBoxLayout()
+        info.setSpacing(10)
 
-        lb_obs = QLabel("Obra social:")
+        info.addWidget(QLabel("Obra social:"))
         self.in_obs = self._ro_line("-")
-        self.in_obs.setFixedWidth(240)
+        info.addWidget(self.in_obs, 2)
 
-        lb_prest = QLabel("Prestador:")
+        info.addWidget(QLabel("Prestador:"))
         self.in_prestador = self._ro_line("-")
-        self.in_prestador.setFixedWidth(280)
+        info.addWidget(self.in_prestador, 2)
 
-        row1_box = QWidget()
-        row1_l = QHBoxLayout(row1_box)
-        row1_l.setContentsMargins(0, 0, 0, 0)
-        row1_l.setSpacing(10)
-        row1_l.addWidget(self.in_obs, 0)
-        row1_l.addSpacing(8)
-        row1_l.addWidget(lb_prest, 0)
-        row1_l.addWidget(self.in_prestador, 0)
-        row1_l.addStretch(1)
-
-        lb_periodo = QLabel("Período:")
+        info.addWidget(QLabel("Período:"))
         self.in_periodo = self._ro_line("-")
-        self.in_periodo.setFixedWidth(160)
+        self.in_periodo.setMaximumWidth(150)
+        info.addWidget(self.in_periodo, 1)
 
-        lb_quinc = QLabel("Quincena:")
+        info.addWidget(QLabel("Quincena:"))
         self.in_quincena = self._ro_line("-")
-        self.in_quincena.setFixedWidth(80)
         self.in_quincena.setAlignment(Qt.AlignCenter)
+        self.in_quincena.setMaximumWidth(80)
+        info.addWidget(self.in_quincena)
 
-        row2_box = QWidget()
-        row2_l = QHBoxLayout(row2_box)
-        row2_l.setContentsMargins(0, 0, 0, 0)
-        row2_l.setSpacing(10)
-        row2_l.addWidget(self.in_periodo, 0)
-        row2_l.addWidget(lb_quinc, 0)
-        row2_l.addWidget(self.in_quincena, 0)
-        row2_l.addStretch(1)
-
-        grid.setColumnStretch(0, 0)
-        grid.setColumnStretch(1, 1)
-
-        grid.addWidget(lb_num, 0, 0, Qt.AlignmentFlag.AlignRight)
-        grid.addWidget(row0_box, 0, 1)
-
-        grid.addWidget(lb_obs, 1, 0, Qt.AlignmentFlag.AlignRight)
-        grid.addWidget(row1_box, 1, 1)
-
-        grid.addWidget(lb_periodo, 2, 0, Qt.AlignmentFlag.AlignRight)
-        grid.addWidget(row2_box, 2, 1)
+        vl.addLayout(info)
 
         return header
 

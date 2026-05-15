@@ -43,6 +43,7 @@ class ResumenRecepcionWindow(QDialog):
         self.setWindowTitle("Recepciones por período")
         self.setMinimumSize(1200, 650)
         self.setModal(True)
+        self.setWindowState(Qt.WindowState.WindowMaximized)
 
         self._periodo_id: int | None = None
         self._prestador_id: int | None = None

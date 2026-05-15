@@ -27,6 +27,7 @@ class PeriodosWindow(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Períodos")
         self.setMinimumSize(900, 520)
+        self.setWindowState(Qt.WindowState.WindowMaximized)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(16, 16, 16, 16)

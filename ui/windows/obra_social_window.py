@@ -18,6 +18,7 @@ class ObrasSocialesWindow(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Obras Sociales")
         self.setMinimumSize(1180, 560)
+        self.setWindowState(Qt.WindowState.WindowMaximized)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(16, 16, 16, 16)

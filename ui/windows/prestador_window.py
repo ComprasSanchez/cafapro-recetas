@@ -18,6 +18,7 @@ class PrestadoresWindow(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Prestadores")
         self.setMinimumSize(1050, 580)
+        self.setWindowState(Qt.WindowState.WindowMaximized)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(16, 16, 16, 16)

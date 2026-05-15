@@ -24,6 +24,7 @@ class ExcluidosWindow(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Archivos Excluidos")
         self.setMinimumSize(950, 520)
+        self.setWindowState(Qt.WindowState.WindowMaximized)
 
         self._recepcion_id: int | None = int(recepcion_id) if recepcion_id is not None else None
         self._recepcion_numero = str(recepcion_numero or "").strip()

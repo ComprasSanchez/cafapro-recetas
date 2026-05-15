@@ -40,6 +40,7 @@ class ListadoDebitosWindow(QDialog):
         self.setWindowTitle("Débitos por recepción")
         self.setMinimumSize(1100, 650)
         self.setModal(True)
+        self.setWindowState(Qt.WindowState.WindowMaximized)
 
         self._estados: list[tuple[int, str]] = []
         self._recepcion_id: int | None = int(recepcion_id) if recepcion_id is not None else None
