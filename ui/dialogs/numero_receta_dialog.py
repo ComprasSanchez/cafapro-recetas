@@ -31,9 +31,13 @@ class NumeroRecetaDialog(QDialog):
         btns = QHBoxLayout()
 
         btn_cancel = QPushButton("Cancelar")
+        btn_cancel.setProperty("variant", "ghost")
+        btn_cancel.setProperty("size", "md")
         btn_cancel.clicked.connect(self.reject)
 
         btn_ok = QPushButton("Confirmar")
+        btn_ok.setProperty("variant", "primary")
+        btn_ok.setProperty("size", "md")
         btn_ok.clicked.connect(self.accept)
         btn_ok.setDefault(True)
 

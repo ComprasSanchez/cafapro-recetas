@@ -626,3 +626,57 @@ QSplitter::handle           { background: #D1D9E6; }
 QSplitter::handle:horizontal { width: 1px; }
 QSplitter::handle:vertical   { height: 1px; }
 QSplitter::handle:hover      { background: #2563EB; }
+
+/* ── Placeholder text ────────────────────────────────────── */
+QLineEdit[placeholderText] { color: #0D1B2E; }
+QLineEdit::placeholder      { color: #94A3B8; }
+
+/* ── Button focus ring ───────────────────────────────────── */
+QPushButton:focus {
+  outline: 2px solid #2563EB;
+  outline-offset: -2px;
+}
+
+/* ── QToolButton (outside calendar) ─────────────────────── */
+QToolButton {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 4px 6px;
+  color: #0D1B2E;
+}
+QToolButton:hover   { background: #EEF2F8; border-color: #D1D9E6; }
+QToolButton:pressed { background: #DDE5F0; }
+
+/* ── Scrollbar pressed state ─────────────────────────────── */
+QScrollBar::handle:vertical:pressed   { background: #6888A8; }
+QScrollBar::handle:horizontal:pressed { background: #6888A8; }
+
+/* ── variant="info" (DEBITADA button) ───────────────────── */
+QPushButton[variant="info"] {
+  background: #0EA5E9;
+  color: #FFFFFF;
+  font-weight: 800;
+  border: none;
+  border-radius: 8px;
+  padding: 6px 14px;
+}
+QPushButton[variant="info"]:hover   { background: #38BDF8; }
+QPushButton[variant="info"]:pressed { background: #0284C7; }
+QPushButton[variant="info"]:disabled { background: #BAE6FD; color: #7DD3FC; }
+
+/* ── role="stat-value" (large numeric labels) ────────────── */
+QLabel[role="stat-value"] {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0D1B2E;
+}
+
+/* ── motivos_list items ──────────────────────────────────── */
+QListWidget#motivos_list::item {
+  padding: 2px 4px;
+  margin: 0;
+}
+
+/* ── Muted text ──────────────────────────────────────────── */
+QLabel#muted { color: #64748B; font-size: 12px; }

@@ -54,6 +54,7 @@ class HistorialSearchDialog(QDialog):
 
         self.setWindowTitle("Buscar receta")
         self.setMinimumSize(1280, 760)
+        self.setModal(True)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(10, 10, 10, 10)
@@ -79,6 +80,8 @@ class HistorialSearchDialog(QDialog):
         lay.addWidget(self.in_receta, 1)
 
         self.btn_search_receta = QPushButton("Buscar receta")
+        self.btn_search_receta.setProperty("variant", "primary")
+        self.btn_search_receta.setProperty("size", "md")
         self.btn_search_receta.clicked.connect(self._search_by_receta)
         lay.addWidget(self.btn_search_receta, 0)
 
@@ -91,6 +94,8 @@ class HistorialSearchDialog(QDialog):
         lay.addWidget(self.in_referencia, 1)
 
         self.btn_search_ref = QPushButton("Buscar referencia")
+        self.btn_search_ref.setProperty("variant", "primary")
+        self.btn_search_ref.setProperty("size", "md")
         self.btn_search_ref.clicked.connect(self._search_by_referencia)
         lay.addWidget(self.btn_search_ref, 0)
 
@@ -228,6 +233,8 @@ class HistorialSearchDialog(QDialog):
         lay.addStretch(1)
 
         btn_close = QPushButton("Cerrar")
+        btn_close.setProperty("variant", "ghost")
+        btn_close.setProperty("size", "md")
         btn_close.clicked.connect(self.accept)
         lay.addWidget(btn_close)
         return box

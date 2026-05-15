@@ -20,7 +20,8 @@ class LoginDialog(QDialog):
         self.user = None
 
         self.setWindowTitle("Inicio de sesión")
-        self.setFixedWidth(360)
+        self.setMinimumWidth(360)
+        self.setMaximumWidth(480)
         self.setModal(True)
 
         self._build_ui()
@@ -30,7 +31,7 @@ class LoginDialog(QDialog):
 
         title = QLabel("Cafapro Recetas")
         title.setAlignment(Qt.AlignCenter)
-        title.setStyleSheet("font-size: 18px; font-weight: bold;")
+        title.setProperty("role", "title")
         root.addWidget(title)
 
         form = QFormLayout()
@@ -48,6 +49,8 @@ class LoginDialog(QDialog):
         root.addLayout(form)
 
         self.btn_login = QPushButton("Ingresar")
+        self.btn_login.setProperty("variant", "primary")
+        self.btn_login.setProperty("size", "md")
         self.btn_login.clicked.connect(self._on_login)
 
         root.addWidget(self.btn_login)

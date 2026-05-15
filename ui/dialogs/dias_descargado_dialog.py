@@ -4,6 +4,8 @@ from datetime import date
 
 from PySide6.QtCore import Qt, QDate, Signal, QRect
 from PySide6.QtGui import QPainter, QPen, QColor, QTextCharFormat, QBrush
+
+from ui.theme.row_colors import ok_bg
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QCalendarWidget, QWidget
@@ -153,7 +155,7 @@ class DiasDescargadosDialog(QDialog):
         self._fmt_clear = QTextCharFormat()
 
         self._fmt_ok = QTextCharFormat()
-        self._fmt_ok.setBackground(QBrush(QColor(190, 245, 190)))
+        self._fmt_ok.setBackground(QBrush(ok_bg()))
         self._fmt_ok.setToolTip("Descargado")
 
         # Anchor = mes actual (1er día)
@@ -173,6 +175,8 @@ class DiasDescargadosDialog(QDialog):
         self.lb_info.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
 
         self.btn_close = QPushButton("Cerrar")
+        self.btn_close.setProperty("variant", "ghost")
+        self.btn_close.setProperty("size", "md")
         self.btn_close.clicked.connect(self.reject)
 
         top.addWidget(self.lb_info, 1)
@@ -202,7 +206,7 @@ class DiasDescargadosDialog(QDialog):
 
         title = QLabel("")
         title.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
-        title.setStyleSheet("font-weight: 600;")
+        title.setProperty("role", "subtitle")
 
         cal = BorderCalendar()
         cal.clicked.connect(self._on_clicked_day)

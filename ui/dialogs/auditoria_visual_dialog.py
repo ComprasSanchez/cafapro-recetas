@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, QTimer, QThreadPool
-from PySide6.QtGui import QFont
+
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QSplitter,
     QLabel, QPushButton, QFrame, QScrollArea, QTableWidget,
@@ -349,16 +349,11 @@ class AuditoriaVisualDialog(QDialog):
         lay.addWidget(title)
 
         self.list_motivos = QListWidget()
+        self.list_motivos.setObjectName("motivos_list")
         self.list_motivos.itemChanged.connect(self._on_motivo_item_changed)
         self.list_motivos.itemDoubleClicked.connect(self._on_motivo_item_activated)
         self.list_motivos.setSpacing(1)
         self.list_motivos.setUniformItemSizes(True)
-        self.list_motivos.setStyleSheet("""
-        QListWidget::item {
-            padding: 2px 4px;
-            margin: 0px;
-        }
-        """)
 
         lay.addWidget(self.list_motivos)
 
@@ -464,10 +459,7 @@ class AuditoriaVisualDialog(QDialog):
         lb_title.setObjectName("muted")
 
         lb_value = QLabel("—")
-        f2 = QFont()
-        f2.setPointSize(15)
-        f2.setBold(True)
-        lb_value.setFont(f2)
+        lb_value.setProperty("role", "stat-value")
 
         v.addWidget(lb_title, 0)
         v.addWidget(lb_value, 0)
@@ -510,22 +502,10 @@ class AuditoriaVisualDialog(QDialog):
         self.btn_finalizar.clicked.connect(self._on_finalizar)
 
         self.btn_debitada = QPushButton("DEBITADA")
-        self.btn_debitada.setMinimumHeight(34)
-        self.btn_debitada.setVisible(False)  # por defecto oculto
+        self.btn_debitada.setProperty("variant", "info")
+        self.btn_debitada.setProperty("size", "md")
+        self.btn_debitada.setVisible(False)
         self.btn_debitada.clicked.connect(self._open_historial_debitada)
-
-        # azul flúor + blanco (ajustalo vos)
-        self.btn_debitada.setStyleSheet("""
-                   QPushButton {
-                       background: #00B8FF;
-                       color: white;
-                       font-weight: 800;
-                       border-radius: 8px;
-                       padding: 6px 14px;
-                   }
-                   QPushButton:hover { background: #2AC6FF; }
-                   QPushButton:pressed { background: #0099D6; }
-               """)
 
         lay.addWidget(self.btn_debitada, 0)
 

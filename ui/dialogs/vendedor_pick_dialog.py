@@ -53,9 +53,13 @@ class VendedorPickDialog(QDialog):
         btns.addStretch(1)
 
         self.btn_ok = QPushButton("Seleccionar")
+        self.btn_ok.setProperty("variant", "primary")
+        self.btn_ok.setProperty("size", "md")
         self.btn_ok.clicked.connect(self._accept_from_current)
 
         self.btn_cancel = QPushButton("Cancelar")
+        self.btn_cancel.setProperty("variant", "ghost")
+        self.btn_cancel.setProperty("size", "md")
         self.btn_cancel.clicked.connect(self.reject)
 
         btns.addWidget(self.btn_cancel)

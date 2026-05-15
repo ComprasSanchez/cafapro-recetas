@@ -29,7 +29,7 @@ class RecepcionCreateDialog(QDialog):
         root.setSpacing(10)
 
         title = QLabel("Nueva recepción")
-        title.setStyleSheet("font-size:16px; font-weight:600;")
+        title.setProperty("role", "subtitle")
         root.addWidget(title)
 
         form = QFormLayout()
@@ -64,7 +64,11 @@ class RecepcionCreateDialog(QDialog):
         actions.addStretch()
 
         self.btn_cancel = QPushButton("Cancelar")
+        self.btn_cancel.setProperty("variant", "ghost")
+        self.btn_cancel.setProperty("size", "md")
         self.btn_ok = QPushButton("Crear")
+        self.btn_ok.setProperty("variant", "primary")
+        self.btn_ok.setProperty("size", "md")
         self.btn_ok.setDefault(True)
 
         actions.addWidget(self.btn_cancel)

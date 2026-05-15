@@ -81,12 +81,13 @@ class TroquelDialog(QDialog):
         actions.addStretch(1)
 
         self.btn_cancel = QPushButton("Cancelar")
-        self.btn_cancel.setMinimumHeight(32)
+        self.btn_cancel.setProperty("variant", "ghost")
+        self.btn_cancel.setProperty("size", "md")
         self.btn_cancel.clicked.connect(self.reject)
 
         self.btn_ok = QPushButton("Guardar")
         self.btn_ok.setProperty("variant", "primary")
-        self.btn_ok.setMinimumHeight(32)
+        self.btn_ok.setProperty("size", "md")
         self.btn_ok.clicked.connect(self._on_ok)
 
         actions.addWidget(self.btn_cancel, 0)
