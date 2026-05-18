@@ -48,8 +48,8 @@ LEFT JOIN vendedores ven
   ON ven.vendedor_id = r.vendedor_id
 LEFT JOIN usuarios u
   ON u.usuario_id = r.usuario_id
-LEFT JOIN asociacion x
+JOIN asociacion x
   ON x.receta_id = r.receta_id
  AND x.vigente IS TRUE
-LEFT JOIN archivo a
+JOIN archivo a
   ON a.archivo_id = x.archivo_id;
