@@ -10,14 +10,14 @@ QWidget {
   background: #0A1628;
   color: #D9E2EF;
   font-family: "Segoe UI", "Inter", sans-serif;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 QLabel, QFrame {
   background: transparent;
   color: #D9E2EF;
 }
-
+si
 QToolTip {
   background: #0A1628;
   color: #D9E2EF;
@@ -47,14 +47,14 @@ QDialog      { background: #0A1628; }
   letter-spacing: 0.1px;
 }
 
-QLabel[role="title"]    { font-size: 15px; font-weight: 700; color: #E8EFF8; }
-QLabel[role="subtitle"] { font-size: 11px; color: #8FAAC4; font-weight: 500; }
-QLabel[role="error"]    { font-size: 12px; color: #F87171; font-weight: 500; padding: 4px 0; }
+QLabel[role="title"]    { font-size: 16px; font-weight: 700; color: #E8EFF8; }
+QLabel[role="subtitle"] { font-size: 12px; color: #8FAAC4; font-weight: 500; }
+QLabel[role="error"]    { font-size: 13px; color: #F87171; font-weight: 500; padding: 4px 0; }
 
 /* Badge / chip label */
-QLabel[role="badge-ok"]    { background: #134E2A; color: #6EE7B7; border-radius: 10px; padding: 2px 8px; font-size: 11px; font-weight: 600; }
-QLabel[role="badge-warn"]  { background: #78350F; color: #FCD34D; border-radius: 10px; padding: 2px 8px; font-size: 11px; font-weight: 600; }
-QLabel[role="badge-error"] { background: #7F1D1D; color: #FCA5A5; border-radius: 10px; padding: 2px 8px; font-size: 11px; font-weight: 600; }
+QLabel[role="badge-ok"]    { background: #15803d; color: #d1fae5; border-radius: 10px; padding: 2px 8px; font-size: 11px; font-weight: 600; }
+QLabel[role="badge-warn"]  { background: #b45309; color: #fef3c7; border-radius: 10px; padding: 2px 8px; font-size: 11px; font-weight: 600; }
+QLabel[role="badge-error"] { background: #b91c1c; color: #fee2e2; border-radius: 10px; padding: 2px 8px; font-size: 11px; font-weight: 600; }
 
 /* ── MenuBar ─────────────────────────────────────────────── */
 QMenuBar {
@@ -63,7 +63,7 @@ QMenuBar {
   border-bottom: 1px solid #1E3347;
   padding: 2px 6px;
   spacing: 2px;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 QMenuBar::item {
@@ -94,7 +94,7 @@ QMenu::item {
   padding: 8px 18px;
   border-radius: 6px;
   color: #C5D3E5;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 QMenu::item:selected {
@@ -216,7 +216,7 @@ QPushButton {
   border-radius: 8px;
   padding: 6px 14px;
   color: #C5D3E5;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
 }
 
@@ -445,7 +445,7 @@ QTabBar::tab {
   border-top-left-radius: 10px;
   border-top-right-radius: 10px;
   color: #7B93AD;
-  font-size: 12px;
+  font-size: 13px;
   margin-right: 3px;
   min-width: 90px;
 }

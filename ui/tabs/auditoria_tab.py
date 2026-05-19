@@ -430,23 +430,29 @@ class AuditoriaTab(BaseTabWidget):
 
     def _build_filters(self) -> QFrame:
         bar = QFrame()
-        l = QHBoxLayout(bar)
+        outer = QVBoxLayout(bar)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(6)
+
+        # ── Fila 1: controles de búsqueda y filtrado ──────────────────────────
+        row1 = QWidget()
+        l = QHBoxLayout(row1)
         l.setContentsMargins(0, 0, 0, 0)
-        l.setSpacing(10)
+        l.setSpacing(8)
 
         l.addWidget(QLabel("Buscar:"))
 
         self.in_search = QLineEdit()
         self.in_search.setPlaceholderText("N° receta o referencia…")
         self.in_search.setMinimumHeight(28)
-        self.in_search.setMinimumWidth(220)
+        self.in_search.setMinimumWidth(200)
         self.in_search.textChanged.connect(self._on_search_changed)
         l.addWidget(self.in_search, 0)
 
         l.addWidget(QLabel("Estado:"))
         self.cb_estado = QComboBox()
         self.cb_estado.setMinimumHeight(28)
-        self.cb_estado.setMinimumWidth(240)
+        self.cb_estado.setMinimumWidth(220)
         self.cb_estado.addItem("Cargando…", None)
         self.cb_estado.currentIndexChanged.connect(self._apply_filters)
         l.addWidget(self.cb_estado, 0)
@@ -454,7 +460,7 @@ class AuditoriaTab(BaseTabWidget):
         l.addWidget(QLabel("Débitos:"))
         self.cb_debitos = QComboBox()
         self.cb_debitos.setMinimumHeight(28)
-        self.cb_debitos.setMinimumWidth(170)
+        self.cb_debitos.setMinimumWidth(150)
         self.cb_debitos.addItem("Todos", None)
         self.cb_debitos.addItem("Con débitos", True)
         self.cb_debitos.addItem("Sin débitos", False)
@@ -469,24 +475,35 @@ class AuditoriaTab(BaseTabWidget):
         self.lb_filtered.setObjectName("muted")
         l.addWidget(self.lb_filtered, 0)
 
+        l.addStretch(1)
+        outer.addWidget(row1)
+
+        # ── Fila 2: acciones de admin (solo si corresponde) ───────────────────
         if self._is_admin:
+            row2 = QWidget()
+            l2 = QHBoxLayout(row2)
+            l2.setContentsMargins(0, 0, 0, 0)
+            l2.setSpacing(8)
+
             self.btn_mark_revisiones = QPushButton("Marcar revisiones")
             self.btn_mark_revisiones.setMinimumHeight(28)
             self.btn_mark_revisiones.clicked.connect(self._on_mark_revisiones)
-            l.addWidget(self.btn_mark_revisiones, 0)
+            l2.addWidget(self.btn_mark_revisiones, 0)
 
             self.btn_clear_revisiones = QPushButton("Limpiar selección")
             self.btn_clear_revisiones.setMinimumHeight(28)
             self.btn_clear_revisiones.clicked.connect(self._on_clear_revisiones)
-            l.addWidget(self.btn_clear_revisiones, 0)
+            l2.addWidget(self.btn_clear_revisiones, 0)
 
             self.btn_delete_revisiones = QPushButton("Eliminar revisiones")
             self.btn_delete_revisiones.setProperty("danger", True)
             self.btn_delete_revisiones.setMinimumHeight(28)
             self.btn_delete_revisiones.clicked.connect(self._on_delete_revisiones)
-            l.addWidget(self.btn_delete_revisiones, 0)
+            l2.addWidget(self.btn_delete_revisiones, 0)
 
-        l.addStretch(1)
+            l2.addStretch(1)
+            outer.addWidget(row2)
+
         return bar
 
     def _show_column_menu(self, pos):
@@ -1272,10 +1289,12 @@ class AuditoriaTab(BaseTabWidget):
         self.img_preview.setPixmap(QPixmap())
         self.img_preview.setText(f"No se pudo cargar la imagen.\n{nice}")
 
-    def _set_bg(self, row: int, col: int, color) -> None:
+    def _set_bg(self, row: int, col: int, bg, fg=None) -> None:
         it = self.tbl.item(row, col)
         if it:
-            it.setBackground(color)
+            it.setBackground(bg)
+            if fg is not None:
+                it.setForeground(fg)
 
     @staticmethod
     def _is_diff_money(a: float, b: float, tol: float = 0.009) -> bool:
@@ -1520,13 +1539,19 @@ class AuditoriaTab(BaseTabWidget):
         self.tbl.setItem(row, self.COL_ELIMINAR, it)
 
     def _apply_row_colors(self, row, r: AuditoriaRowVM):
-        from ui.theme.row_colors import ok_bg, warn_bg, error_bg
+        from ui.theme.row_colors import ok_bg, ok_fg, warn_bg, warn_fg, error_bg, error_fg
 
         if r.auditada:
-            self._set_bg(row, self.COL_DEBITOS, warn_bg() if r.flag_debitos else ok_bg())
+            if r.flag_debitos:
+                self._set_bg(row, self.COL_DEBITOS, warn_bg(), warn_fg())
+            else:
+                self._set_bg(row, self.COL_DEBITOS, ok_bg(), ok_fg())
 
-        self._set_bg(row, self.COL_OFI, ok_bg())
-        self._set_bg(row, self.COL_RECON, error_bg() if r.diferencia_montos else ok_bg())
+        self._set_bg(row, self.COL_OFI, ok_bg(), ok_fg())
+        if r.diferencia_montos:
+            self._set_bg(row, self.COL_RECON, error_bg(), error_fg())
+        else:
+            self._set_bg(row, self.COL_RECON, ok_bg(), ok_fg())
 
     def _reload_auditoria(self):
         self._request_reload_auditoria(title="Actualizando auditoría...")
