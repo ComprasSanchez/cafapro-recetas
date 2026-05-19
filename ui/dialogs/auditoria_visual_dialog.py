@@ -116,14 +116,15 @@ class AuditoriaVisualDialog(QDialog):
 
         self._loading_overlay = QLabel("Cargando…", self)
         self._loading_overlay.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._loading_overlay.setStyleSheet("""
-            QLabel {
-                background: rgba(0, 0, 0, 120);
-                color: white;
-                font-size: 18px;
-                font-weight: bold;
-            }
-        """)
+        from ui.theme.theme_manager import theme_manager
+        if theme_manager.is_dark():
+            _ov_bg, _ov_fg = "rgba(10,22,40,200)", "#D9E2EF"
+        else:
+            _ov_bg, _ov_fg = "rgba(236,240,247,210)", "#0D1B2E"
+        self._loading_overlay.setStyleSheet(
+            f"QLabel {{ background: {_ov_bg}; color: {_ov_fg};"
+            " font-size: 18px; font-weight: bold; }}"
+        )
         self._loading_overlay.hide()
 
         root = QVBoxLayout(self)
@@ -372,15 +373,12 @@ class AuditoriaVisualDialog(QDialog):
         self.lb_big.setMinimumWidth(120)
         self.lb_big.setMinimumHeight(70)
         self.lb_big.setFrameShape(QFrame.Shape.StyledPanel)
-        self.lb_big.setStyleSheet(
-            "QLabel#ordenLoteBig { font-size: 42px; font-weight: 900; padding: 0px; }"
-        )
 
         lay.addWidget(self.lb_big, 0)
 
         grid = QGridLayout()
-        grid.setHorizontalSpacing(10)
-        grid.setVerticalSpacing(6)
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(9)
 
         def mk_row_line_date(r: int, title: str) -> QLineEdit:
             lb_title = QLabel(title)

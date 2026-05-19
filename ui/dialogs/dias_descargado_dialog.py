@@ -49,7 +49,7 @@ class BorderCalendar(QCalendarWidget):
         super().__init__(parent)
 
         self._today = QDate.currentDate()
-        self._pen_today = QPen(QColor(30, 160, 30))
+        self._pen_today = QPen(ok_bg())
         self._pen_today.setWidth(2)
 
         # mes “lockeado” (se setea en lock_to_month)

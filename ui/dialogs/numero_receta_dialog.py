@@ -15,13 +15,15 @@ class NumeroRecetaDialog(QDialog):
         self.setMinimumWidth(320)
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(10)
 
         lb = QLabel("Número de receta:")
         layout.addWidget(lb)
 
         self.in_receta = QLineEdit()
 
-        # 🔹 SOLO NÚMEROS
+        # solo números
         regex = QRegularExpression(r"[0-9]+")
         validator = QRegularExpressionValidator(regex)
         self.in_receta.setValidator(validator)
@@ -29,6 +31,7 @@ class NumeroRecetaDialog(QDialog):
         layout.addWidget(self.in_receta)
 
         btns = QHBoxLayout()
+        btns.setSpacing(8)
 
         btn_cancel = QPushButton("Cancelar")
         btn_cancel.setProperty("variant", "ghost")
@@ -41,6 +44,7 @@ class NumeroRecetaDialog(QDialog):
         btn_ok.clicked.connect(self.accept)
         btn_ok.setDefault(True)
 
+        btns.addStretch(1)
         btns.addWidget(btn_cancel)
         btns.addWidget(btn_ok)
 

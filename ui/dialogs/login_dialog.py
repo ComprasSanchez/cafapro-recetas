@@ -28,6 +28,8 @@ class LoginDialog(QDialog):
 
     def _build_ui(self):
         root = QVBoxLayout(self)
+        root.setContentsMargins(20, 20, 20, 20)
+        root.setSpacing(12)
 
         title = QLabel("Cafapro Recetas")
         title.setAlignment(Qt.AlignCenter)

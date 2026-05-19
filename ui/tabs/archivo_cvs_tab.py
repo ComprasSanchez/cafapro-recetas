@@ -141,25 +141,31 @@ class ArchivoCvsTab(BaseTabWidget):
 
     def _build_body(self) -> QSplitter:
         split = QSplitter(Qt.Orientation.Horizontal)
+        split.setChildrenCollapsible(False)
 
-        # ===== Izq: recetas =====
-        left = QWidget()
+        # ===== Izq: Recetas (IMED) =====
+        left = QFrame()
+        left.setObjectName("card")
         left_l = QVBoxLayout(left)
-        left_l.setContentsMargins(0, 0, 0, 0)
-        left_l.setSpacing(10)
+        left_l.setContentsMargins(12, 10, 12, 12)
+        left_l.setSpacing(8)
+
+        top_left = QHBoxLayout()
+        lbl_recetas = QLabel("Recetas (IMED)")
+        lbl_recetas.setObjectName("sectionTitle")
+        self.lb_recetas_count = QLabel("")
+        self.lb_recetas_count.setObjectName("muted")
+        top_left.addWidget(lbl_recetas)
+        top_left.addStretch(1)
+        top_left.addWidget(self.lb_recetas_count)
+        left_l.addLayout(top_left)
 
         self.tbl_recetas = QTableWidget()
         self.tbl_recetas.setColumnCount(9)
         self.tbl_recetas.setHorizontalHeaderLabels([
-            "Nro Referencia",
-            "Nro Receta",
-            "Beneficiario",
-            "Fecha",
-            "Hora",
-            "Total",
-            "A cargo OBS",
-            "A cargo Afiliado",
-            "Orden Del Lote",
+            "Nro Referencia", "Nro Receta", "Beneficiario",
+            "Fecha", "Hora", "Total",
+            "A cargo OBS", "A cargo Afiliado", "Orden Del Lote",
         ])
         self.tbl_recetas.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tbl_recetas.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -173,14 +179,24 @@ class ArchivoCvsTab(BaseTabWidget):
         h1.setHighlightSections(False)
         h1.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
 
-        left_l.addWidget(QLabel("Recetas (IMED)"))
         left_l.addWidget(self.tbl_recetas, 1)
 
-        # ===== Der: detalles =====
-        right = QWidget()
+        # ===== Der: Detalles =====
+        right = QFrame()
+        right.setObjectName("card")
         right_l = QVBoxLayout(right)
-        right_l.setContentsMargins(0, 0, 0, 0)
-        right_l.setSpacing(10)
+        right_l.setContentsMargins(12, 10, 12, 12)
+        right_l.setSpacing(8)
+
+        top_right = QHBoxLayout()
+        lbl_detalles = QLabel("Detalles del medicamento")
+        lbl_detalles.setObjectName("sectionTitle")
+        self.lb_detalles_count = QLabel("")
+        self.lb_detalles_count.setObjectName("muted")
+        top_right.addWidget(lbl_detalles)
+        top_right.addStretch(1)
+        top_right.addWidget(self.lb_detalles_count)
+        right_l.addLayout(top_right)
 
         self.tbl_detalles = QTableWidget()
         self.tbl_detalles.setColumnCount(9)
@@ -199,7 +215,6 @@ class ArchivoCvsTab(BaseTabWidget):
         h2.setHighlightSections(False)
         h2.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
 
-        right_l.addWidget(QLabel("Detalles"))
         right_l.addWidget(self.tbl_detalles, 1)
 
         split.addWidget(left)
@@ -345,6 +360,8 @@ class ArchivoCvsTab(BaseTabWidget):
             self.tbl_recetas.setSortingEnabled(True)
 
         self.tbl_recetas.resizeColumnsToContents()
+        n = self.tbl_recetas.rowCount()
+        self.lb_recetas_count.setText(f"{n} receta{'s' if n != 1 else ''}" if n else "")
 
     def _on_select_receta(self) -> None:
         row = self.tbl_recetas.currentRow()
@@ -396,6 +413,8 @@ class ArchivoCvsTab(BaseTabWidget):
                 self.tbl_detalles.setItem(r, 8, QTableWidgetItem(str(des)))
         finally:
             self.tbl_detalles.setUpdatesEnabled(True)
+            n = self.tbl_detalles.rowCount()
+            self.lb_detalles_count.setText(f"{n} ítem{'s' if n != 1 else ''}" if n else "")
 
     def _on_subir(self):
         if not self._recepcion_id:

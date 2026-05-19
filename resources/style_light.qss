@@ -10,7 +10,7 @@ QWidget {
   background: #ECF0F7;
   color: #0D1B2E;
   font-family: "Segoe UI", "Inter", sans-serif;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 QLabel, QFrame {
@@ -47,9 +47,9 @@ QDialog      { background: #E5EBF4; }
   letter-spacing: 0.1px;
 }
 
-QLabel[role="title"]    { font-size: 15px; font-weight: 700; color: #0D1B2E; }
-QLabel[role="subtitle"] { font-size: 11px; color: #6B7A99; }
-QLabel[role="error"]    { font-size: 12px; color: #B91C1C; font-weight: 500; padding: 4px 0; }
+QLabel[role="title"]    { font-size: 16px; font-weight: 700; color: #0D1B2E; }
+QLabel[role="subtitle"] { font-size: 12px; color: #6B7A99; }
+QLabel[role="error"]    { font-size: 13px; color: #B91C1C; font-weight: 500; padding: 4px 0; }
 
 /* Badge / chip label */
 QLabel[role="badge-ok"]    { background: #D1FAE5; color: #065F46; border-radius: 10px; padding: 2px 8px; font-size: 11px; font-weight: 600; }
@@ -63,7 +63,7 @@ QMenuBar {
   border-bottom: 1px solid #D1D9E6;
   padding: 2px 6px;
   spacing: 2px;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 QMenuBar::item {
@@ -94,7 +94,7 @@ QMenu::item {
   padding: 8px 18px;
   border-radius: 6px;
   color: #0D1B2E;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 QMenu::item:selected {
@@ -215,7 +215,7 @@ QPushButton {
   border-radius: 8px;
   padding: 6px 14px;
   color: #1A2B42;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
 }
 
@@ -372,12 +372,14 @@ QRadioButton:disabled { color: #94A3B8; }
 /* ── Tables / Views ──────────────────────────────────────── */
 QTableWidget, QTableView, QListView, QTreeView {
   background: #FFFFFF;
+  alternate-background-color: #F7F9FC;
   border: 1px solid #D1D9E6;
   border-radius: 12px;
   gridline-color: #EEF2F8;
   outline: none;
   selection-background-color: #E0EAFF;
   selection-color: #1A3C8A;
+  color: #0D1B2E;
 }
 
 QTableWidget::item, QTableView::item {
@@ -406,17 +408,15 @@ QHeaderView {
 
 QHeaderView::section {
   background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-    stop:0 #F4F7FC, stop:1 #EDF1F8
+    stop:0 #EDF2FA, stop:1 #E5ECF6
   );
-  color: #5A6E8A;
+  color: #2E4A6A;
   border: none;
-  border-bottom: 1px solid #D1D9E6;
-  border-right: 1px solid #E4EAF2;
-  padding: 7px 10px;
-  font-weight: 700;
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  border-bottom: 2px solid #BDC8D8;
+  border-right: 1px solid #D8E0EC;
+  padding: 8px 10px;
+  font-weight: 600;
+  font-size: 12px;
 }
 
 QHeaderView::section:last { border-right: none; }
@@ -442,7 +442,7 @@ QTabBar::tab {
   border-top-left-radius: 10px;
   border-top-right-radius: 10px;
   color: #5A6E8A;
-  font-size: 12px;
+  font-size: 13px;
   margin-right: 3px;
   min-width: 90px;
 }
@@ -654,16 +654,16 @@ QScrollBar::handle:horizontal:pressed { background: #6888A8; }
 
 /* ── variant="info" (DEBITADA button) ───────────────────── */
 QPushButton[variant="info"] {
-  background: #0EA5E9;
+  background: #0284C7;
   color: #FFFFFF;
   font-weight: 800;
   border: none;
   border-radius: 8px;
   padding: 6px 14px;
 }
-QPushButton[variant="info"]:hover   { background: #38BDF8; }
-QPushButton[variant="info"]:pressed { background: #0284C7; }
-QPushButton[variant="info"]:disabled { background: #BAE6FD; color: #7DD3FC; }
+QPushButton[variant="info"]:hover   { background: #0EA5E9; }
+QPushButton[variant="info"]:pressed { background: #0369A1; }
+QPushButton[variant="info"]:disabled { background: #BAE6FD; color: #0369A1; }
 
 /* ── role="stat-value" (large numeric labels) ────────────── */
 QLabel[role="stat-value"] {
@@ -674,9 +674,12 @@ QLabel[role="stat-value"] {
 
 /* ── motivos_list items ──────────────────────────────────── */
 QListWidget#motivos_list::item {
-  padding: 2px 4px;
-  margin: 0;
+  padding: 5px 6px;
+  margin: 1px 0;
 }
 
 /* ── Muted text ──────────────────────────────────────────── */
-QLabel#muted { color: #64748B; font-size: 12px; }
+QLabel#muted { color: #64748B; font-size: 13px; }
+
+/* ── ordenLoteBig label ──────────────────────────────────── */
+QLabel#ordenLoteBig { font-size: 42px; font-weight: 900; padding: 0px; }

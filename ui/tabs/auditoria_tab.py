@@ -435,7 +435,7 @@ class AuditoriaTab(BaseTabWidget):
         outer.setSpacing(6)
 
         # ── Fila 1: controles de búsqueda y filtrado ──────────────────────────
-        row1 = QWidget()
+        row1 = QFrame()
         l = QHBoxLayout(row1)
         l.setContentsMargins(0, 0, 0, 0)
         l.setSpacing(8)
@@ -478,31 +478,35 @@ class AuditoriaTab(BaseTabWidget):
         l.addStretch(1)
         outer.addWidget(row1)
 
-        # ── Fila 2: acciones de admin (solo si corresponde) ───────────────────
+        # ── Fila 2: acciones de admin (se oculta cuando no hay nada que hacer) ─
         if self._is_admin:
-            row2 = QWidget()
-            l2 = QHBoxLayout(row2)
+            self._admin_row = QFrame()
+            l2 = QHBoxLayout(self._admin_row)
             l2.setContentsMargins(0, 0, 0, 0)
             l2.setSpacing(8)
 
             self.btn_mark_revisiones = QPushButton("Marcar revisiones")
             self.btn_mark_revisiones.setMinimumHeight(28)
             self.btn_mark_revisiones.clicked.connect(self._on_mark_revisiones)
+            self.btn_mark_revisiones.setVisible(False)
             l2.addWidget(self.btn_mark_revisiones, 0)
 
             self.btn_clear_revisiones = QPushButton("Limpiar selección")
             self.btn_clear_revisiones.setMinimumHeight(28)
             self.btn_clear_revisiones.clicked.connect(self._on_clear_revisiones)
+            self.btn_clear_revisiones.setVisible(False)
             l2.addWidget(self.btn_clear_revisiones, 0)
 
             self.btn_delete_revisiones = QPushButton("Eliminar revisiones")
-            self.btn_delete_revisiones.setProperty("danger", True)
+            self.btn_delete_revisiones.setProperty("variant", "danger")
             self.btn_delete_revisiones.setMinimumHeight(28)
             self.btn_delete_revisiones.clicked.connect(self._on_delete_revisiones)
+            self.btn_delete_revisiones.setVisible(False)
             l2.addWidget(self.btn_delete_revisiones, 0)
 
             l2.addStretch(1)
-            outer.addWidget(row2)
+            self._admin_row.setVisible(False)
+            outer.addWidget(self._admin_row)
 
         return bar
 
@@ -1090,31 +1094,25 @@ class AuditoriaTab(BaseTabWidget):
             return
 
         has_recepcion = bool(self._recepcion_id)
+        loading = self._auditoria_loading
         has_marked = bool(self._collect_marked_revision_receta_ids())
         has_visible_revisiones = bool(self._collect_visible_revision_receta_ids())
+        revision_selected = self._is_estado_revision_selected()
 
-        can_delete = (
-            has_recepcion
-            and not self._auditoria_loading
-            and self._is_estado_revision_selected()
-            and has_marked
-        )
-        self.btn_delete_revisiones.setEnabled(can_delete)
+        show_mark = has_recepcion and not loading and revision_selected and has_visible_revisiones
+        show_clear = has_recepcion and not loading and has_marked
+        show_delete = has_recepcion and not loading and revision_selected and has_marked
+
+        self.btn_delete_revisiones.setVisible(show_delete)
 
         if self.btn_mark_revisiones:
-            self.btn_mark_revisiones.setEnabled(
-                has_recepcion
-                and not self._auditoria_loading
-                and self._is_estado_revision_selected()
-                and has_visible_revisiones
-            )
+            self.btn_mark_revisiones.setVisible(show_mark)
 
         if self.btn_clear_revisiones:
-            self.btn_clear_revisiones.setEnabled(
-                has_recepcion
-                and not self._auditoria_loading
-                and has_marked
-            )
+            self.btn_clear_revisiones.setVisible(show_clear)
+
+        if hasattr(self, "_admin_row"):
+            self._admin_row.setVisible(show_mark or show_clear or show_delete)
 
     def _is_estado_revision_selected(self) -> bool:
         if not hasattr(self, "cb_estado"):

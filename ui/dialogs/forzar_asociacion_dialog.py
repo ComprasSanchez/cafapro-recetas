@@ -41,6 +41,8 @@ class ForzarAsociacionDialog(QDialog):
     def _build_ui(self):
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(10)
 
         self.txt_buscar = QLineEdit()
         self.txt_buscar.setPlaceholderText(

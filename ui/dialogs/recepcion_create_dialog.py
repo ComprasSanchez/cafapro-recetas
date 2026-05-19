@@ -18,6 +18,7 @@ class RecepcionCreateDialog(QDialog):
 
         self.setWindowTitle("Crear recepción")
         self.setMinimumWidth(600)
+        self.setMaximumWidth(820)
         self.setModal(True)
 
         self._build_ui()
