@@ -8,7 +8,7 @@ from PySide6.QtGui import QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QComboBox,
     QSplitter, QTableWidget, QTableWidgetItem,
-    QHeaderView, QAbstractItemView, QCompleter, QLineEdit
+    QHeaderView, QAbstractItemView, QCompleter, QLineEdit, QFrame
 )
 
 from ui.usecase.recepciones_windows_usecase import RecepcionesWindowsUseCase
@@ -43,6 +43,7 @@ class ResumenRecepcionWindow(QDialog):
         self.setWindowTitle("Recepciones por período")
         self.setMinimumSize(1200, 650)
         self.setModal(True)
+        self.setWindowState(Qt.WindowState.WindowMaximized)
 
         self._periodo_id: int | None = None
         self._prestador_id: int | None = None
@@ -53,10 +54,15 @@ class ResumenRecepcionWindow(QDialog):
 
     def _build_ui(self):
         root = QVBoxLayout(self)
-        root.setContentsMargins(12, 12, 12, 12)
-        root.setSpacing(10)
+        root.setContentsMargins(16, 16, 16, 16)
+        root.setSpacing(12)
 
-        top = QHBoxLayout()
+        # ===== Filter (card) =====
+        filter_card = QFrame()
+        filter_card.setObjectName("card")
+        top = QHBoxLayout(filter_card)
+        top.setContentsMargins(16, 12, 16, 12)
+
         top.addWidget(QLabel("Período:"))
 
         self.cmb_periodo = QComboBox()
@@ -64,12 +70,22 @@ class ResumenRecepcionWindow(QDialog):
         self.cmb_periodo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
         self.cmb_periodo.setMinimumWidth(320)
         self.cmb_periodo.currentIndexChanged.connect(self._on_periodo_changed)
-        top.addWidget(self.cmb_periodo)
+        top.addWidget(self.cmb_periodo, 1)
 
-        top.addStretch(1)
-        root.addLayout(top)
+        root.addWidget(filter_card)
 
+        # ===== Main splitter =====
         main_split = QSplitter(Qt.Horizontal)
+
+        # Left card: Prestadores
+        left_card = QFrame()
+        left_card.setObjectName("card")
+        left_layout = QVBoxLayout(left_card)
+        left_layout.setContentsMargins(12, 12, 12, 12)
+
+        lbl_prestadores = QLabel("Prestadores")
+        lbl_prestadores.setProperty("role", "subtitle")
+        left_layout.addWidget(lbl_prestadores)
 
         self.tbl_prestadores = QTableWidget(0, 4)
         self.tbl_prestadores.setHorizontalHeaderLabels(["Prestador", "Total", "A cargo OBS", "A cargo Afiliado"])
@@ -82,10 +98,22 @@ class ResumenRecepcionWindow(QDialog):
         self.tbl_prestadores.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         self.tbl_prestadores.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         self.tbl_prestadores.itemSelectionChanged.connect(self._on_prestador_selected)
+        left_layout.addWidget(self.tbl_prestadores)
 
-        main_split.addWidget(self.tbl_prestadores)
+        main_split.addWidget(left_card)
 
+        # Right splitter
         right_split = QSplitter(Qt.Vertical)
+
+        # Recepciones card
+        recv_card = QFrame()
+        recv_card.setObjectName("card")
+        recv_layout = QVBoxLayout(recv_card)
+        recv_layout.setContentsMargins(12, 12, 12, 12)
+
+        lbl_recepciones = QLabel("Recepciones")
+        lbl_recepciones.setProperty("role", "subtitle")
+        recv_layout.addWidget(lbl_recepciones)
 
         self.tbl_recepciones = QTableWidget(0, 3)
         self.tbl_recepciones.setHorizontalHeaderLabels(["Recepción", "Obra social", "Fecha"])
@@ -97,7 +125,19 @@ class ResumenRecepcionWindow(QDialog):
         self.tbl_recepciones.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.tbl_recepciones.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         self.tbl_recepciones.itemSelectionChanged.connect(self._on_recepcion_selected)
-        right_split.addWidget(self.tbl_recepciones)
+        recv_layout.addWidget(self.tbl_recepciones)
+
+        right_split.addWidget(recv_card)
+
+        # Summary card
+        summary_card = QFrame()
+        summary_card.setObjectName("card")
+        summary_layout = QVBoxLayout(summary_card)
+        summary_layout.setContentsMargins(12, 12, 12, 12)
+
+        lbl_resumen = QLabel("Resumen")
+        lbl_resumen.setProperty("role", "subtitle")
+        summary_layout.addWidget(lbl_resumen)
 
         self.tbl_resumen = QTableWidget(0, 4)
         self.tbl_resumen.setHorizontalHeaderLabels(["Cant. recetas", "Total bruto", "Total cargo OBS", "Total a cargo Afiliado"])
@@ -105,7 +145,9 @@ class ResumenRecepcionWindow(QDialog):
         self.tbl_resumen.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tbl_resumen.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
         self.tbl_resumen.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        right_split.addWidget(self.tbl_resumen)
+        summary_layout.addWidget(self.tbl_resumen)
+
+        right_split.addWidget(summary_card)
 
         main_split.addWidget(right_split)
 
@@ -114,7 +156,7 @@ class ResumenRecepcionWindow(QDialog):
         right_split.setStretchFactor(0, 2)
         right_split.setStretchFactor(1, 1)
 
-        root.addWidget(main_split)
+        root.addWidget(main_split, 1)
 
     def _load_periodos(self):
         try:

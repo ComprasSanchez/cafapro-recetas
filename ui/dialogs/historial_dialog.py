@@ -45,6 +45,7 @@ class HistorialDialog(QDialog):
 
         self.setWindowTitle("Historial de Auditorías")
         self.setMinimumSize(1000, 650)
+        self.setModal(True)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(10, 10, 10, 10)
@@ -174,6 +175,8 @@ class HistorialDialog(QDialog):
         box = QFrame()
         lay = QVBoxLayout(box)
         btn = QPushButton("Cerrar")
+        btn.setProperty("variant", "ghost")
+        btn.setProperty("size", "md")
         btn.clicked.connect(self.accept)
         lay.addWidget(btn)
         return box

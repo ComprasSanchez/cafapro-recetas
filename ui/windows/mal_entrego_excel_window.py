@@ -5,7 +5,7 @@ from pathlib import Path
 import re
 import unicodedata
 
-from PySide6.QtCore import QThreadPool
+from PySide6.QtCore import Qt, QThreadPool
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,

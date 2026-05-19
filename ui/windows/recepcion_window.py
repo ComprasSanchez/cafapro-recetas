@@ -3,13 +3,13 @@ from __future__ import annotations
 from datetime import datetime
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit,
     QTableWidget, QTableWidgetItem, QMessageBox, QFrame, QHeaderView
 )
 
 from ui.dialogs.recepcion_create_dialog import RecepcionCreateDialog
+from ui.theme.delegates import BackgroundPriorityDelegate
 from ui.usecase.recepciones_windows_usecase import RecepcionesWindowsUseCase
 
 
@@ -20,49 +20,47 @@ class RecepcionesWindow(QDialog):
 
         self.setWindowTitle("Listado Recepciones")
         self.setMinimumSize(1100, 560)
+        self.setWindowState(Qt.WindowState.WindowMaximized)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(12, 12, 12, 12)
-        root.setSpacing(10)
+        root.setContentsMargins(16, 16, 16, 16)
+        root.setSpacing(12)
 
         # -------------------------
-        # Header (card)
+        # Toolbar (card)
         # -------------------------
-        header = QFrame()
-        header.setObjectName("card")
-        hl = QHBoxLayout(header)
-        hl.setContentsMargins(12, 10, 12, 10)
+        toolbar = QFrame()
+        toolbar.setObjectName("card")
+        hl = QHBoxLayout(toolbar)
+        hl.setContentsMargins(16, 12, 16, 12)
         hl.setSpacing(10)
 
         title = QLabel("Recepciones")
-        f = QFont(title.font())
-        f.setPointSize(14)
-        f.setBold(True)
-        title.setFont(f)
+        title.setProperty("role", "title")
+
+        self.in_filter = QLineEdit()
+        self.in_filter.setPlaceholderText("Buscar…")
 
         self.btn_refresh = QPushButton("Refrescar")
         self.btn_refresh.setProperty("variant", "ghost")
         self.btn_refresh.setProperty("size", "md")
-        self.btn_refresh.setMinimumHeight(32)
 
         self.btn_create = QPushButton("Crear")
         self.btn_create.setProperty("variant", "primary")  # negro
         self.btn_create.setProperty("size", "md")
-        self.btn_create.setMinimumHeight(32)
 
         self.btn_delete = QPushButton("Eliminar seleccionado")
         self.btn_delete.setProperty("variant", "danger")   # gris oscuro (no rojo)
         self.btn_delete.setProperty("size", "md")
-        self.btn_delete.setMinimumHeight(32)
         self.btn_delete.setEnabled(False)
 
         hl.addWidget(title)
-        hl.addStretch(1)
+        hl.addWidget(self.in_filter, 1)
         hl.addWidget(self.btn_refresh)
         hl.addWidget(self.btn_create)
         hl.addWidget(self.btn_delete)
 
-        root.addWidget(header, 0)
+        root.addWidget(toolbar, 0)
 
         # -------------------------
         # Table (card)
@@ -71,7 +69,7 @@ class RecepcionesWindow(QDialog):
         table_card.setObjectName("card")
         tl = QVBoxLayout(table_card)
         tl.setContentsMargins(12, 12, 12, 12)
-        tl.setSpacing(8)
+        tl.setSpacing(0)
 
         self.table = QTableWidget(0, 6)
         self.table.setHorizontalHeaderLabels([
@@ -82,6 +80,7 @@ class RecepcionesWindow(QDialog):
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
         self.table.setAlternatingRowColors(True)
+        self.table.setItemDelegate(BackgroundPriorityDelegate(self.table))
 
         hh = self.table.horizontalHeader()
         hh.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -96,7 +95,7 @@ class RecepcionesWindow(QDialog):
         hh.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)           # Prestador
         hh.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)  # Estado
 
-        tl.addWidget(self.table, 1)
+        tl.addWidget(self.table)
         root.addWidget(table_card, 1)
 
         # Signals
@@ -104,8 +103,18 @@ class RecepcionesWindow(QDialog):
         self.btn_create.clicked.connect(self.open_create_dialog)
         self.btn_delete.clicked.connect(self.on_delete)
         self.table.itemSelectionChanged.connect(self._update_delete_state)
+        self.in_filter.textChanged.connect(self._apply_filter)
 
         self.load_data()
+
+    def _apply_filter(self, text: str) -> None:
+        txt = text.strip().lower()
+        for row in range(self.table.rowCount()):
+            visible = not txt or any(
+                txt in (self.table.item(row, c).text().lower() if self.table.item(row, c) else "")
+                for c in range(self.table.columnCount())
+            )
+            self.table.setRowHidden(row, not visible)
 
     def _update_delete_state(self):
         self.btn_delete.setEnabled(self._selected_id() is not None)

@@ -5,8 +5,8 @@ from datetime import date
 from PySide6.QtCore import Qt, QDate
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QFrame, QHBoxLayout, QLabel, QPushButton,
-    QMessageBox, QLineEdit, QSizePolicy, QGridLayout,
-    QTableWidgetItem, QTableWidget, QAbstractItemView, QSplitter, QHeaderView, QDateEdit
+    QMessageBox, QLineEdit, QSizePolicy,
+    QTableWidgetItem, QTableWidget, QAbstractItemView, QSplitter, QHeaderView, QDateEdit, QStyle
 )
 
 from ui.dialogs.dias_descargado_dialog import DiasDescargadosDialog
@@ -64,101 +64,72 @@ class ArchivoCvsTab(BaseTabWidget):
     def _build_header(self) -> QFrame:
         header = QFrame()
         header.setObjectName("card")
-        header.setMaximumHeight(90)
+        vl = QVBoxLayout(header)
+        vl.setContentsMargins(14, 10, 14, 10)
+        vl.setSpacing(8)
 
-        grid = QGridLayout(header)
-        grid.setContentsMargins(12, 10, 12, 10)
-        grid.setHorizontalSpacing(10)
-        grid.setVerticalSpacing(6)
+        # ── top row: navigation + action buttons ─────────────
+        top = QHBoxLayout()
+        top.setSpacing(8)
 
-        # ===== Controles =====
-        lb_num = QLabel("N° Recepción:")
+        top.addWidget(QLabel("N° Recepción:"))
+
         self.in_numero = self._ro_line()
-        self.in_numero.setFixedWidth(90)
+        self.in_numero.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        top.addWidget(self.in_numero, 1)
 
-        self.btn_pick_recepcion = QPushButton("…")
-        self.btn_pick_recepcion.setFixedSize(32, 26)
+        self.btn_pick_recepcion = QPushButton()
+        self.btn_pick_recepcion.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView))
+        self.btn_pick_recepcion.setToolTip("Seleccionar recepción")
+        self.btn_pick_recepcion.setProperty("variant", "ghost")
+        self.btn_pick_recepcion.setProperty("size", "icon")
+        top.addWidget(self.btn_pick_recepcion)
 
-        # (si no usás "nueva" acá, lo dejo oculto para mantener layout)
-        self.btn_new_recepcion = QPushButton("+")
-        self.btn_new_recepcion.setFixedSize(32, 26)
+        self.btn_new_recepcion = QPushButton()
+        self.btn_new_recepcion.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogNewFolder))
+        self.btn_new_recepcion.setToolTip("Nueva recepción")
+        self.btn_new_recepcion.setProperty("variant", "ghost")
+        self.btn_new_recepcion.setProperty("size", "icon")
         self.btn_new_recepcion.setVisible(False)
+        top.addWidget(self.btn_new_recepcion)
 
-        lb_obra = QLabel("Obra social:")
+        top.addStretch(1)
+
+        self.btn_cargar = QPushButton("Cargar")
+        self.btn_subir = QPushButton("Subir")
+        top.addWidget(self.btn_cargar)
+        top.addWidget(self.btn_subir)
+
+        vl.addLayout(top)
+
+        # ── bottom row: info fields ───────────────────────────
+        bot = QHBoxLayout()
+        bot.setSpacing(10)
+
+        bot.addWidget(QLabel("Obra social:"))
         self.in_obra = self._ro_line()
-        self.in_obra.setFixedWidth(360)
+        bot.addWidget(self.in_obra, 3)
 
-        lb_prest = QLabel("Prestador:")
+        bot.addWidget(QLabel("Prestador:"))
         self.in_prestador = self._ro_line()
-        self.in_prestador.setFixedWidth(360)
+        bot.addWidget(self.in_prestador, 3)
 
-        lb_imed = QLabel("IMED:")
+        bot.addWidget(QLabel("IMED:"))
         self.in_imed = self._ro_line()
-        self.in_imed.setFixedWidth(220)
+        bot.addWidget(self.in_imed, 2)
 
         self.de_fecha = QDateEdit()
         self.de_fecha.setCalendarPopup(True)
         self.de_fecha.setDate(QDate.currentDate())
         self.de_fecha.setDisplayFormat("dd/MM/yyyy")
-        self.de_fecha.setFixedSize(110, 26)
         self.de_fecha.setEnabled(False)
-
-        # ===== Botones derecha =====
-        self.btn_cargar = QPushButton("Cargar")
-        self.btn_cargar.setFixedSize(90, 26)
-
-        self.btn_subir = QPushButton("Subir")
-        self.btn_subir.setFixedSize(90, 26)
+        self.de_fecha.setMinimumWidth(110)
+        bot.addWidget(self.de_fecha)
 
         self.btn_dias_descargados = QPushButton("Días descargados")
-        self.btn_dias_descargados.setFixedSize(120, 26)
+        bot.addWidget(self.btn_dias_descargados)
 
-        right_box = QWidget()
-        right_l = QHBoxLayout(right_box)
-        right_l.setContentsMargins(0, 0, 0, 0)
-        right_l.setSpacing(6)
-        right_l.addWidget(self.btn_cargar)
-        right_l.addWidget(self.btn_subir)
-        right_l.addStretch(0)
-
-        # ===== Bloque compacto para N° Recepción + botones =====
-        num_box = QWidget()
-        num_l = QHBoxLayout(num_box)
-        num_l.setContentsMargins(0, 0, 0, 0)
-        num_l.setSpacing(4)
-
-        self.in_numero.setMinimumWidth(140)
-        self.in_numero.setMaximumWidth(9999)
-        self.in_numero.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-
-        num_l.addWidget(self.in_numero, 1)
-        num_l.addWidget(self.btn_pick_recepcion, 0)
-        num_l.addWidget(self.btn_new_recepcion, 0)
-
-        # ===== Layout (2 filas) =====
-        grid.addWidget(lb_num, 0, 0, Qt.AlignmentFlag.AlignRight)
-        grid.addWidget(num_box, 0, 1, 1, 3)
-
-        grid.addWidget(lb_obra, 0, 4, Qt.AlignmentFlag.AlignRight)
-        grid.addWidget(self.in_obra, 0, 5, 1, 4)
-
-        grid.addWidget(lb_prest, 1, 0, Qt.AlignmentFlag.AlignRight)
-        grid.addWidget(self.in_prestador, 1, 1, 1, 3)
-
-        grid.addWidget(lb_imed, 1, 4, Qt.AlignmentFlag.AlignRight)
-        grid.addWidget(self.in_imed, 1, 5)
-
-        fecha_box = QWidget()
-        fecha_l = QHBoxLayout(fecha_box)
-        fecha_l.setContentsMargins(0, 0, 0, 0)
-        fecha_l.setSpacing(6)
-        fecha_l.addWidget(self.de_fecha)
-        fecha_l.addWidget(self.btn_dias_descargados)
-
-        grid.addWidget(fecha_box, 1, 9)
-
-        grid.setColumnStretch(8, 1)
-        grid.addWidget(right_box, 1, 10, Qt.AlignmentFlag.AlignRight)
+        vl.addLayout(bot)
 
         # señales
         self.btn_pick_recepcion.clicked.connect(self._on_pick_recepcion)
@@ -170,25 +141,31 @@ class ArchivoCvsTab(BaseTabWidget):
 
     def _build_body(self) -> QSplitter:
         split = QSplitter(Qt.Orientation.Horizontal)
+        split.setChildrenCollapsible(False)
 
-        # ===== Izq: recetas =====
-        left = QWidget()
+        # ===== Izq: Recetas (IMED) =====
+        left = QFrame()
+        left.setObjectName("card")
         left_l = QVBoxLayout(left)
-        left_l.setContentsMargins(0, 0, 0, 0)
-        left_l.setSpacing(10)
+        left_l.setContentsMargins(12, 10, 12, 12)
+        left_l.setSpacing(8)
+
+        top_left = QHBoxLayout()
+        lbl_recetas = QLabel("Recetas (IMED)")
+        lbl_recetas.setObjectName("sectionTitle")
+        self.lb_recetas_count = QLabel("")
+        self.lb_recetas_count.setObjectName("muted")
+        top_left.addWidget(lbl_recetas)
+        top_left.addStretch(1)
+        top_left.addWidget(self.lb_recetas_count)
+        left_l.addLayout(top_left)
 
         self.tbl_recetas = QTableWidget()
         self.tbl_recetas.setColumnCount(9)
         self.tbl_recetas.setHorizontalHeaderLabels([
-            "Nro Referencia",
-            "Nro Receta",
-            "Beneficiario",
-            "Fecha",
-            "Hora",
-            "Total",
-            "A cargo OBS",
-            "A cargo Afiliado",
-            "Orden Del Lote",
+            "Nro Referencia", "Nro Receta", "Beneficiario",
+            "Fecha", "Hora", "Total",
+            "A cargo OBS", "A cargo Afiliado", "Orden Del Lote",
         ])
         self.tbl_recetas.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tbl_recetas.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -202,14 +179,24 @@ class ArchivoCvsTab(BaseTabWidget):
         h1.setHighlightSections(False)
         h1.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
 
-        left_l.addWidget(QLabel("Recetas (IMED)"))
         left_l.addWidget(self.tbl_recetas, 1)
 
-        # ===== Der: detalles =====
-        right = QWidget()
+        # ===== Der: Detalles =====
+        right = QFrame()
+        right.setObjectName("card")
         right_l = QVBoxLayout(right)
-        right_l.setContentsMargins(0, 0, 0, 0)
-        right_l.setSpacing(10)
+        right_l.setContentsMargins(12, 10, 12, 12)
+        right_l.setSpacing(8)
+
+        top_right = QHBoxLayout()
+        lbl_detalles = QLabel("Detalles del medicamento")
+        lbl_detalles.setObjectName("sectionTitle")
+        self.lb_detalles_count = QLabel("")
+        self.lb_detalles_count.setObjectName("muted")
+        top_right.addWidget(lbl_detalles)
+        top_right.addStretch(1)
+        top_right.addWidget(self.lb_detalles_count)
+        right_l.addLayout(top_right)
 
         self.tbl_detalles = QTableWidget()
         self.tbl_detalles.setColumnCount(9)
@@ -228,7 +215,6 @@ class ArchivoCvsTab(BaseTabWidget):
         h2.setHighlightSections(False)
         h2.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
 
-        right_l.addWidget(QLabel("Detalles"))
         right_l.addWidget(self.tbl_detalles, 1)
 
         split.addWidget(left)
@@ -374,6 +360,8 @@ class ArchivoCvsTab(BaseTabWidget):
             self.tbl_recetas.setSortingEnabled(True)
 
         self.tbl_recetas.resizeColumnsToContents()
+        n = self.tbl_recetas.rowCount()
+        self.lb_recetas_count.setText(f"{n} receta{'s' if n != 1 else ''}" if n else "")
 
     def _on_select_receta(self) -> None:
         row = self.tbl_recetas.currentRow()
@@ -425,6 +413,8 @@ class ArchivoCvsTab(BaseTabWidget):
                 self.tbl_detalles.setItem(r, 8, QTableWidgetItem(str(des)))
         finally:
             self.tbl_detalles.setUpdatesEnabled(True)
+            n = self.tbl_detalles.rowCount()
+            self.lb_detalles_count.setText(f"{n} ítem{'s' if n != 1 else ''}" if n else "")
 
     def _on_subir(self):
         if not self._recepcion_id:

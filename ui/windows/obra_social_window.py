@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QIntValidator
+from PySide6.QtGui import QIntValidator, QBrush
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QFrame, QLabel,
+    QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QFrame, QLabel,
     QPushButton, QTableWidget, QTableWidgetItem, QMessageBox,
-    QHeaderView, QLineEdit, QComboBox
+    QHeaderView, QLineEdit, QComboBox, QSpacerItem, QSizePolicy
 )
 
+from ui.theme.delegates import BackgroundPriorityDelegate
+from ui.theme.row_colors import ok_bg, warn_bg
 from ui.usecase.catalogos_windows_usecase import CatalogosWindowsUseCase
 
 
@@ -16,102 +18,105 @@ class ObrasSocialesWindow(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Obras Sociales")
         self.setMinimumSize(1180, 560)
+        self.setWindowState(Qt.WindowState.WindowMaximized)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(12, 12, 12, 12)
-        root.setSpacing(10)
+        root.setContentsMargins(16, 16, 16, 16)
+        root.setSpacing(12)
 
-        # ===== Header (card) =====
-        header = QFrame()
-        header.setObjectName("card")
-        hl = QHBoxLayout(header)
-        hl.setContentsMargins(12, 10, 12, 10)
-        hl.setSpacing(10)
+        # ===== form_card =====
+        form_card = QFrame()
+        form_card.setObjectName("card")
+        form_l = QVBoxLayout(form_card)
+        form_l.setContentsMargins(16, 16, 16, 16)
+        form_l.setSpacing(12)
 
+        # header row
+        header_row = QHBoxLayout()
+        header_row.setSpacing(8)
         title = QLabel("Obras Sociales")
         title.setProperty("role", "title")
+        self.btn_refresh = QPushButton("Refrescar")
+        self.btn_refresh.setProperty("variant", "ghost")
+        header_row.addWidget(title)
+        header_row.addStretch(1)
+        header_row.addWidget(self.btn_refresh)
+        form_l.addLayout(header_row)
 
-        hl.addWidget(title)
-        hl.addStretch(1)
-
-        root.addWidget(header)
-
-        # ===== Panel CRUD (card) =====
-        card = QFrame()
-        card.setObjectName("card")
-        cl = QHBoxLayout(card)
-        cl.setContentsMargins(12, 10, 12, 10)
-        cl.setSpacing(10)
+        # field_grid
+        field_grid = QGridLayout()
+        field_grid.setHorizontalSpacing(12)
+        field_grid.setVerticalSpacing(8)
+        field_grid.setColumnStretch(1, 1)
+        field_grid.setColumnStretch(3, 1)
 
         self.in_codigo = QLineEdit()
         self.in_codigo.setPlaceholderText("Código (único)")
-        self.in_codigo.setMinimumHeight(28)
-        self.in_codigo.setFixedWidth(160)
 
         self.in_nombre = QLineEdit()
         self.in_nombre.setPlaceholderText("Nombre")
-        self.in_nombre.setMinimumHeight(28)
-        self.in_nombre.setMinimumWidth(320)
 
         self.cb_validador = QComboBox()
-        self.cb_validador.setMinimumHeight(28)
-        self.cb_validador.setFixedWidth(140)
         self.cb_validador.addItems(["imed", "preserfar", "facaf"])
 
         self.in_dias_venc = QLineEdit()
-        self.in_dias_venc.setPlaceholderText("Dias venc.")
-        self.in_dias_venc.setMinimumHeight(28)
-        self.in_dias_venc.setFixedWidth(110)
+        self.in_dias_venc.setPlaceholderText("Días venc.")
         self.in_dias_venc.setValidator(QIntValidator(0, 3650, self))
 
         self.in_codigo_fin = QLineEdit()
         self.in_codigo_fin.setPlaceholderText("Cod. financiador")
-        self.in_codigo_fin.setMinimumHeight(28)
-        self.in_codigo_fin.setFixedWidth(140)
         self.in_codigo_fin.setValidator(QIntValidator(0, 2_000_000_000, self))
 
-        self.btn_refresh = QPushButton("Refrescar")
-        self.btn_refresh.setProperty("variant", "ghost")
-        self.btn_refresh.setMinimumHeight(32)
+        # Row 0: Código | in_codigo | Nombre | in_nombre
+        field_grid.addWidget(QLabel("Código"), 0, 0)
+        field_grid.addWidget(self.in_codigo, 0, 1)
+        field_grid.addWidget(QLabel("Nombre"), 0, 2)
+        field_grid.addWidget(self.in_nombre, 0, 3)
+
+        # Row 1: Validador | cb_validador | Días venc. | in_dias_venc
+        field_grid.addWidget(QLabel("Validador"), 1, 0)
+        field_grid.addWidget(self.cb_validador, 1, 1)
+        field_grid.addWidget(QLabel("Días venc."), 1, 2)
+        field_grid.addWidget(self.in_dias_venc, 1, 3)
+
+        # Row 2: Cod. financiador | in_codigo_fin
+        field_grid.addWidget(QLabel("Cod. financiador"), 2, 0)
+        field_grid.addWidget(self.in_codigo_fin, 2, 1)
+
+        form_l.addLayout(field_grid)
+
+        # actions row
+        actions_row = QHBoxLayout()
+        actions_row.setSpacing(8)
+
+        self.in_filter = QLineEdit()
+        self.in_filter.setPlaceholderText("Buscar en tabla…")
 
         self.btn_create = QPushButton("Crear")
         self.btn_create.setProperty("variant", "primary")
-        self.btn_create.setMinimumHeight(32)
 
         self.btn_update = QPushButton("Actualizar seleccionado")
         self.btn_update.setProperty("variant", "ghost")
-        self.btn_update.setMinimumHeight(32)
         self.btn_update.setEnabled(False)
 
         self.btn_toggle = QPushButton("Inactivar")
         self.btn_toggle.setProperty("variant", "ghost")
-        self.btn_toggle.setMinimumHeight(32)
         self.btn_toggle.setEnabled(False)
 
-        cl.addWidget(QLabel("Código"))
-        cl.addWidget(self.in_codigo)
-        cl.addWidget(QLabel("Nombre"))
-        cl.addWidget(self.in_nombre)
-        cl.addWidget(QLabel("Validador"))
-        cl.addWidget(self.cb_validador)
-        cl.addWidget(QLabel("Dias venc."))
-        cl.addWidget(self.in_dias_venc)
-        cl.addWidget(QLabel("Cod. financiador"))
-        cl.addWidget(self.in_codigo_fin)
-        cl.addStretch(1)
-        cl.addWidget(self.btn_refresh)
-        cl.addWidget(self.btn_create)
-        cl.addWidget(self.btn_update)
-        cl.addWidget(self.btn_toggle)
+        actions_row.addWidget(self.in_filter, 1)
+        actions_row.addWidget(self.btn_create)
+        actions_row.addWidget(self.btn_update)
+        actions_row.addWidget(self.btn_toggle)
+        form_l.addLayout(actions_row)
 
-        root.addWidget(card)
+        root.addWidget(form_card)
 
-        # ===== Tabla (card) =====
+        # ===== table_card =====
         table_card = QFrame()
         table_card.setObjectName("card")
         tl = QVBoxLayout(table_card)
         tl.setContentsMargins(12, 12, 12, 12)
-        tl.setSpacing(8)
+        tl.setSpacing(0)
 
         self.table = QTableWidget(0, 6)
         self.table.setHorizontalHeaderLabels([
@@ -127,6 +132,7 @@ class ObrasSocialesWindow(QDialog):
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
         self.table.setAlternatingRowColors(True)
+        self.table.setItemDelegate(BackgroundPriorityDelegate(self.table))
 
         hh = self.table.horizontalHeader()
         hh.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
@@ -143,8 +149,19 @@ class ObrasSocialesWindow(QDialog):
         self.btn_update.clicked.connect(self.on_update)
         self.btn_toggle.clicked.connect(self.on_toggle_activo)
         self.table.itemSelectionChanged.connect(self._on_selected_row_changed)
+        self.in_filter.textChanged.connect(self._apply_filter)
 
         self.load_data()
+
+    # ---------------- filter ----------------
+    def _apply_filter(self, text: str) -> None:
+        txt = text.strip().lower()
+        for row in range(self.table.rowCount()):
+            visible = not txt or any(
+                txt in (self.table.item(row, c).text().lower() if self.table.item(row, c) else "")
+                for c in range(self.table.columnCount())
+            )
+            self.table.setRowHidden(row, not visible)
 
     # ---------------- selection helpers ----------------
     def _selected(self) -> tuple[int | None, bool | None]:
@@ -226,6 +243,7 @@ class ObrasSocialesWindow(QDialog):
 
             it_estado = QTableWidgetItem("Activo" if os.activo else "Inactivo")
             it_estado.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            it_estado.setData(Qt.ItemDataRole.BackgroundRole, QBrush(ok_bg() if os.activo else warn_bg()))
             self.table.setItem(r, 5, it_estado)
 
         # reset estado botones

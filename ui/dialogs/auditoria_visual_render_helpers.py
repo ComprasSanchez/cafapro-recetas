@@ -6,6 +6,8 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QBrush
 from PySide6.QtWidgets import QTableWidget, QTableWidgetItem
 
+from ui.theme.row_colors import ok_bg, warn_bg, error_bg
+
 
 def set_table_cell(tbl: QTableWidget, row: int, col: int, text: str) -> None:
     it = QTableWidgetItem(text)
@@ -42,20 +44,20 @@ def render_troqueles_table(
         if it0 and troq_id:
             it0.setData(Qt.ItemDataRole.UserRole, troq_id)
 
-        color = None
+        bg_color = None
         if estado_code == estado_troquel_verde:
-            color = QColor(17, 151, 59)
+            bg_color = ok_bg()
         elif estado_code == estado_troquel_amarillo:
-            color = QColor(228, 245, 44)
+            bg_color = warn_bg()
         elif estado_code == estado_troquel_rojo:
-            color = QColor(165, 32, 25)
+            bg_color = error_bg()
 
-        if color is not None:
-            brush = QBrush(color)
+        if bg_color is not None:
+            bg_brush = QBrush(bg_color)
             for c in range(tbl_troqueles.columnCount()):
                 it = tbl_troqueles.item(i, c)
                 if it:
-                    it.setData(Qt.BackgroundRole, brush)
+                    it.setData(Qt.BackgroundRole, bg_brush)
 
     tbl_troqueles.setUpdatesEnabled(True)
 

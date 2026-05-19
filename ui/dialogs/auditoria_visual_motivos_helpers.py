@@ -74,7 +74,9 @@ def render_motivos_list(
 
         if not activo:
             item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
-            item.setForeground(QBrush(QColor(150, 150, 150)))
+            from ui.theme.theme_manager import theme_manager
+            muted = QColor("#6B8299") if theme_manager.is_dark() else QColor("#64748B")
+            item.setForeground(QBrush(muted))
 
         list_widget.addItem(item)
 

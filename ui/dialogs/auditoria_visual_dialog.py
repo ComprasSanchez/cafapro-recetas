@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, QTimer, QThreadPool
-from PySide6.QtGui import QFont
+
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QSplitter,
     QLabel, QPushButton, QFrame, QScrollArea, QTableWidget,
@@ -41,6 +41,7 @@ from ui.dialogs.auditoria_visual_troqueles_helpers import (
 )
 from ui.security.permissions import is_auditor
 from ui.state.auditoria_state import AuditoriaState
+from ui.theme.delegates import BackgroundPriorityDelegate
 from ui.usecase.auditoria_visual_usecase import AuditoriaVisualUseCase
 from ui.utils.worker import Worker
 
@@ -115,14 +116,15 @@ class AuditoriaVisualDialog(QDialog):
 
         self._loading_overlay = QLabel("Cargando…", self)
         self._loading_overlay.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._loading_overlay.setStyleSheet("""
-            QLabel {
-                background: rgba(0, 0, 0, 120);
-                color: white;
-                font-size: 18px;
-                font-weight: bold;
-            }
-        """)
+        from ui.theme.theme_manager import theme_manager
+        if theme_manager.is_dark():
+            _ov_bg, _ov_fg = "rgba(10,22,40,200)", "#D9E2EF"
+        else:
+            _ov_bg, _ov_fg = "rgba(236,240,247,210)", "#0D1B2E"
+        self._loading_overlay.setStyleSheet(
+            f"QLabel {{ background: {_ov_bg}; color: {_ov_fg};"
+            " font-size: 18px; font-weight: bold; }}"
+        )
         self._loading_overlay.hide()
 
         root = QVBoxLayout(self)
@@ -287,6 +289,7 @@ class AuditoriaVisualDialog(QDialog):
         ])
         self.tbl_troqueles.setColumnHidden(6, True)
         self._setup_table(self.tbl_troqueles)
+        self.tbl_troqueles.setItemDelegate(BackgroundPriorityDelegate(self.tbl_troqueles))
         left_l.addWidget(self.tbl_troqueles, 1)
 
         split.addWidget(left)
@@ -308,6 +311,7 @@ class AuditoriaVisualDialog(QDialog):
             "Código de barra", "Código Medic.", "Nombre", "Presentación", "Estado", "N° Aut.", "Cant.", "Imp. neto", "Imp. O.S.", "Desc."
         ])
         self._setup_table(self.tbl_arch_det)
+        self.tbl_arch_det.setItemDelegate(BackgroundPriorityDelegate(self.tbl_arch_det))
         right_l.addWidget(self.tbl_arch_det, 1)
 
         split.addWidget(right)
@@ -315,8 +319,6 @@ class AuditoriaVisualDialog(QDialog):
         split.setStretchFactor(0, 1)
         split.setStretchFactor(1, 2)
 
-        max_height = (self.ROW_H * 2) + 100
-        w.setMaximumHeight(max_height)
         return w
 
     @staticmethod
@@ -348,16 +350,11 @@ class AuditoriaVisualDialog(QDialog):
         lay.addWidget(title)
 
         self.list_motivos = QListWidget()
+        self.list_motivos.setObjectName("motivos_list")
         self.list_motivos.itemChanged.connect(self._on_motivo_item_changed)
         self.list_motivos.itemDoubleClicked.connect(self._on_motivo_item_activated)
         self.list_motivos.setSpacing(1)
         self.list_motivos.setUniformItemSizes(True)
-        self.list_motivos.setStyleSheet("""
-        QListWidget::item {
-            padding: 2px 4px;
-            margin: 0px;
-        }
-        """)
 
         lay.addWidget(self.list_motivos)
 
@@ -376,15 +373,12 @@ class AuditoriaVisualDialog(QDialog):
         self.lb_big.setMinimumWidth(120)
         self.lb_big.setMinimumHeight(70)
         self.lb_big.setFrameShape(QFrame.Shape.StyledPanel)
-        self.lb_big.setStyleSheet(
-            "QLabel#ordenLoteBig { font-size: 42px; font-weight: 900; padding: 0px; }"
-        )
 
         lay.addWidget(self.lb_big, 0)
 
         grid = QGridLayout()
-        grid.setHorizontalSpacing(10)
-        grid.setVerticalSpacing(6)
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(9)
 
         def mk_row_line_date(r: int, title: str) -> QLineEdit:
             lb_title = QLabel(title)
@@ -463,10 +457,7 @@ class AuditoriaVisualDialog(QDialog):
         lb_title.setObjectName("muted")
 
         lb_value = QLabel("—")
-        f2 = QFont()
-        f2.setPointSize(15)
-        f2.setBold(True)
-        lb_value.setFont(f2)
+        lb_value.setProperty("role", "stat-value")
 
         v.addWidget(lb_title, 0)
         v.addWidget(lb_value, 0)
@@ -509,22 +500,10 @@ class AuditoriaVisualDialog(QDialog):
         self.btn_finalizar.clicked.connect(self._on_finalizar)
 
         self.btn_debitada = QPushButton("DEBITADA")
-        self.btn_debitada.setMinimumHeight(34)
-        self.btn_debitada.setVisible(False)  # por defecto oculto
+        self.btn_debitada.setProperty("variant", "info")
+        self.btn_debitada.setProperty("size", "md")
+        self.btn_debitada.setVisible(False)
         self.btn_debitada.clicked.connect(self._open_historial_debitada)
-
-        # azul flúor + blanco (ajustalo vos)
-        self.btn_debitada.setStyleSheet("""
-                   QPushButton {
-                       background: #00B8FF;
-                       color: white;
-                       font-weight: 800;
-                       border-radius: 8px;
-                       padding: 6px 14px;
-                   }
-                   QPushButton:hover { background: #2AC6FF; }
-                   QPushButton:pressed { background: #0099D6; }
-               """)
 
         lay.addWidget(self.btn_debitada, 0)
 

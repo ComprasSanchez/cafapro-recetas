@@ -6,7 +6,7 @@ from PySide6.QtCore import Qt, QThreadPool
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QTableWidget, QTableWidgetItem, QMessageBox, QHeaderView
+    QTableWidget, QTableWidgetItem, QMessageBox, QHeaderView, QFrame
 )
 
 from ui.dialogs.recepcion_pick_dialog import RecepcionPickDialog
@@ -24,6 +24,7 @@ class ExcluidosWindow(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Archivos Excluidos")
         self.setMinimumSize(950, 520)
+        self.setWindowState(Qt.WindowState.WindowMaximized)
 
         self._recepcion_id: int | None = int(recepcion_id) if recepcion_id is not None else None
         self._recepcion_numero = str(recepcion_numero or "").strip()
@@ -37,11 +38,16 @@ class ExcluidosWindow(QDialog):
         self._pool.setMaxThreadCount(1)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(12, 12, 12, 12)
-        root.setSpacing(10)
+        root.setContentsMargins(16, 16, 16, 16)
+        root.setSpacing(12)
 
-        # Header
-        head = QHBoxLayout()
+        # ===== Header (card) =====
+        header_card = QFrame()
+        header_card.setObjectName("card")
+        head = QHBoxLayout(header_card)
+        head.setContentsMargins(16, 12, 16, 12)
+        head.setSpacing(10)
+
         self.lb_recepcion = QLabel("Recepción: —")
         self.lb_recepcion.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
         head.addWidget(self.lb_recepcion, 1)
@@ -55,15 +61,22 @@ class ExcluidosWindow(QDialog):
         self.btn_reload.clicked.connect(self._load)
         head.addWidget(self.btn_reload, 0)
 
-        root.addLayout(head)
+        root.addWidget(header_card)
 
+        # ===== Warning label (NOT in a card) =====
         self.lb_estado_warning = QLabel("")
         self.lb_estado_warning.setWordWrap(True)
-        self.lb_estado_warning.setStyleSheet("color: #B00020;")
+        self.lb_estado_warning.setProperty("role", "error")
         self.lb_estado_warning.setVisible(False)
         root.addWidget(self.lb_estado_warning, 0)
 
-        # Table
+        # ===== Table (card) =====
+        table_card = QFrame()
+        table_card.setObjectName("card")
+        tl = QVBoxLayout(table_card)
+        tl.setContentsMargins(12, 12, 12, 12)
+        tl.setSpacing(0)
+
         self.table = QTableWidget(0, 6)
         self.table.setHorizontalHeaderLabels([
             "Referencia", "Receta", "Fecha", "Hora", "Total", "A cargo obs"
@@ -78,10 +91,15 @@ class ExcluidosWindow(QDialog):
         hh.setStretchLastSection(True)
         hh.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        root.addWidget(self.table, 1)
+        tl.addWidget(self.table)
+        root.addWidget(table_card, 1)
 
-        # Actions
-        actions = QHBoxLayout()
+        # ===== Actions (card) =====
+        actions_card = QFrame()
+        actions_card.setObjectName("card")
+        actions = QHBoxLayout(actions_card)
+        actions.setContentsMargins(12, 8, 12, 8)
+        actions.setSpacing(8)
 
         self.btn_copy = QPushButton("Copiar tabla")
         self.btn_copy.setEnabled(False)
@@ -106,7 +124,7 @@ class ExcluidosWindow(QDialog):
         btn_close.clicked.connect(self.reject)
         actions.addWidget(btn_close)
 
-        root.addLayout(actions)
+        root.addWidget(actions_card)
 
         if self._recepcion_id:
             self._set_recepcion_label(self._recepcion_numero or str(self._recepcion_id))

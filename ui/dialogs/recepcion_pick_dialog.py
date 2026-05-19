@@ -23,6 +23,7 @@ class RecepcionPickDialog(QDialog):
 
         self.setWindowTitle("Elegir recepción")
         self.setMinimumSize(950, 520)
+        self.setModal(True)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(12, 12, 12, 12)
@@ -30,7 +31,7 @@ class RecepcionPickDialog(QDialog):
 
         # título
         title = QLabel("Seleccionar recepción")
-        title.setStyleSheet("font-size:16px; font-weight:600;")
+        title.setProperty("role", "subtitle")
         root.addWidget(title)
 
         # -----------------------
@@ -104,7 +105,11 @@ class RecepcionPickDialog(QDialog):
         actions.addStretch()
 
         self.btn_cancel = QPushButton("Cancelar")
+        self.btn_cancel.setProperty("variant", "ghost")
+        self.btn_cancel.setProperty("size", "md")
         self.btn_ok = QPushButton("Seleccionar")
+        self.btn_ok.setProperty("variant", "primary")
+        self.btn_ok.setProperty("size", "md")
         self.btn_ok.setEnabled(False)
         self.btn_ok.setDefault(True)
 
