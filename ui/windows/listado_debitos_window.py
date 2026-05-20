@@ -680,6 +680,7 @@ class ListadoDebitosWindow(QDialog):
 
         preview = QPrintPreviewDialog(printer, self)
         preview.paintRequested.connect(lambda p: self._render_print(p, rows))
+        preview.setWindowState(Qt.WindowState.WindowMaximized)
 
         preview.exec()
 
