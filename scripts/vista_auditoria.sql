@@ -162,7 +162,11 @@ SELECT
 
     r.ubicacion_frente AS frente_jpg,
 
-    FALSE AS flag_debitos,
+    EXISTS (
+        SELECT 1
+        FROM debitos d
+        WHERE d.receta_id = r.receta_id
+    ) AS flag_debitos,
     FALSE AS tiene_asoc_en_esta_recepcion,
     FALSE AS tiene_asoc_en_otra_recepcion
 
