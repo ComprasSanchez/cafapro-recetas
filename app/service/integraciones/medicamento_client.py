@@ -86,12 +86,27 @@ class MedicamentoClient:
         # eliminar duplicados
         unique = list(set(clean))
 
-        r = self._client.post(
-            "/medicamentos/codebar/batch",
-            json={"codebars": unique},
-        )
+        attempts = 1 + self.retries
+        last_exc: Optional[Exception] = None
 
-        r.raise_for_status()
+        for _ in range(attempts):
+            try:
+                r = self._client.post(
+                    "/medicamentos/codebar/batch",
+                    json={"codebars": unique},
+                )
+                r.raise_for_status()
+                break
+            except (httpx.TimeoutException, httpx.HTTPStatusError) as e:
+                last_exc = e
+                continue
+            except httpx.HTTPError as e:
+                last_exc = e
+                break
+        else:
+            raise last_exc if last_exc else RuntimeError(
+                "Error desconocido consultando endpoint batch de medicamentos"
+            )
 
         data = r.json()
 
