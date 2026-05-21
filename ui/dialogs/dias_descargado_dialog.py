@@ -3,9 +3,9 @@ from __future__ import annotations
 from datetime import date
 
 from PySide6.QtCore import Qt, QDate, Signal, QRect
-from PySide6.QtGui import QPainter, QPen, QColor, QTextCharFormat, QBrush
+from PySide6.QtGui import QPainter, QPen, QColor, QBrush
 
-from ui.theme.row_colors import ok_bg
+from ui.theme.row_colors import ok_bg, ok_fg
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QCalendarWidget, QWidget
@@ -56,12 +56,20 @@ class BorderCalendar(QCalendarWidget):
         self._locked_year = self._today.year()
         self._locked_month = self._today.month()
 
+        # fechas descargadas (set para paintCell)
+        self._ok_dates: set[QDate] = set()
+        self._ok_brush = QBrush(ok_bg())
+
         # Bloquear UI default
         self.setNavigationBarVisible(False)
         self.setGridVisible(True)
-        self.setNavigationBarVisible(False)
         self.setVerticalHeaderFormat(QCalendarWidget.VerticalHeaderFormat.NoVerticalHeader)
         self.setHorizontalHeaderFormat(QCalendarWidget.HorizontalHeaderFormat.ShortDayNames)
+
+    def set_ok_dates(self, dates: set[QDate]) -> None:
+        self._ok_dates = dates
+        self._ok_brush = QBrush(ok_bg())
+        self.updateCells()
 
     def refresh_today(self) -> None:
         self._today = QDate.currentDate()
@@ -108,19 +116,28 @@ class BorderCalendar(QCalendarWidget):
         return
 
     def paintCell(self, painter: QPainter, rect: QRect, qdate: QDate) -> None:
-        super().paintCell(painter, rect, qdate)
+        is_in_month = (qdate.year() == self._locked_year and qdate.month() == self._locked_month)
+        is_ok = is_in_month and (qdate in self._ok_dates)
+
+        if is_ok:
+            # Pintado propio para evitar que el QSS sobreescriba setDateTextFormat
+            painter.save()
+            painter.fillRect(rect, self._ok_brush)
+            painter.setPen(QPen(ok_fg()))
+            painter.setFont(self.font())
+            painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, str(qdate.day()))
+            painter.restore()
+        else:
+            super().paintCell(painter, rect, qdate)
 
         # Días fuera del mes lockeado: tachado + gris
-        if qdate.year() != self._locked_year or qdate.month() != self._locked_month:
+        if not is_in_month:
             painter.save()
             painter.setPen(QPen(QColor(150, 150, 150)))
-
-            # tachado diagonal
             r = rect.adjusted(4, 4, -4, -4)
             painter.drawLine(r.topLeft(), r.bottomRight())
-
             painter.restore()
-            return  # no dibujar borde de HOY acá
+            return
 
         # Borde SOLO al día de hoy (si pertenece al mes)
         if qdate == self._today:
@@ -150,13 +167,6 @@ class DiasDescargadosDialog(QDialog):
         self.setWindowTitle(f"Días descargados - Recepción {self.recepcion_id}")
         self.setMinimumSize(980, 460)
         self.setModal(True)
-
-        # formatos
-        self._fmt_clear = QTextCharFormat()
-
-        self._fmt_ok = QTextCharFormat()
-        self._fmt_ok.setBackground(QBrush(ok_bg()))
-        self._fmt_ok.setToolTip("Descargado")
 
         # Anchor = mes actual (1er día)
         a = QDate.currentDate()
@@ -245,16 +255,13 @@ class DiasDescargadosDialog(QDialog):
     def _render_month(self, cal: BorderCalendar, month_first_day: QDate) -> None:
         year = month_first_day.year()
         month = month_first_day.month()
-        days = QDate(year, month, 1).daysInMonth()
 
-        # limpiar mes
-        for d in range(1, days + 1):
-            cal.setDateTextFormat(QDate(year, month, d), self._fmt_clear)
-
-        # aplicar descargados
-        for fd in self._fechas:
-            if fd.year == year and fd.month == month:
-                cal.setDateTextFormat(QDate(fd.year, fd.month, fd.day), self._fmt_ok)
+        ok_dates = {
+            QDate(fd.year, fd.month, fd.day)
+            for fd in self._fechas
+            if fd.year == year and fd.month == month
+        }
+        cal.set_ok_dates(ok_dates)
 
     def _on_clicked_day(self, qd: QDate):
         d = date(qd.year(), qd.month(), qd.day())
