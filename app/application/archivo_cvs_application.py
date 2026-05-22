@@ -242,9 +242,6 @@ class ArchivoCvsApplication:
                 "Hora": hora_txt,
                 "Nro_Referencia": ref,
                 "Nro_Receta": str(raw.get("numeroReceta") or "").strip(),
-                "Importe_Gral": importe_bruto,
-                "Importe_Pami": importe_cobertura,
-                "A_Cargo_Entidad": importe_afiliado,
                 "importe_bruto": importe_bruto,
                 "importe_cobertura": importe_cobertura,
                 "importe_afiliado": importe_afiliado,
@@ -272,8 +269,6 @@ class ArchivoCvsApplication:
                         "estado": str(it.get("estado") or "").strip(),
                         "nro_aut": str(idx),
                         "cantidad": str(it.get("cantidad") or 0),
-                        "importe_gral": _fmt_num(it.get("importeBruto", 0)),
-                        "importe_pami": _fmt_num(it.get("importeCobertura", 0)),
                         "importe_bruto": _fmt_num(it.get("importeBruto", 0)),
                         "importe_cobertura": _fmt_num(it.get("importeCobertura", 0)),
                         "desc": f"{descuento}%" if descuento not in (None, "") else None,
@@ -283,6 +278,23 @@ class ArchivoCvsApplication:
             detalles_por_ref[ref] = out_items
 
         return recetas_por_ref, detalles_por_ref
+
+    @staticmethod
+    def load_csv_from_file(*, imed: str, fecha_str: str, obs: str, ctx=None) -> "CsvOut":
+        from core.imed_cvs_handler import ImedCvsHandler
+
+        if ctx:
+            ctx.emit_progress(10, "Leyendo CSV IMED…")
+
+        handler = ImedCvsHandler()
+        recetas, detalles = handler.read_cvs_by_imed_and_date(imed=imed, date=fecha_str, obs=obs)
+        recetas = recetas or {}
+        detalles = detalles or {}
+
+        if ctx:
+            ctx.emit_progress(90, f"CSV listo: {len(recetas)} recetas")
+
+        return CsvOut(recetas_por_ref=recetas, detalles_por_ref=detalles)
 
     @staticmethod
     def list_fechas_descargadas(*, recepcion_id: int):

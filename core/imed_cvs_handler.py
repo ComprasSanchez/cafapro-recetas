@@ -33,9 +33,9 @@ class RecetaRow(TypedDict, total=False):
     Hora: str
     Nro_Referencia: str
     Nro_Receta: str
-    Importe_Pami: str
-    Importe_Gral: str
-    A_Cargo_Entidad: str
+    importe_bruto: str
+    importe_cobertura: str
+    importe_afiliado: str
 
 
 class DetalleRow(TypedDict, total=False):
@@ -46,8 +46,8 @@ class DetalleRow(TypedDict, total=False):
     estado: Optional[str]
     nro_aut: Optional[str]
     cantidad: Optional[str]
-    importe_gral: Optional[str]
-    importe_pami: Optional[str]
+    importe_bruto: Optional[str]
+    importe_cobertura: Optional[str]
     desc: Optional[str]
 
 RecetasPorRef = Dict[str, RecetaRow]
@@ -89,6 +89,13 @@ def _parse_code_name_present(raw0: str) -> tuple[Optional[str], Optional[str], O
 def parse_detalle_row(fila: List[str]) -> DetalleRow:
     cod, nombre, present = _parse_code_name_present(fila[0] if len(fila) > 0 else "")
 
+    importe_pami_str = fila[5].strip() if len(fila) > 5 and fila[5] else None
+    desc_str = fila[6].strip() if len(fila) > 6 and fila[6] else None
+
+    bruto_dec = ImedCvsHandler.parse_decimal(importe_pami_str).quantize(Decimal("0.01"))
+    desc_pct_dec = ImedCvsHandler.parse_decimal((desc_str or "").rstrip("%").strip())
+    cobertura_dec = ((bruto_dec / Decimal("100")) * desc_pct_dec).quantize(Decimal("0.01"))
+
     return {
         "cod_medic": cod,
         "nombre": nombre,
@@ -96,9 +103,9 @@ def parse_detalle_row(fila: List[str]) -> DetalleRow:
         "estado": fila[2].strip() if len(fila) > 2 and fila[2] else None,
         "nro_aut": fila[3].strip() if len(fila) > 3 and fila[3] else None,
         "cantidad": fila[4].strip() if len(fila) > 4 and fila[4] else None,
-        "importe_pami": fila[5].strip() if len(fila) > 5 and fila[5] else None,
-        "desc": fila[6].strip() if len(fila) > 6 and fila[6] else None,
-        "importe_gral": fila[7].strip() if len(fila) > 7 and fila[7] else None,
+        "importe_bruto": str(bruto_dec) if importe_pami_str else None,
+        "importe_cobertura": str(cobertura_dec),
+        "desc": desc_str,
     }
 
 class ImedCvsHandler:
@@ -260,7 +267,13 @@ class ImedCvsHandler:
 
         raw = dict(zip(header, fila))
 
-        # Mapear a claves "seguras" (sin espacios) para tu app
+        importe_pami = (raw.get("Importe Pami") or "").strip()
+        a_cargo = (raw.get("A Cargo Entidad") or "").strip()
+        afiliado = str(
+            (ImedCvsHandler.parse_decimal(importe_pami) - ImedCvsHandler.parse_decimal(a_cargo))
+            .quantize(Decimal("0.01"))
+        )
+
         receta: RecetaRow = {
             "Beneficiario": (raw.get("Beneficiario") or "").strip(),
             "Orden_Del_Lote": (raw.get("Orden Del Lote") or "").strip(),
@@ -268,9 +281,9 @@ class ImedCvsHandler:
             "Hora": (raw.get("Hora") or "").strip(),
             "Nro_Referencia": (raw.get("Nro Referencia") or "").strip(),
             "Nro_Receta": (raw.get("Nro Receta") or "").strip(),
-            "Importe_Pami": (raw.get("Importe Pami") or "").strip(),
-            "Importe_Gral": (raw.get("Importe Gral") or "").strip(),
-            "A_Cargo_Entidad": (raw.get("A Cargo Entidad") or "").strip(),
+            "importe_bruto": importe_pami,
+            "importe_cobertura": a_cargo,
+            "importe_afiliado": afiliado,
         }
         return receta
 

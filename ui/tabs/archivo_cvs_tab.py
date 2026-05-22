@@ -31,6 +31,7 @@ class ArchivoCvsTab(BaseTabWidget):
         self.obs: str | None = None
         self._validador: str = "imed"
         self._codigo_financiador: int | None = None
+        self._file_fallback_mode: bool = False
 
         self._uc = ArchivoCvsUseCase()
 
@@ -260,6 +261,7 @@ class ArchivoCvsTab(BaseTabWidget):
         self._codigo_financiador = out.codigo_financiador
         self.in_imed.setText(self.imed)
 
+        self._file_fallback_mode = False
         self.de_fecha.setEnabled(False)
 
         # al cambiar recepción: limpiar tablas / cache
@@ -288,6 +290,18 @@ class ArchivoCvsTab(BaseTabWidget):
             QMessageBox.warning(self, "Atención", "Primero seleccioná una recepción (para tener IMED).")
             return
 
+        if self._file_fallback_mode:
+            self.run_job(
+                self._uc.load_csv_from_file,
+                imed=imed,
+                fecha_str=fecha,
+                obs=obs,
+                title="Cargando CSV…",
+                on_result=self._apply_csv,
+                on_error=self._show_worker_error,
+            )
+            return
+
         if self._codigo_financiador is None:
             QMessageBox.warning(self, "Atención", "La obra social no tiene código financiador configurado.")
             return
@@ -302,7 +316,22 @@ class ArchivoCvsTab(BaseTabWidget):
             codigo_financiador=self._codigo_financiador,
             title="Cargando recetas…",
             on_result=self._apply_csv,
+            on_error=self._on_api_cargar_error,
         )
+
+    def _on_api_cargar_error(self, err: str) -> None:
+        if "502" in err or "503" in err:
+            self._file_fallback_mode = True
+            self.de_fecha.setEnabled(True)
+            QMessageBox.warning(
+                self,
+                "API no disponible",
+                "El servicio de validadores no está disponible (error 502 o 503).\n\n"
+                "Se cambió al modo archivo CSV local.\n"
+                "Seleccioná la fecha del archivo y presioná Cargar nuevamente.",
+            )
+        else:
+            self._show_worker_error(err)
 
     def _apply_csv(self, out: CsvOut) -> None:
         self._recetas_por_ref = out.recetas_por_ref or {}
@@ -345,13 +374,13 @@ class ArchivoCvsTab(BaseTabWidget):
                 hora = receta.get("Hora") or ""
                 self.tbl_recetas.setItem(r, 4, QTableWidgetItem(str(hora)))
 
-                imp_gral = receta.get("Importe_Gral") or receta.get("Importe Gral") or ""
-                imp_pami = receta.get("Importe_Pami") or receta.get("Importe Pami") or ""
-                cargo_entidad = receta.get("A_Cargo_Entidad") or receta.get("A Cargo Entidad") or ""
+                imp_bruto = receta.get("importe_bruto") or ""
+                imp_cobertura = receta.get("importe_cobertura") or ""
+                imp_afiliado = receta.get("importe_afiliado") or ""
 
-                self.tbl_recetas.setItem(r, 5, QTableWidgetItem(str(imp_gral)))
-                self.tbl_recetas.setItem(r, 6, QTableWidgetItem(str(imp_pami)))
-                self.tbl_recetas.setItem(r, 7, QTableWidgetItem(str(cargo_entidad)))
+                self.tbl_recetas.setItem(r, 5, QTableWidgetItem(str(imp_bruto)))
+                self.tbl_recetas.setItem(r, 6, QTableWidgetItem(str(imp_cobertura)))
+                self.tbl_recetas.setItem(r, 7, QTableWidgetItem(str(imp_afiliado)))
 
                 orden = receta.get("Orden_Del_Lote") or receta.get("Orden Del Lote") or ""
                 self.tbl_recetas.setItem(r, 8, QTableWidgetItem(str(orden)))
@@ -398,8 +427,8 @@ class ArchivoCvsTab(BaseTabWidget):
                 est = d.get("estado") or ""
                 aut = d.get("nro_aut") or ""
                 can = d.get("cantidad") or ""
-                igr = d.get("importe_gral") or ""
-                ipa = d.get("importe_pami") or ""
+                imp_bruto = d.get("importe_bruto") or ""
+                imp_cobertura = d.get("importe_cobertura") or ""
                 des = d.get("desc") or ""
 
                 self.tbl_detalles.setItem(r, 0, QTableWidgetItem(str(cod)))
@@ -408,8 +437,8 @@ class ArchivoCvsTab(BaseTabWidget):
                 self.tbl_detalles.setItem(r, 3, QTableWidgetItem(str(est)))
                 self.tbl_detalles.setItem(r, 4, QTableWidgetItem(str(aut)))
                 self.tbl_detalles.setItem(r, 5, QTableWidgetItem(str(can)))
-                self.tbl_detalles.setItem(r, 6, QTableWidgetItem(str(igr)))
-                self.tbl_detalles.setItem(r, 7, QTableWidgetItem(str(ipa)))
+                self.tbl_detalles.setItem(r, 6, QTableWidgetItem(str(imp_bruto)))
+                self.tbl_detalles.setItem(r, 7, QTableWidgetItem(str(imp_cobertura)))
                 self.tbl_detalles.setItem(r, 8, QTableWidgetItem(str(des)))
         finally:
             self.tbl_detalles.setUpdatesEnabled(True)
