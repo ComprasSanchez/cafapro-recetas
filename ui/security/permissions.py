@@ -69,3 +69,7 @@ def can_access_header_action(
 
 def can_open_carga_debitos_excluidos(user: Any) -> bool:
     return is_admin(user)
+
+
+def can_cerrar_recepcion(user: Any) -> bool:
+    return is_admin(user)

@@ -15,7 +15,7 @@ from ui.dialogs.recepcion_create_dialog import RecepcionCreateDialog
 from ui.dialogs.recepcion_pick_dialog import RecepcionPickDialog
 
 from ui.tabs.base_tab import BaseTabWidget
-from ui.security.permissions import can_open_carga_debitos_excluidos
+from ui.security.permissions import can_open_carga_debitos_excluidos, can_cerrar_recepcion
 from ui.usecase.carga_recepcion_usecase import (
     CargaRecepcionUseCase,
     LoadRecepcionOut,
@@ -41,6 +41,7 @@ class CargaRecepcionTab(BaseTabWidget):
         self._processing = False
         self._closing_recepcion = False
         self._allow_debitos_excluidos = can_open_carga_debitos_excluidos(self.current_user)
+        self._allow_cerrar_recepcion = can_cerrar_recepcion(self.current_user)
 
         self.imed: str | None = None
         self.obs: str | None = None
@@ -114,7 +115,7 @@ class CargaRecepcionTab(BaseTabWidget):
         self.btn_procesar.setEnabled(
             enabled and has_recepcion and not self._is_busy() and self.tbl_imgs.rowCount() > 0
         )
-        self.btn_cerrar.setEnabled(enabled and has_recepcion and not self._is_busy())
+        self.btn_cerrar.setEnabled(enabled and has_recepcion and not self._is_busy() and self._allow_cerrar_recepcion)
         can_open_aux = self._allow_debitos_excluidos
         self.btn_debitos.setEnabled(enabled and has_recepcion and not self._is_busy() and can_open_aux)
         self.btn_excluidos.setEnabled(enabled and has_recepcion and not self._is_busy() and can_open_aux)
@@ -122,11 +123,12 @@ class CargaRecepcionTab(BaseTabWidget):
         self.de_fecha.setEnabled(enabled and not self._is_busy())
 
     def _apply_role_permissions(self) -> None:
-        if self._allow_debitos_excluidos:
-            return
+        if not self._allow_debitos_excluidos:
+            self.btn_debitos.setToolTip("Solo ADMIN")
+            self.btn_excluidos.setToolTip("Solo ADMIN")
 
-        self.btn_debitos.setToolTip("Solo ADMIN")
-        self.btn_excluidos.setToolTip("Solo ADMIN")
+        if not self._allow_cerrar_recepcion:
+            self.btn_cerrar.setToolTip("Solo ADMIN")
 
     def _show_job_error(self, err: str) -> None:
         QMessageBox.critical(self, "Error del proceso", err)
@@ -542,6 +544,9 @@ class CargaRecepcionTab(BaseTabWidget):
         dlg.exec()
 
     def _on_cerrar_recepcion(self) -> None:
+        if not self._allow_cerrar_recepcion:
+            QMessageBox.warning(self, "Sin permisos", "No tenés permisos para cerrar recepciones.")
+            return
         if self._closing_recepcion:
             self.footer_set(info="El cierre de recepción ya está en curso.")
             return
