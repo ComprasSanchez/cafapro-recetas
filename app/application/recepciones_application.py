@@ -48,9 +48,9 @@ class RecepcionesApplication:
         with session_scope() as s:
             obras = ObraSocialService.list(s, solo_activas=True)
             periodos = list(PeriodoService.list(s, solo_activos=True))
-            prestadores = PrestadorService.list(s, solo_activos=True)
             estados = EstadoRecepcionService.list(s)
 
+        prestadores = PrestadorService.list(solo_activos=True)
         return obras, periodos, prestadores, estados
 
     @staticmethod

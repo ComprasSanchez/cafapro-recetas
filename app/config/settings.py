@@ -40,6 +40,11 @@ class Settings(BaseSettings):
     )
 
     # -----------------------
+    # API
+    # -----------------------
+    API_CAFAPRO: str = Field(default="http://localhost:3000")
+
+    # -----------------------
     # AWS / S3 / CloudFront
     # -----------------------
     AWS_REGION: str = Field(default="us-east-1")
@@ -76,6 +81,9 @@ class Settings(BaseSettings):
 
         if not self.DATABASE_URL.strip():
             missing.append("DATABASE_URL")
+
+        if not self.API_CAFAPRO.strip():
+            missing.append("API_CAFAPRO")
 
         # Si querés habilitar AWS por feature-flag, lo hacemos.
         # Por ahora lo consideramos requerido.

@@ -70,37 +70,27 @@ class CatalogosApplication:
 
     @staticmethod
     def list_prestadores(*, solo_activos: bool = False) -> list:
-        with session_scope() as s:
-            return PrestadorService.list(s, solo_activos=solo_activos)
+        return PrestadorService.list(solo_activos=solo_activos)
 
     @staticmethod
     def create_prestador(*, codigo: str, nombre: str, imed: str) -> None:
-        with session_scope() as s:
-            PrestadorService.create(
-                s,
-                codigo=codigo,
-                nombre=nombre,
-                imed=imed,
-            )
+        PrestadorService.create(codigo=codigo, nombre=nombre, imed=imed)
 
     @staticmethod
     def update_prestador(*, prestador_id: int, codigo: str, nombre: str, imed: str) -> None:
-        with session_scope() as s:
-            PrestadorService.update(
-                s,
-                prestador_id=int(prestador_id),
-                codigo=codigo,
-                nombre=nombre,
-                imed=imed,
-            )
+        PrestadorService.update(
+            prestador_id=int(prestador_id),
+            codigo=codigo,
+            nombre=nombre,
+            imed=imed,
+        )
 
     @staticmethod
     def set_prestador_activo(*, prestador_id: int, activo: bool) -> None:
-        with session_scope() as s:
-            if activo:
-                PrestadorService.restore(s, int(prestador_id))
-            else:
-                PrestadorService.delete_logico(s, int(prestador_id))
+        if activo:
+            PrestadorService.restore(int(prestador_id))
+        else:
+            PrestadorService.delete_logico(int(prestador_id))
 
     @staticmethod
     def list_periodos(*, solo_activos: bool = False) -> list:
