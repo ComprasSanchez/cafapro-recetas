@@ -95,16 +95,15 @@ class AuditoriaVisualApplication:
 
     @staticmethod
     def get_vendedor_info(*, vendedor_id: int) -> VendedorInfoOut | None:
-        with session_scope() as s:
-            vendedor = VendedoresService.get(s, vendedor_id=int(vendedor_id))
+        vendedor = VendedoresService.get(int(vendedor_id))
 
         if not vendedor:
             return None
 
         return VendedorInfoOut(
             vendedor_id=int(vendedor.vendedor_id),
-            descripcion=str(getattr(vendedor, "descripcion", "") or ""),
-            codigo=str(getattr(vendedor, "codigo", "") or ""),
+            descripcion=str(vendedor.descripcion or ""),
+            codigo=str(vendedor.codigo or ""),
         )
 
     @staticmethod
@@ -114,8 +113,7 @@ class AuditoriaVisualApplication:
 
     @staticmethod
     def list_vendedores_activos() -> list[VendedorPickItemOut]:
-        with session_scope() as s:
-            rows = VendedoresService.list(s, solo_activos=True)
+        rows = VendedoresService.list(solo_activos=True)
 
         return [
             VendedorPickItemOut(

@@ -38,35 +38,26 @@ class CatalogosApplication:
 
     @staticmethod
     def list_vendedores(*, solo_activos: bool = False) -> list:
-        with session_scope() as s:
-            return VendedoresService.list(s, solo_activos=solo_activos)
+        return VendedoresService.list(solo_activos=solo_activos)
 
     @staticmethod
     def create_vendedor(*, codigo: str, descripcion: str) -> None:
-        with session_scope() as s:
-            VendedoresService.create(
-                s,
-                codigo=codigo,
-                descripcion=descripcion,
-            )
+        VendedoresService.create(codigo=codigo, descripcion=descripcion)
 
     @staticmethod
     def update_vendedor(*, vendedor_id: int, codigo: str, descripcion: str) -> None:
-        with session_scope() as s:
-            VendedoresService.update(
-                s,
-                vendedor_id=int(vendedor_id),
-                codigo=codigo,
-                descripcion=descripcion,
-            )
+        VendedoresService.update(
+            vendedor_id=int(vendedor_id),
+            codigo=codigo,
+            descripcion=descripcion,
+        )
 
     @staticmethod
     def set_vendedor_activo(*, vendedor_id: int, activo: bool) -> None:
-        with session_scope() as s:
-            if activo:
-                VendedoresService.restore(s, int(vendedor_id))
-            else:
-                VendedoresService.delete_logico(s, int(vendedor_id))
+        if activo:
+            VendedoresService.restore(int(vendedor_id))
+        else:
+            VendedoresService.delete_logico(int(vendedor_id))
 
     @staticmethod
     def list_prestadores(*, solo_activos: bool = False) -> list:
