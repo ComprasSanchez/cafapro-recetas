@@ -108,8 +108,7 @@ class CatalogosApplication:
 
     @staticmethod
     def list_obras_sociales(*, solo_activas: bool = False) -> list:
-        with session_scope() as s:
-            return ObraSocialService.list(s, solo_activas=solo_activas)
+        return ObraSocialService.list(solo_activas=solo_activas)
 
     @staticmethod
     def create_obra_social(
@@ -120,15 +119,13 @@ class CatalogosApplication:
         dias_vencimiento: int | str | None,
         codigo_financiador: int | str | None,
     ) -> None:
-        with session_scope() as s:
-            ObraSocialService.create(
-                s,
-                codigo=codigo,
-                nombre=nombre,
-                validador=validador,
-                dias_vencimiento=dias_vencimiento,
-                codigo_financiador=codigo_financiador,
-            )
+        ObraSocialService.create(
+            codigo=codigo,
+            nombre=nombre,
+            validador=validador,
+            dias_vencimiento=dias_vencimiento,
+            codigo_financiador=codigo_financiador,
+        )
 
     @staticmethod
     def update_obra_social(
@@ -140,24 +137,21 @@ class CatalogosApplication:
         dias_vencimiento: int | str | None,
         codigo_financiador: int | str | None,
     ) -> None:
-        with session_scope() as s:
-            ObraSocialService.update(
-                s,
-                obra_social_id=int(obra_social_id),
-                codigo=codigo,
-                nombre=nombre,
-                validador=validador,
-                dias_vencimiento=dias_vencimiento,
-                codigo_financiador=codigo_financiador,
-            )
+        ObraSocialService.update(
+            obra_social_id=int(obra_social_id),
+            codigo=codigo,
+            nombre=nombre,
+            validador=validador,
+            dias_vencimiento=dias_vencimiento,
+            codigo_financiador=codigo_financiador,
+        )
 
     @staticmethod
     def set_obra_social_activa(*, obra_social_id: int, activo: bool) -> None:
-        with session_scope() as s:
-            if activo:
-                ObraSocialService.restore(s, int(obra_social_id))
-            else:
-                ObraSocialService.delete_logico(s, int(obra_social_id))
+        if activo:
+            ObraSocialService.restore(int(obra_social_id))
+        else:
+            ObraSocialService.delete_logico(int(obra_social_id))
 
     @staticmethod
     def list_planes(*, solo_activos: bool = False) -> list:
