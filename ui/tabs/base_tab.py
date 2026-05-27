@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import logging
 from typing import Any, Callable
 
 from PySide6.QtCore import QThreadPool
 from PySide6.QtWidgets import QWidget, QMessageBox
+from shiboken6 import isValid
 
 from ui.jobs.jobs_service import ServiceJob
+
+log = logging.getLogger(__name__)
 
 
 class BaseTabWidget(QWidget):
@@ -67,12 +71,32 @@ class BaseTabWidget(QWidget):
             if key and self._active_job_keys.get(key) is job:
                 self._active_job_keys.pop(key, None)
         # ✅ prende loading al empezar
-        job.signals.started.connect(lambda msg: self.footer_set(status=msg, loading=True))
-        job.signals.finished.connect(lambda msg: (_cleanup(), _finished(msg)))
-        job.signals.error.connect( lambda err: (_cleanup(), _error(err)))
+        # isValid(self) previene RuntimeError si el widget fue destruido mientras
+        # el job seguía corriendo en background (causa principal de cierres silenciosos)
+        def _on_started(msg: str):
+            if isValid(self):
+                self.footer_set(status=msg, loading=True)
+
+        def _on_finished(msg: str):
+            _cleanup()
+            if isValid(self):
+                _finished(msg)
+            else:
+                log.debug("job '%s' terminó pero el widget ya fue destruido", title)
+
+        def _on_error(err: str):
+            _cleanup()
+            if isValid(self):
+                _error(err)
+            else:
+                log.warning("job '%s' terminó con error pero el widget ya fue destruido:\n%s", title, err)
+
+        job.signals.started.connect(_on_started)
+        job.signals.finished.connect(_on_finished)
+        job.signals.error.connect(_on_error)
 
         def _progress(_p: int, msg: str):
-            if msg:
+            if msg and isValid(self):
                 self.footer_set(info=msg)
 
         job.signals.progress.connect(_progress)

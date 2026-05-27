@@ -1,16 +1,20 @@
 from pathlib import Path
+import logging
 import sys
 
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from app.config.settings import settings
+from core.crash_logger import setup_crash_logger
 from core.version import APP_VERSION
 from core.updater import apply_update, get_pending_update
 from ui.dialogs.startup_status_dialog import StartupStatusDialog
 from ui.main_window import MainWindow
 from ui.dialogs.login_dialog import LoginDialog
 from ui.theme.theme_manager import theme_manager
+
+log = logging.getLogger(__name__)
 
 
 def app_dir() -> Path:
@@ -20,6 +24,9 @@ def app_dir() -> Path:
 
 
 def main() -> int:
+    setup_crash_logger()
+    log.info("Arrancando Cafapro Recetas %s", APP_VERSION)
+
     app = QApplication(sys.argv)
     base = app_dir()
     icon_path = base / "resources" / "logo.ico"
@@ -96,7 +103,14 @@ def main() -> int:
 
     w = MainWindow(current_user=login.user)
     w.showMaximized()
-    return app.exec()
+
+    try:
+        exit_code = app.exec()
+        log.info("App cerrada normalmente (código %d)", exit_code)
+        return exit_code
+    except Exception:
+        log.critical("Excepción en el event loop de Qt:", exc_info=True)
+        return 1
 
 
 if __name__ == "__main__":
