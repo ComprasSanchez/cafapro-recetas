@@ -12,9 +12,9 @@ from pathlib import Path
 
 
 def _log_dir() -> Path:
-    """Directorio de logs: junto al .exe en producción, carpeta logs/ en dev."""
+    """Directorio de logs: Documentos\CafaproRecetas\logs en producción, carpeta logs/ en dev."""
     if getattr(sys, "frozen", False):
-        return Path(sys.executable).parent / "logs"
+        return Path.home() / "Documents" / "CafaproRecetas" / "logs"
     return Path(__file__).parents[1] / "logs"
 
 
