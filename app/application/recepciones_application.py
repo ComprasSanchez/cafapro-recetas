@@ -47,8 +47,8 @@ class RecepcionesApplication:
     def load_create_catalogs():
         obras = ObraSocialService.list(solo_activas=True)
         prestadores = PrestadorService.list(solo_activos=True)
+        periodos = PeriodoService.list(solo_activos=True)
         with session_scope() as s:
-            periodos = list(PeriodoService.list(s, solo_activos=True))
             estados = EstadoRecepcionService.list(s)
         return obras, periodos, prestadores, estados
 
@@ -82,8 +82,7 @@ class RecepcionesApplication:
 
     @staticmethod
     def list_periodos() -> list:
-        with session_scope() as s:
-            return list(PeriodoService.list(s))
+        return PeriodoService.list()
 
     @staticmethod
     def list_prestadores_resumen(*, periodo_id: int) -> list:

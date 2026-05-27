@@ -85,26 +85,22 @@ class CatalogosApplication:
 
     @staticmethod
     def list_periodos(*, solo_activos: bool = False) -> list:
-        with session_scope() as s:
-            return list(PeriodoService.list(s, solo_activos=solo_activos))
+        return PeriodoService.list(solo_activos=solo_activos)
 
     @staticmethod
     def create_periodo(*, anio: int, mes: int, quincena: int) -> None:
-        with session_scope() as s:
-            PeriodoService.create(
-                s,
-                anio=int(anio),
-                mes=int(mes),
-                quincena=int(quincena),
-            )
+        PeriodoService.create(
+            anio=int(anio),
+            mes=int(mes),
+            quincena=int(quincena),
+        )
 
     @staticmethod
     def set_periodo_activo(*, periodo_id: int, activo: bool) -> None:
-        with session_scope() as s:
-            if activo:
-                PeriodoService.restore(s, int(periodo_id))
-            else:
-                PeriodoService.delete_logico(s, int(periodo_id))
+        if activo:
+            PeriodoService.restore(int(periodo_id))
+        else:
+            PeriodoService.delete_logico(int(periodo_id))
 
     @staticmethod
     def list_obras_sociales(*, solo_activas: bool = False) -> list:

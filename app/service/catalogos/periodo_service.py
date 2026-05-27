@@ -1,13 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Sequence, Optional
 
-from sqlalchemy import select, and_
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+import httpx
 
-from app.db.models import Periodo
+from app.config.settings import settings
 
 
 @dataclass(frozen=True)
@@ -20,158 +17,79 @@ class PeriodoItem:
 
     @property
     def label(self) -> str:
-        # "2026-01 Q1"
         return f"{self.anio}-{self.mes:02d} Q{self.quincena}"
 
 
+def _url(path: str = "") -> str:
+    return f"{settings.API_CAFAPRO.rstrip('/')}/periodos{path}"
+
+
+def _to_item(p: dict) -> PeriodoItem:
+    return PeriodoItem(
+        periodo_id=p["periodoId"],
+        anio=p["anio"],
+        mes=p["mes"],
+        quincena=p["quincena"],
+        activo=bool(p["activo"]),
+    )
+
+
 class PeriodoService:
-    # ---------------------
-    # LIST
-    # ---------------------
     @staticmethod
-    def list(session: Session, *, solo_activos: bool = False) -> Sequence[PeriodoItem]:
-        stmt = select(
-            Periodo.periodo_id,
-            Periodo.anio,
-            Periodo.mes,
-            Periodo.quincena,
-            Periodo.activo,
-        )
-
+    def list(*, solo_activos: bool = False) -> list[PeriodoItem]:
+        resp = httpx.get(_url(), timeout=10)
+        resp.raise_for_status()
+        items = [_to_item(p) for p in resp.json()]
         if solo_activos:
-            stmt = stmt.where(Periodo.activo.is_(True))
+            items = [i for i in items if i.activo]
+        return items
 
-        stmt = stmt.order_by(
-            Periodo.anio.desc(),
-            Periodo.mes.desc(),
-            Periodo.quincena.desc(),
-        )
-
-        rows = session.execute(stmt).all()
-        return [
-            PeriodoItem(
-                periodo_id=r[0],
-                anio=r[1],
-                mes=r[2],
-                quincena=r[3],
-                activo=bool(r[4]),
-            )
-            for r in rows
-        ]
-
-    # ---------------------
-    # GET
-    # ---------------------
     @staticmethod
-    def get(session: Session, periodo_id: int) -> Periodo | None:
-        return session.get(Periodo, int(periodo_id))
+    def get(periodo_id: int) -> PeriodoItem | None:
+        resp = httpx.get(_url(f"/{periodo_id}"), timeout=10)
+        if resp.status_code == 404:
+            return None
+        resp.raise_for_status()
+        return _to_item(resp.json())
 
-    # ---------------------
-    # CREATE
-    # ---------------------
     @staticmethod
-    def create(
-        session: Session,
-        *,
-        anio: int,
-        mes: int,
-        quincena: int,
-    ) -> Periodo:
+    def create(*, anio: int, mes: int, quincena: int) -> None:
         if quincena not in (1, 2):
             raise ValueError("quincena debe ser 1 o 2")
         if not (1 <= int(mes) <= 12):
             raise ValueError("mes debe estar entre 1 y 12")
 
-        existente = session.execute(
-            select(Periodo.periodo_id).where(
-                and_(
-                    Periodo.anio == int(anio),
-                    Periodo.mes == int(mes),
-                    Periodo.quincena == int(quincena),
-                )
-            ).limit(1)
-        ).scalar_one_or_none()
+        payload = {"anio": int(anio), "mes": int(mes), "quincena": int(quincena)}
+        resp = httpx.post(_url(), json=payload, timeout=10)
+        if resp.status_code == 409:
+            raise ValueError("Ya existe un período con ese año/mes/quincena.")
+        resp.raise_for_status()
 
-        if existente:
-            raise ValueError("Ese período ya existe.")
-
-        p = Periodo(
-            anio=int(anio),
-            mes=int(mes),
-            quincena=int(quincena),
-            activo=True,
-        )
-        session.add(p)
-
-        try:
-            session.flush()
-            session.refresh(p)
-        except IntegrityError as e:
-            raise ValueError("Ya existe un período con ese anio/mes/quincena") from e
-
-        return p
-
-    # ---------------------
-    # UPDATE
-    # ---------------------
     @staticmethod
-    def update(
-        session: Session,
-        *,
-        periodo_id: int,
-        anio: int,
-        mes: int,
-        quincena: int,
-    ) -> None:
-        p = session.get(Periodo, int(periodo_id))
-        if not p:
-            raise ValueError("No existe el período")
-
+    def update(*, periodo_id: int, anio: int, mes: int, quincena: int) -> None:
         if quincena not in (1, 2):
             raise ValueError("quincena debe ser 1 o 2")
         if not (1 <= int(mes) <= 12):
             raise ValueError("mes debe estar entre 1 y 12")
 
-        # validar que no choque contra otro período
-        existe = session.execute(
-            select(Periodo.periodo_id).where(
-                and_(
-                    Periodo.anio == int(anio),
-                    Periodo.mes == int(mes),
-                    Periodo.quincena == int(quincena),
-                    Periodo.periodo_id != int(periodo_id),
-                )
-            ).limit(1)
-        ).scalar_one_or_none()
+        payload = {"anio": int(anio), "mes": int(mes), "quincena": int(quincena)}
+        resp = httpx.patch(_url(f"/{periodo_id}"), json=payload, timeout=10)
+        if resp.status_code == 404:
+            raise ValueError(f"No existe periodo_id={periodo_id}")
+        if resp.status_code == 409:
+            raise ValueError("Ya existe otro período con ese año/mes/quincena.")
+        resp.raise_for_status()
 
-        if existe:
-            raise ValueError("Ya existe otro período con ese anio/mes/quincena")
-
-        p.anio = int(anio)
-        p.mes = int(mes)
-        p.quincena = int(quincena)
-
-        try:
-            session.flush()
-        except IntegrityError as e:
-            raise ValueError("Ya existe otro período con ese anio/mes/quincena") from e
-
-    # ---------------------
-    # BAJA LÓGICA
-    # ---------------------
     @staticmethod
-    def delete_logico(session: Session, periodo_id: int) -> None:
-        p = session.get(Periodo, int(periodo_id))
-        if not p:
-            raise ValueError("No existe el período")
-        p.activo = False
+    def delete_logico(periodo_id: int) -> None:
+        resp = httpx.patch(_url(f"/{periodo_id}"), json={"activo": False}, timeout=10)
+        if resp.status_code == 404:
+            raise ValueError(f"No existe periodo_id={periodo_id}")
+        resp.raise_for_status()
 
-    # ---------------------
-    # RESTORE
-    # ---------------------
     @staticmethod
-    def restore(session: Session, periodo_id: int) -> None:
-        p = session.get(Periodo, int(periodo_id))
-        if not p:
-            raise ValueError("No existe el período")
-        p.activo = True
+    def restore(periodo_id: int) -> None:
+        resp = httpx.patch(_url(f"/{periodo_id}"), json={"activo": True}, timeout=10)
+        if resp.status_code == 404:
+            raise ValueError(f"No existe periodo_id={periodo_id}")
+        resp.raise_for_status()
