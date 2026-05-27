@@ -6,7 +6,8 @@ from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from app.config.settings import settings
-from core.crash_logger import setup_crash_logger
+# TODO: revisar implementación de logging antes de reactivar
+# from core.crash_logger import setup_crash_logger
 from core.version import APP_VERSION
 from core.updater import apply_update, get_pending_update
 from ui.dialogs.startup_status_dialog import StartupStatusDialog
@@ -24,8 +25,8 @@ def app_dir() -> Path:
 
 
 def main() -> int:
-    setup_crash_logger()
-    log.info("Arrancando Cafapro Recetas %s", APP_VERSION)
+    # setup_crash_logger()
+    # log.info("Arrancando Cafapro Recetas %s", APP_VERSION)
 
     app = QApplication(sys.argv)
     base = app_dir()
