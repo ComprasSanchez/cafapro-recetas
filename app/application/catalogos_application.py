@@ -17,23 +17,18 @@ class CatalogosApplication:
 
     @staticmethod
     def create_user(*, username: str, password: str, rol_id: int) -> None:
-        with session_scope() as s:
-            UsuariosService.create(
-                s,
-                username=username,
-                password=password,
-                rol_id=int(rol_id),
-            )
+        UsuariosService.create(username=username, password=password, rol_id=int(rol_id))
 
     @staticmethod
     def list_usuarios() -> list:
-        with session_scope() as s:
-            return UsuariosService.list(s)
+        return UsuariosService.list()
 
     @staticmethod
-    def delete_usuario(*, usuario_id: int) -> None:
-        with session_scope() as s:
-            UsuariosService.delete(s, int(usuario_id))
+    def set_usuario_activo(*, usuario_id: int, activo: bool) -> None:
+        if activo:
+            UsuariosService.restore(int(usuario_id))
+        else:
+            UsuariosService.delete_logico(int(usuario_id))
 
     @staticmethod
     def list_vendedores(*, solo_activos: bool = False) -> list:
