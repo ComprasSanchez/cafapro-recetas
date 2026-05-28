@@ -13,8 +13,7 @@ from app.service.catalogos.vendedores_service import VendedoresService
 class CatalogosApplication:
     @staticmethod
     def list_roles() -> list:
-        with session_scope() as s:
-            return RolesService.list(s)
+        return RolesService.list()
 
     @staticmethod
     def create_user(*, username: str, password: str, rol_id: int) -> None:
