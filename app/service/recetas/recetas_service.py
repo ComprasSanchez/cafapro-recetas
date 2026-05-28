@@ -284,18 +284,19 @@ class RecetaService:
         errores: list[dict[str, str | int]] = []
 
         for rid in ids:
-            rec = s.get(Recetas, int(rid))
-            if not rec:
-                omitidas += 1
-                continue
-
-            estado_id = int(getattr(rec, "estado_receta_id", 0) or 0)
-            if estado_id != RecetaService.ESTADO_RECETA_REVISION:
-                omitidas += 1
-                continue
-
             try:
-                RecetaService.eliminar_sobrante(s, receta_id=int(rid))
+                rec = s.get(Recetas, int(rid))
+                if not rec:
+                    omitidas += 1
+                    continue
+
+                estado_id = int(getattr(rec, "estado_receta_id", 0) or 0)
+                if estado_id != RecetaService.ESTADO_RECETA_REVISION:
+                    omitidas += 1
+                    continue
+
+                with s.begin_nested():
+                    RecetaService.eliminar_sobrante(s, receta_id=int(rid))
                 eliminadas += 1
             except Exception as e:
                 errores.append({"receta_id": int(rid), "error": str(e)})

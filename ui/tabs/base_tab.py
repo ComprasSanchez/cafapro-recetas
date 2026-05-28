@@ -102,7 +102,12 @@ class BaseTabWidget(QWidget):
         job.signals.progress.connect(_progress)
 
         if on_result:
-            job.signals.result.connect(on_result)
+            def _on_result(data):
+                if isValid(self):
+                    on_result(data)
+                else:
+                    log.debug("job '%s' terminó con resultado pero el widget ya fue destruido", title)
+            job.signals.result.connect(_on_result)
 
         def _error(err_text: str):
             self.footer_set(status="Error", info="", loading=False)
