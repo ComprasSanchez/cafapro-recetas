@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from app.db.session import session_scope
 from app.service.catalogos.obra_social_service import ObraSocialService
 from app.service.catalogos.periodo_service import PeriodoService
 from app.service.catalogos.plan_service import PlanService
@@ -145,34 +144,24 @@ class CatalogosApplication:
 
     @staticmethod
     def list_planes(*, solo_activos: bool = False) -> list:
-        with session_scope() as s:
-            return PlanService.list(s, solo_activos=solo_activos)
+        return PlanService.list(solo_activos=solo_activos)
 
     @staticmethod
     def create_plan(*, obra_social_id: int, codigo: str | None, nombre: str | None) -> None:
-        with session_scope() as s:
-            PlanService.create(
-                s,
-                obra_social_id=int(obra_social_id),
-                codigo=codigo,
-                nombre=nombre,
-            )
+        PlanService.create(obra_social_id=int(obra_social_id), codigo=codigo, nombre=nombre)
 
     @staticmethod
     def update_plan(*, plan_id: int, obra_social_id: int, codigo: str | None, nombre: str | None) -> None:
-        with session_scope() as s:
-            PlanService.update(
-                s,
-                plan_id=int(plan_id),
-                obra_social_id=int(obra_social_id),
-                codigo=codigo,
-                nombre=nombre,
-            )
+        PlanService.update(
+            plan_id=int(plan_id),
+            obra_social_id=int(obra_social_id),
+            codigo=codigo,
+            nombre=nombre,
+        )
 
     @staticmethod
     def set_plan_activo(*, plan_id: int, activo: bool) -> None:
-        with session_scope() as s:
-            if activo:
-                PlanService.restore(s, int(plan_id))
-            else:
-                PlanService.delete_logico(s, int(plan_id))
+        if activo:
+            PlanService.restore(int(plan_id))
+        else:
+            PlanService.delete_logico(int(plan_id))

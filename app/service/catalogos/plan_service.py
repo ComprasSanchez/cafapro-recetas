@@ -3,16 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-from sqlalchemy import select, and_
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+import httpx
 
-from app.db.models import Plan, ObraSocial
+from app.config.settings import settings
 
 
-# =========================
-# DTO
-# =========================
 @dataclass(frozen=True)
 class PlanItem:
     plan_id: int
@@ -23,188 +18,75 @@ class PlanItem:
     activo: bool
 
 
-# =========================
-# SERVICE
-# =========================
+def _url(path: str = "") -> str:
+    return f"{settings.API_CAFAPRO.rstrip('/')}/planes{path}"
+
+
+def _to_item(p: dict) -> PlanItem:
+    return PlanItem(
+        plan_id=p["planId"],
+        obra_social_id=p["obraSocialId"],
+        obra_social=p.get("obraSocial") or "",
+        codigo=p.get("codigo"),
+        nombre=p.get("nombre"),
+        activo=bool(p["activo"]),
+    )
+
+
 class PlanService:
-    # ---------------------
-    # Helpers
-    # ---------------------
     @staticmethod
-    def _norm_optional_str(x: Optional[str]) -> Optional[str]:
-        if x is None:
-            return None
-        x = str(x).strip()
-        return x if x else None
-
-    @staticmethod
-    def _exists_combo(
-        session: Session,
-        *,
-        obra_social_id: int,
-        nombre: Optional[str],
-        codigo: Optional[str],
-        exclude_plan_id: int | None = None,
-    ) -> bool:
-        """
-        Valida el unique lógico: (obra_social_id, nombre, codigo)
-        - Normaliza strings (None / strip).
-        - Excluye un plan_id en caso de update.
-        """
-        nombre = PlanService._norm_optional_str(nombre)
-        codigo = PlanService._norm_optional_str(codigo)
-
-        stmt = select(Plan.plan_id).where(
-            and_(
-                Plan.obra_social_id == int(obra_social_id),
-                Plan.nombre.is_(None) if nombre is None else Plan.nombre == nombre,
-                Plan.codigo.is_(None) if codigo is None else Plan.codigo == codigo,
-            )
-        )
-
-        if exclude_plan_id is not None:
-            stmt = stmt.where(Plan.plan_id != int(exclude_plan_id))
-
-        return session.execute(stmt.limit(1)).scalar_one_or_none() is not None
-
-    # ---------------------
-    # LIST
-    # ---------------------
-    @staticmethod
-    def list(session: Session, *, solo_activos: bool = True) -> list[PlanItem]:
-        stmt = (
-            select(
-                Plan.plan_id,
-                Plan.obra_social_id,
-                ObraSocial.nombre,
-                Plan.codigo,
-                Plan.nombre,
-                Plan.activo,
-            )
-            .join(ObraSocial, ObraSocial.obra_social_id == Plan.obra_social_id)
-        )
-
+    def list(*, solo_activos: bool = False) -> list[PlanItem]:
+        resp = httpx.get(_url(), timeout=10)
+        resp.raise_for_status()
+        items = [_to_item(p) for p in resp.json()]
         if solo_activos:
-            stmt = stmt.where(Plan.activo.is_(True))
+            items = [i for i in items if i.activo]
+        return items
 
-        stmt = stmt.order_by(ObraSocial.nombre.asc(), Plan.nombre.nulls_last(), Plan.codigo.nulls_last(), Plan.plan_id.desc())
-
-        rows = session.execute(stmt).all()
-
-        out: list[PlanItem] = []
-        for plan_id, obra_social_id, os_nombre, codigo, nombre, activo in rows:
-            out.append(
-                PlanItem(
-                    plan_id=int(plan_id),
-                    obra_social_id=int(obra_social_id),
-                    obra_social=os_nombre or "",
-                    codigo=codigo,
-                    nombre=nombre,
-                    activo=bool(activo),
-                )
-            )
-        return out
-
-    # ---------------------
-    # GET
-    # ---------------------
     @staticmethod
-    def get(session: Session, plan_id: int) -> Plan | None:
-        return session.get(Plan, int(plan_id))
+    def get(plan_id: int) -> PlanItem | None:
+        resp = httpx.get(_url(f"/{plan_id}"), timeout=10)
+        if resp.status_code == 404:
+            return None
+        resp.raise_for_status()
+        return _to_item(resp.json())
 
-    # ---------------------
-    # CREATE
-    # ---------------------
     @staticmethod
-    def create(
-        session: Session,
-        *,
-        obra_social_id: int,
-        codigo: str | None = None,
-        nombre: str | None = None,
-    ) -> Plan:
-        obra_social_id = int(obra_social_id)
-        codigo = PlanService._norm_optional_str(codigo)
-        nombre = PlanService._norm_optional_str(nombre)
-
-        # si querés obligar a que al menos uno venga informado:
-        # if not codigo and not nombre:
-        #     raise ValueError("Debés ingresar código o nombre (al menos uno).")
-
-        if PlanService._exists_combo(session, obra_social_id=obra_social_id, nombre=nombre, codigo=codigo):
+    def create(*, obra_social_id: int, codigo: str | None = None, nombre: str | None = None) -> None:
+        payload: dict = {
+            "obraSocialId": int(obra_social_id),
+            "codigo": (codigo or "").strip() or None,
+            "nombre": (nombre or "").strip() or None,
+        }
+        resp = httpx.post(_url(), json=payload, timeout=10)
+        if resp.status_code == 409:
             raise ValueError("Ya existe un plan con esa Obra Social + Nombre + Código.")
+        resp.raise_for_status()
 
-        p = Plan(
-            obra_social_id=obra_social_id,
-            codigo=codigo,
-            nombre=nombre,
-            activo=True,
-        )
-        session.add(p)
-
-        try:
-            session.flush()
-            session.refresh(p)
-        except IntegrityError as e:
-            raise ValueError("No se pudo crear el plan (restricción UNIQUE).") from e
-
-        return p
-
-    # ---------------------
-    # UPDATE
-    # ---------------------
     @staticmethod
-    def update(
-        session: Session,
-        *,
-        plan_id: int,
-        obra_social_id: int,
-        codigo: str | None = None,
-        nombre: str | None = None,
-    ) -> None:
-        plan_id = int(plan_id)
-        obra_social_id = int(obra_social_id)
-        codigo = PlanService._norm_optional_str(codigo)
-        nombre = PlanService._norm_optional_str(nombre)
-
-        p = session.get(Plan, plan_id)
-        if not p:
+    def update(*, plan_id: int, obra_social_id: int, codigo: str | None = None, nombre: str | None = None) -> None:
+        payload: dict = {
+            "obraSocialId": int(obra_social_id),
+            "codigo": (codigo or "").strip() or None,
+            "nombre": (nombre or "").strip() or None,
+        }
+        resp = httpx.patch(_url(f"/{plan_id}"), json=payload, timeout=10)
+        if resp.status_code == 404:
             raise ValueError(f"No existe plan_id={plan_id}")
-
-        if PlanService._exists_combo(
-            session,
-            obra_social_id=obra_social_id,
-            nombre=nombre,
-            codigo=codigo,
-            exclude_plan_id=plan_id,
-        ):
+        if resp.status_code == 409:
             raise ValueError("Ya existe otro plan con esa Obra Social + Nombre + Código.")
+        resp.raise_for_status()
 
-        p.obra_social_id = obra_social_id
-        p.codigo = codigo
-        p.nombre = nombre
-
-        try:
-            session.flush()
-        except IntegrityError as e:
-            raise ValueError("No se pudo actualizar el plan (restricción UNIQUE).") from e
-
-    # ---------------------
-    # BAJA LÓGICA
-    # ---------------------
     @staticmethod
-    def delete_logico(session: Session, plan_id: int) -> None:
-        p = session.get(Plan, int(plan_id))
-        if not p:
+    def delete_logico(plan_id: int) -> None:
+        resp = httpx.patch(_url(f"/{plan_id}"), json={"activo": False}, timeout=10)
+        if resp.status_code == 404:
             raise ValueError(f"No existe plan_id={plan_id}")
-        p.activo = False
+        resp.raise_for_status()
 
-    # ---------------------
-    # RESTORE
-    # ---------------------
     @staticmethod
-    def restore(session: Session, plan_id: int) -> None:
-        p = session.get(Plan, int(plan_id))
-        if not p:
+    def restore(plan_id: int) -> None:
+        resp = httpx.patch(_url(f"/{plan_id}"), json={"activo": True}, timeout=10)
+        if resp.status_code == 404:
             raise ValueError(f"No existe plan_id={plan_id}")
-        p.activo = True
+        resp.raise_for_status()
