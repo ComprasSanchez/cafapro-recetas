@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 class ArrastreExcluidosService:
     """
     Ejecuta el arrastre de excluidos NO vencidos desde la recepción anterior inmediata
-    (mismo prestador+obra social) hacia la recepción actual, renumerando orden_lote 1..K.
+    (mismo prestador+obra social) hacia la recepción actual, renumerando orden_lote 1.K.
 
     Importante:
     - Solo corre si la recepción actual está vacía.

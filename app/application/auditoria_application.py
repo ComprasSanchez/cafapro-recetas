@@ -111,10 +111,7 @@ class AuditoriaApplication:
         if ctx:
             ctx.emit_progress(10, "Leyendo recepcion...")
 
-        with session_scope() as s:
-            rows = RecepcionService.list(s)
-
-        rec = next((x for x in rows if x.recepcion_id == recepcion_id), None)
+        rec = RecepcionService.get(recepcion_id)
         if not rec:
             raise ValueError("No se encontro la recepcion seleccionada.")
 

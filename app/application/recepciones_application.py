@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from app.db.session import session_scope
 from app.service.auditoria.excluidos_service import ExcluidosService
 from app.service.catalogos.obra_social_service import ObraSocialService
 from app.service.catalogos.periodo_service import PeriodoService
@@ -13,7 +12,6 @@ from app.service.integraciones.validators_client import ValidatorsClient
 from app.service.recepcion.estado_recepcion_service import EstadoRecepcionService
 from app.service.recepcion.recepcion_service import RecepcionService
 from app.service.recepcion.view_resumen_recepcion_service import ViewResumenRecepcionService
-from app.service.debitos.view_debitos import ViewDebitos
 
 
 @dataclass(frozen=True)
@@ -35,21 +33,18 @@ class ValidatorsSyncOut:
 class RecepcionesApplication:
     @staticmethod
     def list_recepciones(*, include_closed: bool) -> list:
-        with session_scope() as s:
-            return RecepcionService.list(s, all=include_closed)
+        return RecepcionService.list(all=include_closed)
 
     @staticmethod
     def delete_recepcion(*, recepcion_id: int) -> None:
-        with session_scope() as s:
-            RecepcionService.delete(s, int(recepcion_id))
+        RecepcionService.delete(int(recepcion_id))
 
     @staticmethod
     def load_create_catalogs():
         obras = ObraSocialService.list(solo_activas=True)
         prestadores = PrestadorService.list(solo_activos=True)
         periodos = PeriodoService.list(solo_activos=True)
-        with session_scope() as s:
-            estados = EstadoRecepcionService.list(s)
+        estados = EstadoRecepcionService.list()
         return obras, periodos, prestadores, estados
 
     @staticmethod
@@ -63,22 +58,19 @@ class RecepcionesApplication:
         observaciones: str | None,
         creado_por_usuario_id: int | None,
     ):
-        with session_scope() as s:
-            return RecepcionService.create(
-                s,
-                obra_social_id=int(obra_social_id),
-                periodo_id=int(periodo_id),
-                prestador_id=int(prestador_id),
-                estado_recepcion_id=int(estado_recepcion_id),
-                fecha_presentacion=fecha_presentacion,
-                observaciones=observaciones,
-                creado_por_usuario_id=creado_por_usuario_id,
-            )
+        return RecepcionService.create(
+            obra_social_id=int(obra_social_id),
+            periodo_id=int(periodo_id),
+            prestador_id=int(prestador_id),
+            estado_recepcion_id=int(estado_recepcion_id),
+            fecha_presentacion=fecha_presentacion,
+            observaciones=observaciones,
+            creado_por_usuario_id=creado_por_usuario_id,
+        )
 
     @staticmethod
     def list_excluidos_by_recepcion(*, recepcion_id: int) -> list:
-        with session_scope() as s:
-            return ExcluidosService.list_by_recepcion(s, int(recepcion_id))
+        return ExcluidosService.list_by_recepcion(int(recepcion_id))
 
     @staticmethod
     def list_periodos() -> list:
@@ -86,51 +78,36 @@ class RecepcionesApplication:
 
     @staticmethod
     def list_prestadores_resumen(*, periodo_id: int) -> list:
-        with session_scope() as s:
-            return ViewResumenRecepcionService.list_prestadores_resumen(
-                s,
-                periodo_id=int(periodo_id),
-            )
+        return ViewResumenRecepcionService.list_prestadores_resumen(periodo_id=int(periodo_id))
 
     @staticmethod
     def list_recepciones_resumen(*, periodo_id: int, prestador_id: int) -> list:
-        with session_scope() as s:
-            return RecepcionService.list_recepciones(
-                s,
-                periodo_id=int(periodo_id),
-                prestador_id=int(prestador_id),
-            )
+        return RecepcionService.list_recepciones(
+            periodo_id=int(periodo_id),
+            prestador_id=int(prestador_id),
+        )
 
     @staticmethod
     def get_resumen_recepcion(*, recepcion_id: int):
-        with session_scope() as s:
-            return ViewResumenRecepcionService.get_resumen_recepcion(
-                s,
-                recepcion_id=int(recepcion_id),
-            )
+        return ViewResumenRecepcionService.get_resumen_recepcion(recepcion_id=int(recepcion_id))
 
     @staticmethod
     def get_recepcion_integracion_context(*, recepcion_id: int) -> RecepcionIntegracionContext:
-        rid = int(recepcion_id)
-
-        with session_scope() as s:
-            rows = RecepcionService.list(s, all=True)
-
-        rec = next((x for x in rows if int(x.recepcion_id) == rid), None)
+        rec = RecepcionService.get(int(recepcion_id))
         if not rec:
             raise ValueError("La recepción no existe.")
 
         return RecepcionIntegracionContext(
             recepcion_id=int(rec.recepcion_id),
             numero=int(rec.numero),
-            validador=str(getattr(rec, "validador", "imed") or "imed").strip().lower(),
-            nro_prestador=str(getattr(rec, "imed", "") or "").strip(),
-            cod_financiador=getattr(rec, "codigo_financiador", None),
+            validador=str(rec.validador or "imed").strip().lower(),
+            nro_prestador=str(rec.imed or "").strip(),
+            cod_financiador=rec.codigo_financiador,
         )
 
     @staticmethod
     def has_debitos_sin_estado_by_recepcion(*, recepcion_id: int) -> bool:
-        return ViewDebitos.has_debitos_sin_estado_by_recepcion(recepcion_id=int(recepcion_id))
+        return RecepcionService.has_debitos_sin_estado(int(recepcion_id))
 
     @staticmethod
     def incluir_excluir_recetas_en_validador(

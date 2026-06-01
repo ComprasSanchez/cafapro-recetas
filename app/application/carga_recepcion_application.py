@@ -106,11 +106,7 @@ class CargaRecepcionApplication:
         if ctx:
             ctx.emit_progress(10, "Leyendo recepcion...")
 
-        with session_scope() as s:
-            svc = RecepcionService()
-            rows = svc.list(s)
-
-        rec = next((x for x in rows if x.recepcion_id == recepcion_id), None)
+        rec = RecepcionService.get(recepcion_id)
         if not rec:
             raise ValueError("No se encontro la recepcion seleccionada.")
 
@@ -213,9 +209,8 @@ class CargaRecepcionApplication:
 
     @staticmethod
     def cerrar_recepcion(recepcion_id: int) -> CloseRecepcionOut:
-        with session_scope() as s:
-            RecepcionService.cerrar_recepcion(s, recepcion_id=recepcion_id)
-            return CloseRecepcionOut(recepcion_id=recepcion_id, estado_recepcion_id=2)
+        RecepcionService.cerrar_recepcion(recepcion_id)
+        return CloseRecepcionOut(recepcion_id=recepcion_id, estado_recepcion_id=2)
 
     @staticmethod
     def list_fechas_descargadas(*, recepcion_id: int):

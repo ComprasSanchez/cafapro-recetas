@@ -1,14 +1,11 @@
-
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sqlalchemy import select, func
-from sqlalchemy.orm import Session
+import httpx
 
-from app.db.models import Prestador
-from app.db.view import VwResumenRecepcionPrestador
-from app.service.recepcion.recepcion_service import RecepcionService
+from app.config.settings import settings
+
 
 @dataclass(frozen=True)
 class ResumenRecepcionItem:
@@ -16,6 +13,7 @@ class ResumenRecepcionItem:
     total_bruto: object
     total_cobertura: object
     total_afiliado: object
+
 
 @dataclass(frozen=True)
 class PrestadorResumenItem:
@@ -26,59 +24,40 @@ class PrestadorResumenItem:
     total_afiliado: object
 
 
+def _url(path: str = "") -> str:
+    return f"{settings.API_CAFAPRO.rstrip('/')}/recepciones{path}"
 
-class ViewResumenRecepcionService(RecepcionService):
+
+class ViewResumenRecepcionService:
     @staticmethod
-    def get_resumen_recepcion(s: Session, *, recepcion_id: int) -> ResumenRecepcionItem | None:
-        row = s.execute(
-            select(
-                VwResumenRecepcionPrestador.cantidad_recetas,
-                VwResumenRecepcionPrestador.total_bruto,
-                VwResumenRecepcionPrestador.total_cobertura,
-                VwResumenRecepcionPrestador.total_afiliado,
-            ).where(VwResumenRecepcionPrestador.recepcion_id == int(recepcion_id))
-        ).first()
-
-        if not row:
+    def get_resumen_recepcion(*, recepcion_id: int) -> ResumenRecepcionItem | None:
+        resp = httpx.get(_url(f"/{recepcion_id}/resumen"), timeout=15)
+        if resp.status_code == 404:
             return None
-
+        resp.raise_for_status()
+        r = resp.json()
         return ResumenRecepcionItem(
-            cantidad_recetas=int(row[0] or 0),
-            total_bruto=row[1] or 0,
-            total_cobertura=row[2] or 0,
-            total_afiliado=row[3] or 0,
+            cantidad_recetas=int(r.get("cantidadRecetas") or 0),
+            total_bruto=r.get("totalBruto") or 0,
+            total_cobertura=r.get("totalCobertura") or 0,
+            total_afiliado=r.get("totalAfiliado") or 0,
         )
 
     @staticmethod
-    def list_prestadores_resumen(s: Session, *, periodo_id: int) -> list[PrestadorResumenItem]:
-        # Sumamos los totales de la VIEW por prestador dentro del período.
-        # Si un prestador tiene N recepciones, la VIEW tiene N filas (1 por recepcion) y esto suma perfecto.
-        rows = s.execute(
-            select(
-                Prestador.prestador_id,
-                Prestador.nombre,
-                func.coalesce(func.sum(VwResumenRecepcionPrestador.total_bruto), 0).label("total_bruto"),
-                func.coalesce(func.sum(VwResumenRecepcionPrestador.total_cobertura), 0).label("total_cobertura"),
-                func.coalesce(func.sum(VwResumenRecepcionPrestador.total_afiliado), 0).label("total_afiliado"),
+    def list_prestadores_resumen(*, periodo_id: int) -> list[PrestadorResumenItem]:
+        resp = httpx.get(
+            _url("/totales-por-prestador"),
+            params={"periodoId": int(periodo_id)},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        return [
+            PrestadorResumenItem(
+                prestador_id=int(p["prestadorId"]),
+                prestador=p.get("prestador") or "(sin nombre)",
+                total_bruto=p.get("totalBruto") or 0,
+                total_cobertura=p.get("totalCobertura") or 0,
+                total_afiliado=p.get("totalAfiliado") or 0,
             )
-            .join(VwResumenRecepcionPrestador, VwResumenRecepcionPrestador.prestador_id == Prestador.prestador_id)
-            .where(
-                Prestador.activo.is_(True),
-                VwResumenRecepcionPrestador.periodo_id == int(periodo_id),
-            )
-            .group_by(Prestador.prestador_id, Prestador.nombre)
-            .order_by(Prestador.nombre.nulls_last())
-        ).all()
-
-        out: list[PrestadorResumenItem] = []
-        for pid, nombre, tg, tobs, tcargo in rows:
-            out.append(
-                PrestadorResumenItem(
-                    prestador_id=pid,
-                    prestador=nombre or "(sin nombre)",
-                    total_bruto=tg,
-                    total_cobertura=tobs,
-                    total_afiliado=tcargo,
-                )
-            )
-        return out
+            for p in resp.json()
+        ]
