@@ -295,8 +295,7 @@ class ArchivoCvsApplication:
 
     @staticmethod
     def list_fechas_descargadas(*, recepcion_id: int):
-        with session_scope() as s:
-            return ArchivoService.list_fechas(s, recepcion_id=recepcion_id)
+        return ArchivoService.list_fechas(recepcion_id)
 
     @staticmethod
     def subir(
@@ -318,16 +317,15 @@ class ArchivoCvsApplication:
         if ctx:
             ctx.emit_progress(2, "Preparando...")
 
-        moved_prev = 0
+        if ctx:
+            ctx.emit_progress(4, "Chequeando pendientes anteriores...")
+
+        moved_prev = ArrastreExcluidosService.run(recepcion_id=recepcion_id)
+
+        if ctx and moved_prev > 0:
+            ctx.emit_progress(6, f"Pendientes arrastrados: {moved_prev}")
 
         with session_scope() as s:
-            if ctx:
-                ctx.emit_progress(4, "Chequeando pendientes anteriores...")
-
-            moved_prev = ArrastreExcluidosService.run(s, recepcion_id=recepcion_id)
-
-            if ctx and moved_prev > 0:
-                ctx.emit_progress(6, f"Pendientes arrastrados: {moved_prev}")
 
             current_orden = ArchivoService.get_start_orden_lote(s, recepcion_id)
 

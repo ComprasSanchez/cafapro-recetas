@@ -1,13 +1,18 @@
 from __future__ import annotations
 
-from sqlalchemy import text
-from sqlalchemy.orm import Session
+import httpx
+
+from app.config.settings import settings
+
+
+def _url(recepcion_id: int) -> str:
+    return f"{settings.API_CAFAPRO.rstrip('/')}/recepciones/{recepcion_id}/arrastrar-excluidos"
 
 
 class ArrastreExcluidosService:
     """
     Ejecuta el arrastre de excluidos NO vencidos desde la recepción anterior inmediata
-    (mismo prestador+obra social) hacia la recepción actual, renumerando orden_lote 1.K.
+    (mismo prestador+obra social) hacia la recepción actual, renumerando orden_lote 1..K.
 
     Importante:
     - Solo corre si la recepción actual está vacía.
@@ -15,10 +20,12 @@ class ArrastreExcluidosService:
     """
 
     @staticmethod
-    def run(session: Session, *, recepcion_id: int) -> int:
-        stmt = text("SELECT fn_arrastrar_excluidos_previos(:rid) AS moved")
-        moved = session.execute(stmt, {"rid": int(recepcion_id)}).scalar_one()
+    def run(*, recepcion_id: int) -> int:
+        resp = httpx.post(_url(int(recepcion_id)), timeout=15)
+        if resp.status_code == 404:
+            raise ValueError(f"No existe la recepción {recepcion_id}")
+        resp.raise_for_status()
         try:
-            return int(moved or 0)
+            return int(resp.json().get("moved") or 0)
         except Exception:
             return 0

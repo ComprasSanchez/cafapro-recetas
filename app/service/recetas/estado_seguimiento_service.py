@@ -1,8 +1,31 @@
 from __future__ import annotations
-from sqlalchemy.orm import Session
-from app.db.models import EstadoSeguimiento
+
+from dataclasses import dataclass
+
+import httpx
+
+from app.config.settings import settings
+
+
+@dataclass(frozen=True)
+class EstadoSeguimientoItem:
+    estado_seguimiento_id: int
+    descripcion: str
+
+
+def _url() -> str:
+    return f"{settings.API_CAFAPRO.rstrip('/')}/estado-seguimiento"
+
 
 class EstadoSeguimientoService:
     @staticmethod
-    def list(session: Session) -> list[type[EstadoSeguimiento]]:
-        return session.query(EstadoSeguimiento).order_by(EstadoSeguimiento.descripcion.asc()).all()
+    def list() -> list[EstadoSeguimientoItem]:
+        resp = httpx.get(_url(), timeout=10)
+        resp.raise_for_status()
+        return [
+            EstadoSeguimientoItem(
+                estado_seguimiento_id=e["estadoSeguimientoId"],
+                descripcion=e.get("descripcion") or "",
+            )
+            for e in resp.json()
+        ]

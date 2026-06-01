@@ -1,76 +1,61 @@
-from sqlalchemy.orm import Session
-from sqlalchemy import select
+from __future__ import annotations
 
-from app.db.models import MotivoDebito, LadoEnum, SiNoEnum
+from dataclasses import dataclass
+
+import httpx
+
+from app.config.settings import settings
+
+
+@dataclass(frozen=True)
+class MotivoDebitoItem:
+    motivo_debito_id: int
+    descripcion: str
+    lado: str
+    excluyente: str
+    codigo: str
+    activo: bool
+
+
+def _url(path: str = "") -> str:
+    return f"{settings.API_CAFAPRO.rstrip('/')}/motivos-debito{path}"
+
+
+def _to_item(m: dict) -> MotivoDebitoItem:
+    return MotivoDebitoItem(
+        motivo_debito_id=m["motivoDebitoId"],
+        descripcion=m.get("descripcion") or "",
+        lado=m.get("lado") or "",
+        excluyente=m.get("excluyente") or "N",
+        codigo=m.get("codigo") or "",
+        activo=bool(m.get("activo", True)),
+    )
 
 
 class MotivosDebitosService:
-
-    # ---------------------------------
-    # LIST
-    # ---------------------------------
     @staticmethod
     def list(
-        session: Session,
         lado: str | None = None,
         activo: bool | None = None,
-    ) -> list[MotivoDebito]:
-
-        stmt = select(MotivoDebito)
-
-        if lado:
-            stmt = stmt.where(MotivoDebito.lado == LadoEnum(lado))
-
+    ) -> list[MotivoDebitoItem]:
+        params: dict = {}
+        if lado is not None:
+            params["lado"] = lado
         if activo is not None:
-            stmt = stmt.where(MotivoDebito.activo.is_(activo))
+            params["activo"] = "true" if activo else "false"
+        resp = httpx.get(_url(), params=params, timeout=10)
+        resp.raise_for_status()
+        return [_to_item(m) for m in resp.json()]
 
-        stmt = stmt.order_by(MotivoDebito.codigo.asc())
-
-        return session.execute(stmt).scalars().all()
-
-    # ---------------------------------
-    # CREATE
-    # ---------------------------------
     @staticmethod
-    def create(
-        session: Session,
-        descripcion: str,
-        lado: str,
-    ) -> MotivoDebito:
+    def create(descripcion: str, lado: str) -> MotivoDebitoItem:
+        resp = httpx.post(_url(), json={"descripcion": descripcion, "lado": lado}, timeout=10)
+        resp.raise_for_status()
+        return _to_item(resp.json())
 
-        descripcion = descripcion.strip()
-
-        nuevo = MotivoDebito(
-            descripcion=descripcion,
-            lado=LadoEnum(lado),
-            excluyente=SiNoEnum.N,  # default
-            codigo=descripcion.upper().replace(" ", "_"),
-            activo=True,
-        )
-
-        session.add(nuevo)
-        session.flush()  # para obtener ID sin commit
-
-        return nuevo
-
-    # ---------------------------------
-    # TOGGLE BAJA LÓGICA
-    # ---------------------------------
     @staticmethod
-    def toggle_activo(
-        session: Session,
-        motivo_id: int,
-    ) -> None:
-
-        motivo = session.get(MotivoDebito, int(motivo_id))
-        if not motivo:
+    def toggle_activo(motivo_id: int) -> None:
+        resp = httpx.patch(_url(f"/{int(motivo_id)}/toggle-activo"), timeout=10)
+        if resp.status_code == 404:
             raise ValueError("Motivo no encontrado")
-
-        motivo.activo = not motivo.activo
-
-    # ---------------------------------
-    # GET BY ID
-    # ---------------------------------
-    @staticmethod
-    def get(session: Session, motivo_id: int) -> MotivoDebito | None:
-        return session.get(MotivoDebito, int(motivo_id))
+        resp.raise_for_status()

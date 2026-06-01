@@ -315,19 +315,17 @@ class ArchivoService:
         return offset + 1
 
     @staticmethod
-    def list_fechas(s: Session, *, recepcion_id: int) -> list[date]:
-        stmt = (
-            select(distinct(cast(Archivo.fecha, Date)))
-            .where(
-                Archivo.recepcion_id == int(recepcion_id),
-                Archivo.fecha.is_not(None),
-            )
-            .order_by(cast(Archivo.fecha, Date).asc())
-        )
-        rows = s.execute(stmt).all()
+    def list_fechas(recepcion_id: int) -> list[date]:
+        import httpx
+        from app.config.settings import settings
 
+        url = f"{settings.API_CAFAPRO.rstrip('/')}/recepciones/{int(recepcion_id)}/fechas"
+        resp = httpx.get(url, timeout=15)
+        if resp.status_code == 404:
+            return []
+        resp.raise_for_status()
         out: list[date] = []
-        for (v,) in rows:
+        for v in resp.json():
             d = parse_date_any(v)
             if d:
                 out.append(d)
