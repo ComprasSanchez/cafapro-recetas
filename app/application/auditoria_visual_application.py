@@ -3,12 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 
-from app.db.session import session_scope
+import httpx
+
+from app.config.settings import settings
 from app.exceptions.domain_errors import AuditoriaValidationError
 from app.service.auditoria.auditoria_visual_service import AuditoriaVisualService
 from app.service.catalogos.vendedores_service import VendedoresService
-from app.service.debitos.debitos_service import DebitoInput, DebitosService
-from app.service.recetas.recetas_service import RecetaService
 from app.service.recetas.troqueles_service import TroquelesService
 
 
@@ -26,16 +26,14 @@ class VendedorPickItemOut:
     descripcion: str
 
 
+def _recetas_url(receta_id: int) -> str:
+    return f"{settings.API_CAFAPRO.rstrip('/')}/recetas/{receta_id}/finalizar-auditoria"
+
+
 class AuditoriaVisualApplication:
     @staticmethod
     def load_auditoria(asociacion_id: int):
-        with session_scope() as s:
-            data = AuditoriaVisualService.load_by_asociacion_id(
-                s,
-                asociacion_id,
-            )
-
-        return data
+        return AuditoriaVisualService.load_by_asociacion_id(asociacion_id)
 
     @staticmethod
     def finalizar_auditoria(
@@ -49,44 +47,61 @@ class AuditoriaVisualApplication:
         usuario_id: int,
         debitos_inputs: list[tuple[int, str | None]],
     ):
-        debitos = [
-            DebitoInput(
-                motivo_debito_id=int(motivo_id),
-                detalle=detalle,
-            )
-            for motivo_id, detalle in (debitos_inputs or [])
-        ]
+        def _iso(d) -> str | None:
+            if d is None:
+                return None
+            return d.isoformat() if hasattr(d, "isoformat") else str(d)
 
-        with session_scope() as s:
-            DebitosService.replace_for_receta(
-                s,
-                receta_id=receta_id,
-                items=debitos,
-            )
+        payload = {
+            "vendedorId": vendedor_id,
+            "estadoSeguimientoId": estado_seguimiento_id,
+            "fechaPrescripcion": _iso(fecha_prescripcion),
+            "fechaEmision": _iso(fecha_emision),
+            "fechaVenta": _iso(fecha_venta),
+            "usuarioId": usuario_id,
+            "debitos": [
+                {"motivoDebitoId": int(motivo_id), "detalle": detalle or None}
+                for motivo_id, detalle in (debitos_inputs or [])
+            ],
+        }
 
-            RecetaService.update_auditoria(
-                s,
-                receta_id=receta_id,
-                vendedor_id=vendedor_id,
-                estado_seguimiento_id=estado_seguimiento_id,
-                estado_receta_id=1,
-                fecha_prescripcion=fecha_prescripcion,
-                fecha_emision=fecha_emision,
-                fecha_venta=fecha_venta,
-                usuario_id=usuario_id,
-            )
-
+        resp = httpx.patch(_recetas_url(int(receta_id)), json=payload, timeout=15)
+        if resp.status_code == 404:
+            raise ValueError(f"Receta {receta_id} no existe")
+        if resp.status_code == 400:
+            detail = resp.json().get("message", resp.text)
+            raise ValueError(f"Error de validación: {detail}")
+        resp.raise_for_status()
         return True
 
     @staticmethod
     def validar_auditoria(*, fecha_autorizacion, fecha_venta, vendedor_id, debitos):
+        from datetime import date as dt_date
+
         if not fecha_venta:
             raise AuditoriaValidationError("Tenes que cargar la fecha de Venta.")
 
-        if fecha_autorizacion and fecha_venta and fecha_autorizacion != fecha_venta:
-            raise AuditoriaValidationError(
-                "La fecha de Autorizacion y la fecha de Venta deben coincidir."
-            )
+        def _to_date(v):
+            if isinstance(v, dt_date):
+                return v
+            if v is None:
+                return None
+            s = str(v).strip()
+            for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d/%m/%y"):
+                try:
+                    from datetime import datetime
+                    return datetime.strptime(s[:10], fmt).date()
+                except ValueError:
+                    continue
+            return None
+
+        if fecha_autorizacion and fecha_venta:
+            fa = _to_date(fecha_autorizacion)
+            fv = _to_date(fecha_venta)
+            if fa and fv and fa != fv:
+                raise AuditoriaValidationError(
+                    "La fecha de Autorizacion y la fecha de Venta deben coincidir."
+                )
 
         if debitos and not vendedor_id:
             raise AuditoriaValidationError(
@@ -108,8 +123,7 @@ class AuditoriaVisualApplication:
 
     @staticmethod
     def delete_troquel(*, troquel_id: int) -> None:
-        with session_scope() as s:
-            TroquelesService.delete(s, troquel_id=int(troquel_id))
+        TroquelesService.delete(int(troquel_id))
 
     @staticmethod
     def list_vendedores_activos() -> list[VendedorPickItemOut]:
@@ -126,21 +140,16 @@ class AuditoriaVisualApplication:
 
     @staticmethod
     def create_troquel(*, asociacion_id: int, codigo_barra: str, cantidad: int) -> int:
-        svc = TroquelesService()
-        with session_scope() as s:
-            troquel = svc.create(
-                s,
-                asociacion_id=int(asociacion_id),
-                codigo_barra=str(codigo_barra or "").strip(),
-                cantidad=int(cantidad),
-            )
-            return int(troquel.troquel_id)
+        troquel = TroquelesService.create(
+            asociacion_id=int(asociacion_id),
+            codigo_barra=str(codigo_barra or "").strip(),
+            cantidad=int(cantidad),
+        )
+        return int(troquel.troquel_id)
 
     @staticmethod
     def update_troquel(*, troquel_id: int, cantidad: int) -> None:
-        with session_scope() as s:
-            TroquelesService.update(
-                s,
-                troquel_id=int(troquel_id),
-                cantidad=int(cantidad),
-            )
+        TroquelesService.update(
+            troquel_id=int(troquel_id),
+            cantidad=int(cantidad),
+        )
