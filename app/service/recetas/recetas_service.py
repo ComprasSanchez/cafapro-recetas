@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
+import httpx
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
+from app.config.settings import settings
 from app.db.models import Recetas, Asociacion, Troqueles, Archivo, Debitos
-from app.db.session import session_scope
-from app.infra.storage import s3_storage
 
 
 class RecetaService:
@@ -136,177 +136,45 @@ class RecetaService:
 
     @staticmethod
     def update_estado_seguimiento(receta_id: int, estado_seguimiento_id: int | None) -> None:
-        """Actualiza el estado de seguimiento en la receta."""
-        with session_scope() as s:
-            rec = (
-                s.query(Recetas)
-                .filter(Recetas.receta_id == int(receta_id))
-                .one_or_none()
-            )
-            if rec is None:
-                raise ValueError(f"No existe receta_id={receta_id}")
-
-            rec.estado_seguimiento_id = estado_seguimiento_id
+        url = f"{settings.API_CAFAPRO.rstrip('/')}/recetas/{int(receta_id)}/estado-seguimiento"
+        resp = httpx.patch(url, json={"estadoSeguimientoId": estado_seguimiento_id}, timeout=10)
+        if resp.status_code == 404:
+            raise ValueError(f"No existe receta_id={receta_id}")
+        resp.raise_for_status()
 
     @staticmethod
-    def anular_receta(s: Session, receta_id: int, nro_receta: str):
-
-        receta = s.get(Recetas, receta_id)
-
-        if not receta:
+    def anular_receta(receta_id: int, nro_receta: str) -> None:
+        url = f"{settings.API_CAFAPRO.rstrip('/')}/recetas/{int(receta_id)}/anular"
+        resp = httpx.patch(url, json={"nroReceta": str(nro_receta)}, timeout=10)
+        if resp.status_code == 404:
             raise RuntimeError("Receta no encontrada")
-
-        # actualizar numero receta
-        receta.nro_receta = nro_receta
-
-        # estado ANULADA
-        receta.estado_receta_id = 4
-
-        receta.estado_seguimiento_id = 3
-
-        receta.creado_en = datetime.now()
-
-        # evitar duplicar debito
-        existe = s.execute(
-            select(Debitos.debito_id)
-            .where(
-                Debitos.receta_id == receta_id,
-                Debitos.motivo_debito_id == 24
-            )
-        ).first()
-
-        if not existe:
-            deb = Debitos(
-                receta_id=receta_id,
-                motivo_debito_id=24,
-                detalle="Receta Anulada"
-            )
-            s.add(deb)
+        resp.raise_for_status()
 
     @staticmethod
-    def duplicar_receta(s: Session, receta_id: int, nro_receta: str):
-
-        receta = s.get(Recetas, receta_id)
-
-        if not receta:
+    def duplicar_receta(receta_id: int, nro_receta: str) -> None:
+        url = f"{settings.API_CAFAPRO.rstrip('/')}/recetas/{int(receta_id)}/duplicar"
+        resp = httpx.patch(url, json={"nroReceta": str(nro_receta)}, timeout=10)
+        if resp.status_code == 404:
             raise RuntimeError("Receta no encontrada")
-
-        # actualizar numero receta
-        receta.nro_receta = nro_receta
-
-        # estado DUPLICADA
-        receta.estado_receta_id = 5
-
-        receta.estado_seguimiento_id = 3
-
-        receta.creado_en = datetime.now()
-
-        # evitar duplicar debito
-        existe = s.execute(
-            select(Debitos.debito_id)
-            .where(
-                Debitos.receta_id == receta_id,
-                Debitos.motivo_debito_id == 32,
-            )
-        ).first()
-
-        if not existe:
-            deb = Debitos(
-                receta_id=receta_id,
-                motivo_debito_id=32,
-                detalle="RECETA DUPLICADA",
-            )
-            s.add(deb)
+        resp.raise_for_status()
 
     @staticmethod
-    def eliminar_sobrante(
-            s: Session,
-            *,
-            receta_id: int,
-    ) -> None:
-
-        receta = s.get(Recetas, receta_id)
-
-        if not receta:
+    def eliminar_sobrante(*, receta_id: int) -> None:
+        url = f"{settings.API_CAFAPRO.rstrip('/')}/recetas/{int(receta_id)}"
+        resp = httpx.delete(url, timeout=15)
+        if resp.status_code == 404:
             raise RuntimeError("Receta no encontrada")
-
-        if int(getattr(receta, "estado_receta_id", 0) or 0) != RecetaService.ESTADO_RECETA_REVISION:
-            raise RuntimeError("Solo se pueden eliminar recetas en revisión")
-
-        # ---------------------------------
-        # eliminar imágenes S3
-        # ---------------------------------
-
-        if receta.ubicacion_frente:
-            s3_storage.delete_object(receta.ubicacion_frente)
-
-        if receta.ubicacion_dorso:
-            s3_storage.delete_object(receta.ubicacion_dorso)
-
-        # ---------------------------------
-        # eliminar hijos primero (evita FK)
-        # ---------------------------------
-        s.execute(
-            delete(Troqueles).where(Troqueles.receta_id == int(receta_id))
-        )
-        s.execute(
-            delete(Debitos).where(Debitos.receta_id == int(receta_id))
-        )
-        s.execute(
-            delete(Asociacion).where(Asociacion.receta_id == int(receta_id))
-        )
-
-        # ---------------------------------
-        # eliminar receta
-        # ---------------------------------
-
-        s.delete(receta)
-        s.flush()
+        if resp.status_code == 400:
+            raise RuntimeError(resp.json().get("message", "Solo se pueden eliminar recetas en revisión"))
+        resp.raise_for_status()
 
     @staticmethod
-    def eliminar_sobrantes_bulk(
-            s: Session,
-            *,
-            receta_ids: list[int],
-    ) -> dict:
-        ids: list[int] = []
-        seen: set[int] = set()
-
-        for raw in receta_ids or []:
-            rid = int(raw or 0)
-            if rid <= 0 or rid in seen:
-                continue
-            seen.add(rid)
-            ids.append(rid)
-
-        eliminadas = 0
-        omitidas = 0
-        errores: list[dict[str, str | int]] = []
-
-        for rid in ids:
-            try:
-                rec = s.get(Recetas, int(rid))
-                if not rec:
-                    omitidas += 1
-                    continue
-
-                estado_id = int(getattr(rec, "estado_receta_id", 0) or 0)
-                if estado_id != RecetaService.ESTADO_RECETA_REVISION:
-                    omitidas += 1
-                    continue
-
-                with s.begin_nested():
-                    RecetaService.eliminar_sobrante(s, receta_id=int(rid))
-                eliminadas += 1
-            except Exception as e:
-                errores.append({"receta_id": int(rid), "error": str(e)})
-
-        return {
-            "total": len(ids),
-            "eliminadas": eliminadas,
-            "omitidas": omitidas,
-            "errores": errores,
-        }
+    def eliminar_sobrantes_bulk(*, receta_ids: list[int]) -> dict:
+        url = f"{settings.API_CAFAPRO.rstrip('/')}/recetas/bulk"
+        ids = list({int(r) for r in (receta_ids or []) if int(r or 0) > 0})
+        resp = httpx.request("DELETE", url, json={"recetaIds": ids}, timeout=30)
+        resp.raise_for_status()
+        return resp.json()
 
 
 

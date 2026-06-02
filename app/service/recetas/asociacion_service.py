@@ -1,229 +1,46 @@
-from sqlalchemy import select, update
-from sqlalchemy.orm import Session
+from __future__ import annotations
 
-from app.db.models import Archivo, Recetas, Asociacion
-from app.service.recetas.historial_receta_service import HistorialRecetaService
-from app.service.recetas.troqueles_service import TroquelesService
+import httpx
+
+from app.config.settings import settings
+
+
+def _asociaciones_url() -> str:
+    return f"{settings.API_CAFAPRO.rstrip('/')}/asociaciones"
+
+
+def _recetas_url(receta_id: int, path: str = "") -> str:
+    return f"{settings.API_CAFAPRO.rstrip('/')}/recetas/{receta_id}{path}"
 
 
 class AsociacionService:
+    @staticmethod
+    def ejecutar(*, receta_id: int, archivo_id: int) -> None:
+        resp = httpx.post(
+            _asociaciones_url(),
+            json={"recetaId": int(receta_id), "archivoId": int(archivo_id)},
+            timeout=15,
+        )
+        if resp.status_code == 404:
+            raise RuntimeError(resp.json().get("message", "Receta o archivo no encontrado"))
+        resp.raise_for_status()
 
     @staticmethod
-    def ejecutar(
-            s: Session,
-            *,
-            receta_id: int,
-            archivo_id: int,
-    ) -> None:
-
-        archivo = s.get(Archivo, archivo_id)
-        if not archivo:
-            raise RuntimeError("Archivo no encontrado")
-
-        receta = s.get(Recetas, receta_id)
-        if not receta:
-            raise RuntimeError("Receta no encontrada")
-
-        # ------------------------------------------------
-        # 1) buscar asociación vigente del archivo
-        # ------------------------------------------------
-        asoc_prev = (
-            s.execute(
-                select(Asociacion)
-                .where(
-                    Asociacion.archivo_id == archivo_id,
-                    Asociacion.vigente.is_(True),
-                )
-            )
-            .scalar_one_or_none()
+    def reasociar(*, receta_id: int, archivo_id: int) -> None:
+        resp = httpx.patch(
+            _recetas_url(int(receta_id), "/reasociar"),
+            json={"archivoId": int(archivo_id)},
+            timeout=15,
         )
-
-        # ------------------------------------------------
-        # 2) cerrar historial si existe
-        # ------------------------------------------------
-        if asoc_prev:
-            s.execute(
-                update(Asociacion)
-                .where(
-                    Asociacion.asociacion_id == asoc_prev.asociacion_id
-                )
-                .values(vigente=False)
-            )
-
-            s.execute(
-                update(Recetas)
-                .where(
-                    Recetas.receta_id == asoc_prev.receta_id
-                )
-                .values(vigente=False)
-            )
-
-        # ------------------------------------------------
-        # 3) actualizar receta actual
-        # ------------------------------------------------
-        receta.nro_receta = archivo.nro_receta
-        receta.estado_receta_id = 2
-
-        # ------------------------------------------------
-        # 4) crear nueva asociación
-        # ------------------------------------------------
-        nueva = Asociacion(
-            receta_id=receta.receta_id,
-            archivo_id=archivo_id,
-            vigente=True,
-        )
-
-        HistorialRecetaService.actualizar_historial_receta(
-            s,
-            receta_id=receta.receta_id,
-            nro_referencia=archivo.nro_referencia,
-            nro_receta=archivo.nro_receta,
-            recepcion_id=receta.recepcion_id,
-        )
-
-        s.add(nueva)
-
-        s.flush()
-
-        TroquelesService.recalculate_for_receta(
-            s,
-            receta_id=int(receta.receta_id),
-            archivo_id=int(archivo_id),
-        )
+        if resp.status_code == 404:
+            raise RuntimeError(resp.json().get("message", "Receta o archivo no encontrado"))
+        if resp.status_code == 400:
+            raise RuntimeError(resp.json().get("message", "Error de validación"))
+        resp.raise_for_status()
 
     @staticmethod
-    def desasociar(
-            s: Session,
-            *,
-            receta_id: int,
-    ) -> None:
-
-        receta = s.get(Recetas, receta_id)
-        if not receta:
-            raise RuntimeError("Receta no encontrada")
-
-        # ------------------------------------------------
-        # 1) buscar asociación vigente de la receta
-        # ------------------------------------------------
-        asoc = (
-            s.execute(
-                select(Asociacion)
-                .where(
-                    Asociacion.receta_id == receta_id,
-                    Asociacion.vigente.is_(True),
-                )
-            )
-            .scalar_one_or_none()
-        )
-
-        if not asoc:
-            return
-
-        archivo = s.get(Archivo, asoc.archivo_id)
-
-        # ------------------------------------------------
-        # 2) eliminar asociación
-        # ------------------------------------------------
-        s.delete(asoc)
-
-        # ------------------------------------------------
-        # 3) restaurar receta actual
-        # ------------------------------------------------
-        receta.estado_receta_id = 3
-        receta.nro_receta = "-"
-        receta.estado_seguimiento_id = None
-
-        # ------------------------------------------------
-        # 4) restaurar historial
-        # ------------------------------------------------
-        HistorialRecetaService.restaurar_historial_receta(
-            s,
-            nro_referencia=archivo.nro_referencia,
-            nro_receta=archivo.nro_receta,
-            recepcion_id=receta.recepcion_id,
-        )
-
-        s.flush()
-
-    @staticmethod
-    def reasociar(
-            s: Session,
-            *,
-            receta_id: int,
-            archivo_id: int,
-    ) -> None:
-
-        archivo = s.get(Archivo, archivo_id)
-        if not archivo:
-            raise RuntimeError("Archivo no encontrado")
-
-        receta = s.get(Recetas, receta_id)
-        if not receta:
-            raise RuntimeError("Receta no encontrada")
-
-        # ------------------------------------------------
-        # validar estado auditado
-        # ------------------------------------------------
-        if receta.estado_receta_id != 3:
-            raise RuntimeError("Solo se puede reasociar una receta en revision")
-
-        # ------------------------------------------------
-        # buscar asociación vigente del archivo
-        # ------------------------------------------------
-        asoc_prev = (
-            s.execute(
-                select(Asociacion)
-                .where(
-                    Asociacion.archivo_id == archivo_id,
-                    Asociacion.vigente.is_(True),
-                )
-            )
-            .scalar_one_or_none()
-        )
-
-        if not asoc_prev:
-            raise RuntimeError("El archivo no tiene asociación vigente")
-
-        # ------------------------------------------------
-        # cerrar historial
-        # ------------------------------------------------
-        s.execute(
-            update(Asociacion)
-            .where(
-                Asociacion.asociacion_id == asoc_prev.asociacion_id
-            )
-            .values(vigente=False)
-        )
-
-        s.execute(
-            update(Recetas)
-            .where(
-                Recetas.receta_id == asoc_prev.receta_id
-            )
-            .values(vigente=False)
-        )
-
-        # ------------------------------------------------
-        # actualizar receta nueva
-        # ------------------------------------------------
-        receta.nro_receta = archivo.nro_receta
-        receta.estado_receta_id = 2
-
-        # ------------------------------------------------
-        # crear nueva asociación
-        # ------------------------------------------------
-        nueva = Asociacion(
-            receta_id=receta.receta_id,
-            archivo_id=archivo_id,
-            vigente=True,
-        )
-
-        s.add(nueva)
-
-        s.flush()
-
-        TroquelesService.recalculate_for_receta(
-            s,
-            receta_id=int(receta.receta_id),
-            archivo_id=int(archivo_id),
-        )
+    def desasociar(*, receta_id: int) -> None:
+        resp = httpx.patch(_recetas_url(int(receta_id), "/desasociar"), timeout=15)
+        if resp.status_code == 404:
+            raise RuntimeError(resp.json().get("message", "Receta no encontrada"))
+        resp.raise_for_status()

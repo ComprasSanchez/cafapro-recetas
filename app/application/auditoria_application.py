@@ -9,7 +9,6 @@ import requests
 from PIL import Image
 
 from app.config.settings import settings
-from app.db.session import session_scope
 from app.service.auditoria.view_auditoria import ViewAuditoriaService
 from app.service.recepcion.recepcion_service import RecepcionService
 from app.service.recetas.asociacion_service import AsociacionService
@@ -131,9 +130,7 @@ class AuditoriaApplication:
         if ctx:
             ctx.emit_progress(10, "Cargando estados...")
 
-        with session_scope() as s:
-            estados = EstadoRecetaService.list(s)
-
+        estados = EstadoRecetaService.list()
         out = [(int(e.estado_receta_id), str(e.descripcion)) for e in (estados or [])]
 
         if ctx:
@@ -146,8 +143,7 @@ class AuditoriaApplication:
         if ctx:
             ctx.emit_progress(10, "Cargando auditoria...")
 
-        with session_scope() as s:
-            rows = list(ViewAuditoriaService.list(s, recepcion_id))
+        rows = list(ViewAuditoriaService.list(recepcion_id))
 
         if ctx:
             ctx.emit_progress(70, "Preparando busqueda...")
@@ -220,109 +216,52 @@ class AuditoriaApplication:
 
     @staticmethod
     def load_archivos(recepcion_id: int):
-        with session_scope() as s:
-            return ViewAuditoriaService.list_sin_asociacion(
-                s,
-                recepcion_id,
-            )
+        return ViewAuditoriaService.list_sin_asociacion(recepcion_id)
 
     @staticmethod
     def ejecutar(*, receta_id: int, archivo_id: int):
-        with session_scope() as s:
-            AsociacionService.ejecutar(
-                s,
-                receta_id=receta_id,
-                archivo_id=archivo_id,
-            )
+        AsociacionService.ejecutar(receta_id=receta_id, archivo_id=archivo_id)
 
     @staticmethod
     def load_archivos_reasociables(recepcion_id: int):
-        with session_scope() as s:
-            return ViewAuditoriaService.list_archivos_reasociables(
-                s,
-                recepcion_id,
-            )
+        return ViewAuditoriaService.list_archivos_reasociables(recepcion_id)
 
     @staticmethod
     def reasociar(*, receta_id: int, archivo_id: int):
-        with session_scope() as s:
-            AsociacionService.reasociar(
-                s,
-                receta_id=receta_id,
-                archivo_id=archivo_id,
-            )
+        AsociacionService.reasociar(receta_id=receta_id, archivo_id=archivo_id)
 
     @staticmethod
     def anular_receta(*, receta_id: int, nro_receta: str) -> None:
-        with session_scope() as s:
-            RecetaService.anular_receta(
-                s,
-                receta_id=receta_id,
-                nro_receta=nro_receta,
-            )
+        RecetaService.anular_receta(receta_id=receta_id, nro_receta=nro_receta)
 
     @staticmethod
     def duplicar_receta(*, receta_id: int, nro_receta: str) -> None:
-        with session_scope() as s:
-            RecetaService.duplicar_receta(
-                s,
-                receta_id=receta_id,
-                nro_receta=nro_receta,
-            )
+        RecetaService.duplicar_receta(receta_id=receta_id, nro_receta=nro_receta)
 
     @staticmethod
     def eliminar_sobrante(*, receta_id: int) -> None:
-        with session_scope() as s:
-            RecetaService.eliminar_sobrante(
-                s,
-                receta_id=receta_id,
-            )
+        RecetaService.eliminar_sobrante(receta_id=receta_id)
 
     @staticmethod
     def eliminar_sobrantes_bulk(*, receta_ids: list[int]) -> dict:
-        with session_scope() as s:
-            return RecetaService.eliminar_sobrantes_bulk(
-                s,
-                receta_ids=list(receta_ids or []),
-            )
+        return RecetaService.eliminar_sobrantes_bulk(receta_ids=list(receta_ids or []))
 
     @staticmethod
     def desasociar_receta(*, receta_id: int) -> None:
-        with session_scope() as s:
-            AsociacionService.desasociar(
-                s,
-                receta_id=receta_id,
-            )
+        AsociacionService.desasociar(receta_id=receta_id)
 
     @staticmethod
     def load_historial_snapshot(*, archivo_id: int):
-        with session_scope() as s:
-            return HistorialRecetaService.load_current_snapshot(
-                s,
-                archivo_id=archivo_id,
-            )
+        return HistorialRecetaService.load_current_snapshot(archivo_id=archivo_id)
 
     @staticmethod
     def load_historial_rows(*, archivo_id: int) -> list[dict]:
-        with session_scope() as s:
-            return HistorialRecetaService.list_historial(
-                s,
-                archivo_id=archivo_id,
-            )
+        return HistorialRecetaService.list_historial(archivo_id=archivo_id)
 
     @staticmethod
     def load_historial_detail(*, receta_id: int) -> tuple[list[dict], dict]:
-        with session_scope() as s:
-            debs = HistorialRecetaService.list_debitos_for_receta(
-                s,
-                receta_id=receta_id,
-            )
-
-            imgs = HistorialRecetaService.get_imagenes_por_receta(
-                s,
-                receta_id=receta_id,
-            )
-
+        debs = HistorialRecetaService.list_debitos_for_receta(receta_id=receta_id)
+        imgs = HistorialRecetaService.get_imagenes_por_receta(receta_id=receta_id)
         return debs, imgs
 
     @staticmethod
@@ -330,21 +269,11 @@ class AuditoriaApplication:
         value = str(nro_receta or "").strip()
         if not value:
             raise ValueError("Debés ingresar un número de receta.")
-
-        with session_scope() as s:
-            return HistorialRecetaService.search_historial_by_numero_receta(
-                s,
-                nro_receta=value,
-            )
+        return HistorialRecetaService.search_historial_by_numero_receta(nro_receta=value)
 
     @staticmethod
     def search_historial_by_numero_referencia(*, nro_referencia: str) -> list[dict]:
         value = str(nro_referencia or "").strip()
         if not value:
             raise ValueError("Debés ingresar un número de referencia.")
-
-        with session_scope() as s:
-            return HistorialRecetaService.search_historial_by_numero_referencia(
-                s,
-                nro_referencia=value,
-            )
+        return HistorialRecetaService.search_historial_by_numero_referencia(nro_referencia=value)
