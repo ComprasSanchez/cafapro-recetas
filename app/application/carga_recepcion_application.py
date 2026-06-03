@@ -7,7 +7,6 @@ from typing import Any
 
 from app.config.settings import settings
 from app.db.session import session_scope
-from app.infra.storage import s3_storage
 from app.service.recepcion.recepcion_service import RecepcionService
 from app.service.recetas.archivo_service import ArchivoService
 from app.service.recetas.historial_receta_service import HistorialRecetaService
@@ -145,50 +144,46 @@ class CargaRecepcionApplication:
             for x in (items or [])
         ]
 
+        svc = TiffService(
+            chunk_size=int(settings.TIFF_CHUNK_SIZE),
+            scan_workers=int(settings.TIFF_SCAN_WORKERS),
+            upload_workers=int(settings.TIFF_UPLOAD_WORKERS),
+            chunk_pause_ms=int(settings.TIFF_CHUNK_PAUSE_MS),
+            upload_pause_ms=int(settings.TIFF_UPLOAD_PAUSE_MS),
+            pipeline_mode=str(getattr(settings, "TIFF_PIPELINE_MODE", "item") or "item"),
+        )
+
+        total_items = len(input_items)
+
+        def _emit_chunk_progress(done: int, total: int, chunk_elapsed: float, stage: str) -> None:
+            elapsed = max(0.001, time.perf_counter() - started_at)
+            total_safe = max(1, int(total))
+            done_safe = max(0, min(int(done), total_safe))
+            percent = 15 + int((done_safe / total_safe) * 80)
+            stage_text = CargaRecepcionApplication._humanize_stage(stage)
+            eta_text = "--:--"
+            if done_safe > 0 and done_safe < total_safe:
+                remaining = total_safe - done_safe
+                eta_seconds = (remaining / done_safe) * elapsed
+                eta_text = CargaRecepcionApplication._fmt_duration(eta_seconds)
+
+            msg = (
+                f"{stage_text}"
+                f" | {done_safe}/{total_safe} recetas"
+                f" | ETA {eta_text}"
+            )
+
+            if ctx:
+                ctx.emit_progress(percent, msg)
+
+        resumen = svc.procesar(
+            recepcion_id=recepcion_id,
+            usuario_id=usuario_id,
+            items=input_items,
+            progress_cb=_emit_chunk_progress if total_items else None,
+        )
+
         with session_scope() as s:
-            svc = TiffService(
-                storage=s3_storage,
-                chunk_size=int(settings.TIFF_CHUNK_SIZE),
-                scan_workers=int(settings.TIFF_SCAN_WORKERS),
-                upload_workers=int(settings.TIFF_UPLOAD_WORKERS),
-                chunk_pause_ms=int(settings.TIFF_CHUNK_PAUSE_MS),
-                upload_pause_ms=int(settings.TIFF_UPLOAD_PAUSE_MS),
-                pipeline_mode=str(getattr(settings, "TIFF_PIPELINE_MODE", "item") or "item"),
-            )
-
-            total_items = len(input_items)
-
-            def _emit_chunk_progress(done: int, total: int, chunk_elapsed: float, stage: str) -> None:
-                elapsed = max(0.001, time.perf_counter() - started_at)
-                total_safe = max(1, int(total))
-                done_safe = max(0, min(int(done), total_safe))
-                percent = 15 + int((done_safe / total_safe) * 80)
-                stage_text = CargaRecepcionApplication._humanize_stage(stage)
-                eta_text = "--:--"
-                if done_safe > 0 and done_safe < total_safe:
-                    remaining = total_safe - done_safe
-                    eta_seconds = (remaining / done_safe) * elapsed
-                    eta_text = CargaRecepcionApplication._fmt_duration(eta_seconds)
-
-                msg = (
-                    f"{stage_text}"
-                    f" | {done_safe}/{total_safe} recetas"
-                    f" | ETA {eta_text}"
-                )
-
-                if ctx:
-                    ctx.emit_progress(percent, msg)
-
-            resumen = svc.procesar(
-                s=s,
-                recepcion_id=recepcion_id,
-                usuario_id=usuario_id,
-                items=input_items,
-                progress_cb=_emit_chunk_progress if total_items else None,
-            )
-
-            s.flush()
-
             HistorialRecetaService.actualizar_historial_recepcion(
                 s=s,
                 recepcion_id=recepcion_id,

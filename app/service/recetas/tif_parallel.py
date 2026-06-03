@@ -6,9 +6,11 @@ import os
 import time
 from typing import cast
 
+import httpx
+
 from core.process_tif import ScanOut, TiffProcessor, TroquelEstado
-from app.db.models import Archivo
-from app.infra.s3_storage import S3Storage
+from app.config.settings import settings
+from app.service.recetas.tif_context import ArchivoData
 from app.service.recetas.tif_logic import (
     base_from_tif_path,
     build_s3_keys,
@@ -16,6 +18,32 @@ from app.service.recetas.tif_logic import (
     year_month_from_basename_or_fallback,
 )
 from app.service.recetas.tif_types import ProcesarResumen, _ScannedItem, _UploadResult, _WorkItem
+
+
+def _upload_rendered(
+    *,
+    front_key: str | None,
+    back_key: str | None,
+    front_bytes: bytes | None,
+    back_bytes: bytes | None,
+) -> None:
+    files = {}
+    data = {}
+    if front_bytes and front_key:
+        files["frontFile"] = ("front.jpg", front_bytes, "image/jpeg")
+        data["frontKey"] = front_key
+    if back_bytes and back_key:
+        files["backFile"] = ("back.jpg", back_bytes, "image/jpeg")
+        data["backKey"] = back_key
+    if not files:
+        return
+    resp = httpx.post(
+        f"{settings.API_CAFAPRO.rstrip('/')}/imagenes/upload",
+        files=files,
+        data=data,
+        timeout=60,
+    )
+    resp.raise_for_status()
 
 
 def scan_one_item(*, tif: TiffProcessor, it) -> _ScannedItem:
@@ -57,10 +85,9 @@ def parallel_scan(
 
 def parallel_render_upload(
     *,
-    storage: S3Storage,
     tif: TiffProcessor,
     work_items: list[_WorkItem],
-    archivo_by_id: dict[int, Archivo],
+    archivo_by_id: dict[int, ArchivoData],
     prestador_imed: str,
     estado_render_by_work: dict[int, dict[str, TroquelEstado]],
     headers_render_by_work_id: dict[int, set[str]],
@@ -68,13 +95,14 @@ def parallel_render_upload(
     upload_pause_ms: int,
     resumen: ProcesarResumen,
 ) -> tuple[list[_UploadResult], float, float]:
+    render_total_seconds = 0.0
+
     results: list[_UploadResult] = []
     render_total_seconds = 0.0
     upload_total_seconds = 0.0
 
     def job(w: _WorkItem) -> tuple[_UploadResult, float, float]:
         archivo = archivo_by_id.get(w.archivo_id)
-
         base_name = base_from_tif_path(w.it.full_path)
 
         if archivo:
@@ -92,7 +120,6 @@ def parallel_render_upload(
         )
 
         estado = cast(dict[str, TroquelEstado], estado_render_by_work.get(w.archivo_id, {}))
-
         allowed_headers = {
             norm_str(v)
             for v in headers_render_by_work_id.get(id(w), set())
@@ -100,19 +127,10 @@ def parallel_render_upload(
         }
 
         if allowed_headers:
-            render_headers = [
-                norm_str(v)
-                for v in (w.scan.headers or [])
-                if norm_str(v) in allowed_headers
-            ]
-            render_header_dets = [
-                d
-                for d in (w.scan.header_detections or [])
-                if norm_str(d["value"]) in allowed_headers
-            ]
+            render_headers = [norm_str(v) for v in (w.scan.headers or []) if norm_str(v) in allowed_headers]
+            render_header_dets = [d for d in (w.scan.header_detections or []) if norm_str(d["value"]) in allowed_headers]
         else:
-            render_headers = []
-            render_header_dets = []
+            render_headers, render_header_dets = [], []
 
         scan_render = ScanOut(
             base_name=w.scan.base_name,
@@ -129,7 +147,6 @@ def parallel_render_upload(
             pages=(w.pages if w.pages else None),
             estado_resolver=lambda codebar: cast(TroquelEstado, estado.get(codebar, "R")),
         )
-
         fb = files.get("front_bytes")
         bb = files.get("back_bytes")
 
@@ -145,10 +162,12 @@ def parallel_render_upload(
         render_elapsed = max(0.0, time.perf_counter() - render_started_at)
 
         upload_started_at = time.perf_counter()
-        if fb:
-            storage.put_jpg(front_key, fb)
-        if bb:
-            storage.put_jpg(back_key, bb)
+        _upload_rendered(
+            front_key=front_key if fb else None,
+            back_key=back_key if bb else None,
+            front_bytes=fb,
+            back_bytes=bb,
+        )
         upload_elapsed = max(0.0, time.perf_counter() - upload_started_at)
 
         pause_ms = max(0, int(upload_pause_ms))
@@ -156,11 +175,7 @@ def parallel_render_upload(
             time.sleep(pause_ms / 1000.0)
 
         return (
-            _UploadResult(
-                work=w,
-                front_key=front_key if fb else None,
-                back_key=back_key if bb else None,
-            ),
+            _UploadResult(work=w, front_key=front_key if fb else None, back_key=back_key if bb else None),
             render_elapsed,
             upload_elapsed,
         )
@@ -179,7 +194,6 @@ def parallel_render_upload(
 
     with ThreadPoolExecutor(max_workers=workers) as ex:
         futs = [ex.submit(job, w) for w in work_items]
-
         for fut in as_completed(futs):
             try:
                 out, render_elapsed, upload_elapsed = fut.result()

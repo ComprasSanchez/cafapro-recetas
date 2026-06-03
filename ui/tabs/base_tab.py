@@ -4,7 +4,8 @@ import logging
 from typing import Any, Callable
 
 from PySide6.QtCore import QThreadPool
-from PySide6.QtWidgets import QWidget, QMessageBox
+from PySide6.QtGui import QClipboard
+from PySide6.QtWidgets import QApplication, QWidget, QMessageBox
 from shiboken6 import isValid
 
 from ui.jobs.jobs_service import ServiceJob
@@ -126,14 +127,25 @@ class BaseTabWidget(QWidget):
                 return
 
             if is_not_found:
-                nice = _extract_last_line(err_text)  # te dejo helper abajo
+                nice = _extract_last_line(err_text)
                 QMessageBox.warning(self, "Archivo no encontrado", nice)
             else:
-                QMessageBox.critical(self, "Error", err_text)
+                _show_copiable_error(self, err_text)
 
         def _extract_last_line(tb: str) -> str:
             lines = [l.strip() for l in tb.splitlines() if l.strip()]
             return lines[-1] if lines else tb
+
+        def _show_copiable_error(parent: QWidget, text: str) -> None:
+            box = QMessageBox(parent)
+            box.setIcon(QMessageBox.Icon.Critical)
+            box.setWindowTitle("Error")
+            box.setText(text)
+            copy_btn = box.addButton("Copiar", QMessageBox.ButtonRole.ActionRole)
+            box.addButton(QMessageBox.StandardButton.Ok)
+            box.exec()
+            if box.clickedButton() is copy_btn:
+                QApplication.clipboard().setText(text)
 
         def _finished(_msg: str):
             self.footer_set(status="OK", loading=False)

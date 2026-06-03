@@ -3,13 +3,14 @@ from __future__ import annotations
 from typing import Callable, List, Optional
 import os
 
-from sqlalchemy.orm import Session
-
-from app.adapters.sqlalchemy.tif_repository import TifRepository
 from core.process_tif import TiffProcessor
-from app.infra.s3_storage import S3Storage
 from app.service.integraciones.medicamento_client import MedicamentoClient
-from app.service.recetas.tif_context import filter_unprocessed_items, load_run_cache, load_run_context
+from app.service.recetas.tif_context import (
+    filter_unprocessed_items,
+    load_run_cache,
+    load_run_context,
+    update_archivos_vencido,
+)
 from app.service.recetas.tif_workflow import (
     ChunkRuntime,
     process_items_in_chunks,
@@ -25,7 +26,6 @@ class TiffService:
     def __init__(
         self,
         *,
-        storage: S3Storage,
         tif: Optional[TiffProcessor] = None,
         client: Optional[MedicamentoClient] = None,
         chunk_size: int = 20,
@@ -35,7 +35,6 @@ class TiffService:
         upload_pause_ms: int = 0,
         pipeline_mode: str = "item",
     ) -> None:
-        self._storage = storage
         self._tif = tif or TiffProcessor()
         self._client = client or MedicamentoClient()
 
@@ -53,7 +52,6 @@ class TiffService:
     # -------------------------
     def procesar(
         self,
-        s: Session,
         recepcion_id: int,
         usuario_id: int,
         items: List[ProcesarItemIn],
@@ -61,8 +59,8 @@ class TiffService:
     ) -> ProcesarResumen:
 
         total = ProcesarResumen()
-        run_ctx = load_run_context(session=s, recepcion_id=int(recepcion_id))
-        run_cache = load_run_cache(session=s, recepcion_id=int(recepcion_id))
+        run_ctx = load_run_context(recepcion_id=int(recepcion_id))
+        run_cache = load_run_cache(recepcion_id=int(recepcion_id))
         items_filtrados, ya_asociado = filter_unprocessed_items(
             items=items,
             run_cache=run_cache,
@@ -74,7 +72,6 @@ class TiffService:
 
         runtime = ChunkRuntime(
             tif=self._tif,
-            storage=self._storage,
             client=self._client,
             scan_workers=self._scan_workers,
             upload_workers=self._upload_workers,
@@ -83,7 +80,6 @@ class TiffService:
 
         if self._pipeline_mode == "item":
             processed = process_items_individual_async(
-                s,
                 items_filtrados=items_filtrados,
                 run_ctx=run_ctx,
                 run_cache=run_cache,
@@ -94,7 +90,6 @@ class TiffService:
             )
         else:
             processed = process_items_in_chunks(
-                s,
                 items_filtrados=items_filtrados,
                 run_ctx=run_ctx,
                 run_cache=run_cache,
@@ -107,9 +102,6 @@ class TiffService:
 
         total.merge(processed)
 
-        TifRepository.update_archivos_vencido(
-            s,
-            estados_by_archivo_id=run_cache.vencido_updates,
-        )
+        update_archivos_vencido(estados_by_archivo_id=run_cache.vencido_updates)
 
         return total
