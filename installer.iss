@@ -1,6 +1,6 @@
 [Setup]
 AppName=CafaproRecetas
-AppVersion=3.1.3-beta
+AppVersion=4.0.0
 DefaultDirName={pf}\CafaproRecetas
 DefaultGroupName=CafaproRecetas
 OutputDir=output
@@ -32,36 +32,11 @@ Filename: "{app}\CafaproRecetas.exe"; Description: "Ejecutar CafaproRecetas"; Fl
 var
   ConfigPage: TWizardPage;
 
-  DbEdit: TNewEdit;
-  AwsRegionEdit: TNewEdit;
-  AwsBucketEdit: TNewEdit;
-  AwsCfBaseUrlEdit: TNewEdit;
-  AwsAccessKeyEdit: TNewEdit;
-  AwsSecretKeyEdit: TNewEdit;
-  AwsCacheControlEdit: TNewEdit;
+  LblApi: TNewStaticText;
+  ApiEdit: TNewEdit;
 
-  EnvLoaded: Boolean;
-
-
-procedure AddLabeledEdit(Page: TWizardPage; Caption: string; var Edit: TNewEdit; TopPos: Integer; IsPassword: Boolean);
-var
-  L: TNewStaticText;
-begin
-  L := TNewStaticText.Create(Page);
-  L.Parent := Page.Surface;
-  L.Left := 0;
-  L.Top := TopPos;
-  L.Caption := Caption;
-
-  Edit := TNewEdit.Create(Page);
-  Edit.Parent := Page.Surface;
-  Edit.Left := 0;
-  Edit.Top := TopPos + 16;
-  Edit.Width := Page.SurfaceWidth;
-
-  if IsPassword then
-    Edit.PasswordChar := '*';
-end;
+  LblCf: TNewStaticText;
+  CfEdit: TNewEdit;
 
 
 function LoadEnvValue(const FilePath, Key: string): string;
@@ -71,12 +46,9 @@ var
   Line: string;
 begin
   Result := '';
-
   if not FileExists(FilePath) then
     Exit;
-
   LoadStringsFromFile(FilePath, Lines);
-
   for I := 0 to GetArrayLength(Lines) - 1 do
   begin
     Line := Trim(Lines[I]);
@@ -91,44 +63,100 @@ end;
 
 procedure InitializeWizard();
 begin
-  EnvLoaded := False;
+  // Crear la página y AMBOS campos siempre.
+  // No leemos {app} aquí porque el directorio todavía no fue elegido.
+  ConfigPage := CreateCustomPage(
+    wpSelectDir,
+    'Configuración del Sistema',
+    'Complete los datos de conexión faltantes'
+  );
 
-  ConfigPage :=
-    CreateCustomPage(
-      wpSelectDir,
-      'Configuración del Sistema',
-      'Complete los datos de conexión y almacenamiento'
-    );
+  LblApi := TNewStaticText.Create(ConfigPage);
+  LblApi.Parent := ConfigPage.Surface;
+  LblApi.Left := 0;
+  LblApi.Top := 0;
+  LblApi.Caption := 'API_CAFAPRO  (ej: http://servidor:3000)';
+  LblApi.Visible := False;
 
-  AddLabeledEdit(ConfigPage, 'DATABASE_URL', DbEdit, 0, False);
-  AddLabeledEdit(ConfigPage, 'AWS_REGION', AwsRegionEdit, 60, False);
-  AddLabeledEdit(ConfigPage, 'S3_BUCKET', AwsBucketEdit, 120, False);
-  AddLabeledEdit(ConfigPage, 'CLOUDFRONT_BASE_URL (sin https://)', AwsCfBaseUrlEdit, 180, False);
-  AddLabeledEdit(ConfigPage, 'AWS_ACCESS_KEY_ID', AwsAccessKeyEdit, 240, False);
-  AddLabeledEdit(ConfigPage, 'AWS_SECRET_ACCESS_KEY', AwsSecretKeyEdit, 300, True);
-  AddLabeledEdit(ConfigPage, 'S3_CACHE_CONTROL', AwsCacheControlEdit, 360, False);
+  ApiEdit := TNewEdit.Create(ConfigPage);
+  ApiEdit.Parent := ConfigPage.Surface;
+  ApiEdit.Left := 0;
+  ApiEdit.Top := 16;
+  ApiEdit.Width := ConfigPage.SurfaceWidth;
+  ApiEdit.Visible := False;
+
+  LblCf := TNewStaticText.Create(ConfigPage);
+  LblCf.Parent := ConfigPage.Surface;
+  LblCf.Left := 0;
+  LblCf.Top := 60;
+  LblCf.Caption := 'CLOUDFRONT_BASE_URL  (ej: dxxx.cloudfront.net)';
+  LblCf.Visible := False;
+
+  CfEdit := TNewEdit.Create(ConfigPage);
+  CfEdit.Parent := ConfigPage.Surface;
+  CfEdit.Left := 0;
+  CfEdit.Top := 76;
+  CfEdit.Width := ConfigPage.SurfaceWidth;
+  CfEdit.Visible := False;
 end;
 
 
+// ShouldSkipPage se llama DESPUÉS de que el usuario elige directorio,
+// así que WizardDirValue() ya tiene valor.
+function ShouldSkipPage(PageID: Integer): Boolean;
+var
+  EnvPath, ApiVal, CfVal: string;
+begin
+  Result := False;
+  if PageID = ConfigPage.ID then
+  begin
+    EnvPath := WizardDirValue() + '\.env';
+    ApiVal  := LoadEnvValue(EnvPath, 'API_CAFAPRO');
+    CfVal   := LoadEnvValue(EnvPath, 'CLOUDFRONT_BASE_URL');
+    Result  := (Trim(ApiVal) <> '') and (Trim(CfVal) <> '');
+  end;
+end;
+
+
+// CurPageChanged se llama cuando la página ya está visible y {app} existe.
 procedure CurPageChanged(CurPageID: Integer);
 var
-  EnvPath: string;
+  EnvPath, ApiVal, CfVal: string;
+  TopPos: Integer;
 begin
-  if (CurPageID = ConfigPage.ID) and (not EnvLoaded) then
+  if CurPageID = ConfigPage.ID then
   begin
-    EnvPath := ExpandConstant('{app}\.env');
+    EnvPath := WizardDirValue() + '\.env';
+    ApiVal  := Trim(LoadEnvValue(EnvPath, 'API_CAFAPRO'));
+    CfVal   := Trim(LoadEnvValue(EnvPath, 'CLOUDFRONT_BASE_URL'));
 
-    if FileExists(EnvPath) then
+    TopPos := 0;
+
+    // API_CAFAPRO
+    if ApiVal <> '' then
     begin
-      DbEdit.Text := LoadEnvValue(EnvPath, 'DATABASE_URL');
-      AwsRegionEdit.Text := LoadEnvValue(EnvPath, 'AWS_REGION');
-      AwsBucketEdit.Text := LoadEnvValue(EnvPath, 'S3_BUCKET');
-      AwsCfBaseUrlEdit.Text := LoadEnvValue(EnvPath, 'CLOUDFRONT_BASE_URL');
-      AwsAccessKeyEdit.Text := LoadEnvValue(EnvPath, 'AWS_ACCESS_KEY_ID');
-      AwsSecretKeyEdit.Text := LoadEnvValue(EnvPath, 'AWS_SECRET_ACCESS_KEY');
-      AwsCacheControlEdit.Text := LoadEnvValue(EnvPath, 'S3_CACHE_CONTROL');
+      LblApi.Visible := False;
+      ApiEdit.Visible := False;
+    end else
+    begin
+      LblApi.Top  := TopPos;
+      ApiEdit.Top := TopPos + 16;
+      LblApi.Visible  := True;
+      ApiEdit.Visible := True;
+      TopPos := TopPos + 60;
+    end;
 
-      EnvLoaded := True;
+    // CLOUDFRONT_BASE_URL
+    if CfVal <> '' then
+    begin
+      LblCf.Visible := False;
+      CfEdit.Visible := False;
+    end else
+    begin
+      LblCf.Top  := TopPos;
+      CfEdit.Top := TopPos + 16;
+      LblCf.Visible  := True;
+      CfEdit.Visible := True;
     end;
   end;
 end;
@@ -140,16 +168,16 @@ begin
 
   if CurPageID = ConfigPage.ID then
   begin
-    if Trim(DbEdit.Text) = '' then
+    if ApiEdit.Visible and (Trim(ApiEdit.Text) = '') then
     begin
-      MsgBox('DATABASE_URL no puede estar vacía.', mbError, MB_OK);
+      MsgBox('API_CAFAPRO no puede estar vacía.', mbError, MB_OK);
       Result := False;
       Exit;
     end;
 
-    if Trim(AwsRegionEdit.Text) = '' then
+    if CfEdit.Visible and (Trim(CfEdit.Text) = '') then
     begin
-      MsgBox('Debe completar AWS_REGION.', mbError, MB_OK);
+      MsgBox('CLOUDFRONT_BASE_URL no puede estar vacía.', mbError, MB_OK);
       Result := False;
       Exit;
     end;
@@ -157,24 +185,59 @@ begin
 end;
 
 
+procedure SetEnvValue(const FilePath, Key, Value: string);
+var
+  Lines: TArrayOfString;
+  I: Integer;
+  Found: Boolean;
+  Line, Result: string;
+begin
+  Found := False;
+
+  if FileExists(FilePath) then
+    LoadStringsFromFile(FilePath, Lines);
+
+  // Actualizar línea existente
+  for I := 0 to GetArrayLength(Lines) - 1 do
+  begin
+    Line := Trim(Lines[I]);
+    if Pos(Key + '=', Line) = 1 then
+    begin
+      Lines[I] := Key + '=' + Value;
+      Found := True;
+      Break;
+    end;
+  end;
+
+  // Agregar al final si no existía
+  if not Found then
+  begin
+    SetArrayLength(Lines, GetArrayLength(Lines) + 1);
+    Lines[GetArrayLength(Lines) - 1] := Key + '=' + Value;
+  end;
+
+  // Reconstruir y guardar
+  Result := '';
+  for I := 0 to GetArrayLength(Lines) - 1 do
+    Result := Result + Lines[I] + #13#10;
+
+  SaveStringToFile(FilePath, Result, False);
+end;
+
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   EnvPath: string;
-  EnvContent: string;
 begin
   if CurStep = ssDone then
   begin
     EnvPath := ExpandConstant('{app}\.env');
 
-    EnvContent :=
-      'DATABASE_URL=' + Trim(DbEdit.Text) + #13#10 +
-      'AWS_REGION=' + Trim(AwsRegionEdit.Text) + #13#10 +
-      'S3_BUCKET=' + Trim(AwsBucketEdit.Text) + #13#10 +
-      'CLOUDFRONT_BASE_URL=' + Trim(AwsCfBaseUrlEdit.Text) + #13#10 +
-      'AWS_ACCESS_KEY_ID=' + Trim(AwsAccessKeyEdit.Text) + #13#10 +
-      'AWS_SECRET_ACCESS_KEY=' + Trim(AwsSecretKeyEdit.Text) + #13#10 +
-      'S3_CACHE_CONTROL=' + Trim(AwsCacheControlEdit.Text) + #13#10;
+    // Solo modifica los campos que el usuario completó, preserva el resto
+    if ApiEdit.Visible and (Trim(ApiEdit.Text) <> '') then
+      SetEnvValue(EnvPath, 'API_CAFAPRO', Trim(ApiEdit.Text));
 
-    SaveStringToFile(EnvPath, EnvContent, False);
+    if CfEdit.Visible and (Trim(CfEdit.Text) <> '') then
+      SetEnvValue(EnvPath, 'CLOUDFRONT_BASE_URL', Trim(CfEdit.Text));
   end;
 end;
