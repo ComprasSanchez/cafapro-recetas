@@ -291,7 +291,21 @@ class ViewDebitos:
         return f"MAL_ENTREGO_{os_slug}_{mes_txt}_{int(anio):04d}.xlsx"
 
     @staticmethod
-    def download_wrong_debitos(rows, folder, s3):
+    def _to_download_url(raw: str) -> str:
+        v = (raw or "").strip()
+        if not v:
+            return ""
+        if v.startswith("http://") or v.startswith("https://"):
+            return v
+        # Normaliza el base igual que _to_cloudfront_url en auditoria_application
+        base = (settings.CLOUDFRONT_BASE_URL or "").strip()
+        base = base.replace("https://", "").replace("http://", "").strip().rstrip("/")
+        if not base:
+            return ""
+        return f"https://{base}/{v.lstrip('/')}"
+
+    @staticmethod
+    def download_wrong_debitos(rows, folder):
         receta_ids = {int(r.receta_id) for r in rows}
         rows_by_receta = {r.receta_id: r for r in rows}
 
@@ -319,24 +333,28 @@ class ViewDebitos:
             nro_referencia = getattr(row, "nro_referencia", "")
 
             if r.get("ubicacionFrente"):
+                url = ViewDebitos._to_download_url(r["ubicacionFrente"])
                 dest = os.path.join(
                     folder,
                     f"{obs}_{prestador}_{nro_receta}_{nro_referencia}_frente.jpg",
                 )
-                tasks.append((r["ubicacionFrente"], dest))
+                if url:
+                    tasks.append((url, dest))
 
             if r.get("ubicacionDorso"):
+                url = ViewDebitos._to_download_url(r["ubicacionDorso"])
                 dest = os.path.join(
                     folder,
                     f"{obs}_{prestador}_{nro_receta}_{nro_referencia}_dorso.jpg",
                 )
-                tasks.append((r["ubicacionDorso"], dest))
+                if url:
+                    tasks.append((url, dest))
 
         total = 0
         with ThreadPoolExecutor(max_workers=16) as executor:
             futures = [
-                executor.submit(ViewDebitos._download_one, s3, key, dest)
-                for key, dest in tasks
+                executor.submit(ViewDebitos._download_one, url, dest)
+                for url, dest in tasks
             ]
             for f in as_completed(futures):
                 if f.result():
@@ -345,11 +363,14 @@ class ViewDebitos:
         return total
 
     @staticmethod
-    def _download_one(s3, key, dest):
+    def _download_one(url, dest):
         if os.path.exists(dest):
             return False
         try:
-            s3.download_file(key, dest)
+            resp = httpx.get(url, timeout=30, follow_redirects=True)
+            resp.raise_for_status()
+            with open(dest, "wb") as f:
+                f.write(resp.content)
             return True
         except Exception as e:
             print("ERROR DOWNLOAD:", e)

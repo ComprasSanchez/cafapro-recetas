@@ -38,20 +38,9 @@ class Settings(BaseSettings):
     API_CAFAPRO: str = Field(default="http://localhost:3000")
 
     # -----------------------
-    # AWS / S3 / CloudFront
+    # CloudFront
     # -----------------------
-    AWS_REGION: str = Field(default="us-east-1")
-    S3_BUCKET: str = Field(default="")
-
     CLOUDFRONT_BASE_URL: str = Field(default="")  # ej: https://dxxxx.cloudfront.net
-
-    AWS_ACCESS_KEY_ID: str = Field(default="")
-    AWS_SECRET_ACCESS_KEY: str = Field(default="")
-
-    # 60 días
-    S3_CACHE_CONTROL: str = Field(
-        default="public, max-age=5184000, s-maxage=5184000"
-    )
 
     # -----------------------
     # TIFF processing
@@ -77,14 +66,8 @@ class Settings(BaseSettings):
 
         # Si querés habilitar AWS por feature-flag, lo hacemos.
         # Por ahora lo consideramos requerido.
-        if not self.S3_BUCKET.strip():
-            missing.append("S3_BUCKET")
         if not self.CLOUDFRONT_BASE_URL.strip():
             missing.append("CLOUDFRONT_BASE_URL")
-        if not self.AWS_ACCESS_KEY_ID.strip():
-            missing.append("AWS_ACCESS_KEY_ID")
-        if not self.AWS_SECRET_ACCESS_KEY.strip():
-            missing.append("AWS_SECRET_ACCESS_KEY")
 
         if missing:
             env_path = _env_file_path()
@@ -98,8 +81,14 @@ class Settings(BaseSettings):
     def cloudfront_url(self, key: str | None) -> str | None:
         if not key:
             return None
-        key = key.lstrip("/")
-        return f"{self.CLOUDFRONT_BASE_URL.rstrip('/')}/{key}"
+        v = key.strip()
+        if v.startswith("http://") or v.startswith("https://"):
+            return v
+        base = (self.CLOUDFRONT_BASE_URL or "").strip()
+        base = base.replace("https://", "").replace("http://", "").strip().rstrip("/")
+        if not base:
+            return None
+        return f"https://{base}/{v.lstrip('/')}"
 
 
 settings = Settings()

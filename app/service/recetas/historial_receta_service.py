@@ -4,21 +4,23 @@ from dataclasses import dataclass
 from typing import Optional
 
 import httpx
-from sqlalchemy import select, func, update
-from sqlalchemy.orm import Session
 
 from app.config.settings import settings
-from app.db.models import (
-    Recetas,
-    Asociacion,
-    Debitos,
-    MotivoDebito,
-    Usuarios,
-    Vendedores,
-    EstadoReceta,
-    Archivo,
-    Recepcion,
-)
+
+# DB_LEGACY — migrado a API en v4.0.0. Comentado para rollback si es necesario.
+# from sqlalchemy import select, func, update
+# from sqlalchemy.orm import Session
+# from app.db.models import (
+#     Recetas,
+#     Asociacion,
+#     Debitos,
+#     MotivoDebito,
+#     Usuarios,
+#     Vendedores,
+#     EstadoReceta,
+#     Archivo,
+#     Recepcion,
+# )
 
 
 @dataclass(frozen=True)
@@ -35,19 +37,19 @@ class HistorialRecetaService:
     - Débitos: por receta seleccionada.
     """
 
-    @staticmethod
-    def has_historial_debitada(s: Session, *, archivo_id: int) -> bool:
-        q = (
-            select(Recetas.receta_id)
-            .join(Asociacion, Asociacion.receta_id == Recetas.receta_id)
-            .where(
-                Asociacion.archivo_id == int(archivo_id),
-                Recetas.vigente.is_(False),
-            )
-            .limit(1)
-        )
-
-        return s.execute(q).scalar_one_or_none() is not None
+    # DB_LEGACY — comentado en v4.0.0, reemplazado por hasHistorialDebitada en el endpoint de auditoría
+    # @staticmethod
+    # def has_historial_debitada(s: Session, *, archivo_id: int) -> bool:
+    #     q = (
+    #         select(Recetas.receta_id)
+    #         .join(Asociacion, Asociacion.receta_id == Recetas.receta_id)
+    #         .where(
+    #             Asociacion.archivo_id == int(archivo_id),
+    #             Recetas.vigente.is_(False),
+    #         )
+    #         .limit(1)
+    #     )
+    #     return s.execute(q).scalar_one_or_none() is not None
 
     # -------------------------------------------------
     # Snapshot actual (solo imágenes)
@@ -150,149 +152,10 @@ class HistorialRecetaService:
             for r in resp.json()
         ]
 
-    # -------------------------------------------------
-    # Cargar imágenes por receta
-    @staticmethod
-    def actualizar_historial_recepcion(
-            s: Session,
-            recepcion_id: int,
-    ) -> None:
-
-        rows = (
-            s.execute(
-                select(
-                    Recetas.receta_id,
-                    Archivo.nro_referencia,
-                    Archivo.nro_receta,
-                )
-                .join(Asociacion, Asociacion.receta_id == Recetas.receta_id)
-                .join(Archivo, Archivo.archivo_id == Asociacion.archivo_id)
-                .where(
-                    Recetas.recepcion_id == recepcion_id,
-                    Recetas.vigente.is_(True),
-                    Asociacion.vigente.is_(True),
-                )
-            )
-        ).all()
-
-        for receta_id, nro_ref, nro_receta in rows:
-
-            prev_ids = (
-                s.execute(
-                    select(Recetas.receta_id)
-                    .join(Asociacion, Asociacion.receta_id == Recetas.receta_id)
-                    .join(Archivo, Archivo.archivo_id == Asociacion.archivo_id)
-                    .where(
-                        Archivo.nro_referencia == nro_ref,
-                        Archivo.nro_receta == nro_receta,
-                        Recetas.recepcion_id != recepcion_id,
-                        Recetas.estado_receta_id == 1,
-                        Recetas.estado_seguimiento_id == 3,
-                        Recetas.vigente.is_(True),
-                    )
-                )
-            ).scalars().all()
-
-            if not prev_ids:
-                continue
-
-            s.execute(
-                update(Recetas)
-                .where(Recetas.receta_id.in_(prev_ids))
-                .values(vigente=False)
-            )
-
-            s.execute(
-                update(Asociacion)
-                .where(
-                    Asociacion.receta_id.in_(prev_ids),
-                    Asociacion.vigente.is_(True),
-                )
-                .values(vigente=False)
-            )
-
-    @staticmethod
-    def actualizar_historial_receta(
-            s: Session,
-            *,
-            receta_id: int,
-            nro_referencia: str,
-            nro_receta: str,
-            recepcion_id: int,
-    ) -> None:
-
-        prev_ids = (
-            s.execute(
-                select(Recetas.receta_id)
-                .join(Asociacion, Asociacion.receta_id == Recetas.receta_id)
-                .join(Archivo, Archivo.archivo_id == Asociacion.archivo_id)
-                .where(
-                    Archivo.nro_referencia == nro_referencia,
-                    Archivo.nro_receta == nro_receta,
-                    Recetas.recepcion_id != recepcion_id,
-                    Recetas.estado_receta_id == 1,
-                    Recetas.estado_seguimiento_id == 3,
-                    Recetas.vigente.is_(True),
-                )
-            )
-        ).scalars().all()
-
-        if not prev_ids:
-            return
-
-        # cerrar recetas anteriores
-        s.execute(
-            update(Recetas)
-            .where(Recetas.receta_id.in_(prev_ids))
-            .values(vigente=False)
-        )
-
-        # cerrar asociaciones anteriores
-        s.execute(
-            update(Asociacion)
-            .where(
-                Asociacion.receta_id.in_(prev_ids),
-                Asociacion.vigente.is_(True),
-            )
-            .values(vigente=False)
-        )
-
-    @staticmethod
-    def restaurar_historial_receta(
-            s: Session,
-            *,
-            nro_referencia: str,
-            nro_receta: str,
-            recepcion_id: int,
-    ) -> None:
-
-        prev = (
-            s.execute(
-                select(Recetas)
-                .join(Asociacion, Asociacion.receta_id == Recetas.receta_id)
-                .join(Archivo, Archivo.archivo_id == Asociacion.archivo_id)
-                .where(
-                    Archivo.nro_referencia == nro_referencia,
-                    Archivo.nro_receta == nro_receta,
-                    Recetas.recepcion_id < recepcion_id,
-                )
-                .order_by(Recetas.recepcion_id.desc())
-                .limit(1)
-            )
-            .scalar_one_or_none()
-        )
-
-        if not prev:
-            return
-
-        # reabrir receta anterior
-        prev.vigente = True
-
-        # reabrir asociación
-        s.execute(
-            update(Asociacion)
-            .where(
-                Asociacion.receta_id == prev.receta_id,
-            )
-            .values(vigente=True)
-        )
+    # DB_LEGACY — los tres métodos siguientes fueron migrados a POST /recepciones/:id/actualizar-historial en v4.0.0
+    # @staticmethod
+    # def actualizar_historial_recepcion(s: Session, recepcion_id: int) -> None: ...
+    # @staticmethod
+    # def actualizar_historial_receta(s: Session, *, receta_id, nro_referencia, nro_receta, recepcion_id) -> None: ...
+    # @staticmethod
+    # def restaurar_historial_receta(s: Session, *, nro_referencia, nro_receta, recepcion_id) -> None: ...

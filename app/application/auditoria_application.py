@@ -86,6 +86,12 @@ class AuditoriaApplication:
         return False
 
     @staticmethod
+    def _looks_like_naked_url(v: str) -> bool:
+        # "dxxx.cloudfront.net/path" tiene un punto en el primer segmento antes del /
+        first_segment = v.split("/")[0]
+        return "." in first_segment
+
+    @staticmethod
     def _to_cloudfront_url(key_or_url_or_path: str) -> str:
         v = (key_or_url_or_path or "").strip()
         if not v:
@@ -96,6 +102,10 @@ class AuditoriaApplication:
 
         if AuditoriaApplication._looks_like_local_path(v):
             return v
+
+        # URL pelada sin protocolo (ej: dxxx.cloudfront.net/path/img.jpg)
+        if AuditoriaApplication._looks_like_naked_url(v):
+            return f"https://{v}"
 
         base = (settings.CLOUDFRONT_BASE_URL or "").strip()
         base = base.replace("https://", "").replace("http://", "").strip().rstrip("/")

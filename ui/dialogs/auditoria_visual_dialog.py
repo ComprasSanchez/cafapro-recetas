@@ -880,15 +880,10 @@ class AuditoriaVisualDialog(QDialog):
                 usuario_id=int(usuario_id),
             )
 
+            worker.signals.finished.connect(self._on_save_finished)
             worker.signals.error.connect(self._on_save_error)
 
             self._pool.start(worker)
-
-            # invalidar cache
-            self._invalidate_current_asociacion_cache()
-
-            # PASAR A LA SIGUIENTE INMEDIATAMENTE
-            self._on_next_only()
 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudo finalizar:\n{e}")
@@ -1192,6 +1187,10 @@ class AuditoriaVisualDialog(QDialog):
 
         asoc_id = int(self.asociacion_id)
         self._data_cache.pop(asoc_id, None)
+
+    def _on_save_finished(self):
+        self._invalidate_current_asociacion_cache()
+        self._on_next_only()
 
     def _on_save_error(self, err):
         QMessageBox.critical(
