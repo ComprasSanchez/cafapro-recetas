@@ -9,8 +9,8 @@ class CatalogosWindowsUseCase:
         return CatalogosApplication.list_usuarios()
 
     @staticmethod
-    def delete_usuario(*, usuario_id: int) -> None:
-        CatalogosApplication.delete_usuario(usuario_id=int(usuario_id))
+    def set_usuario_activo(*, usuario_id: int, activo: bool) -> None:
+        CatalogosApplication.set_usuario_activo(usuario_id=int(usuario_id), activo=activo)
 
     @staticmethod
     def list_vendedores(*, solo_activos: bool = False) -> list:

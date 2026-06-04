@@ -5,12 +5,11 @@ import re
 import time
 from typing import Any
 
+import httpx
+
 from app.config.settings import settings
-from app.db.session import session_scope
-from app.infra.storage import s3_storage
 from app.service.recepcion.recepcion_service import RecepcionService
 from app.service.recetas.archivo_service import ArchivoService
-from app.service.recetas.historial_receta_service import HistorialRecetaService
 from app.service.recetas.tif_service import ProcesarItemIn as TiffProcesarItemIn, TiffService
 from core.image_handler import ImageHandler
 
@@ -106,11 +105,7 @@ class CargaRecepcionApplication:
         if ctx:
             ctx.emit_progress(10, "Leyendo recepcion...")
 
-        with session_scope() as s:
-            svc = RecepcionService()
-            rows = svc.list(s)
-
-        rec = next((x for x in rows if x.recepcion_id == recepcion_id), None)
+        rec = RecepcionService.get(recepcion_id)
         if not rec:
             raise ValueError("No se encontro la recepcion seleccionada.")
 
@@ -149,54 +144,50 @@ class CargaRecepcionApplication:
             for x in (items or [])
         ]
 
-        with session_scope() as s:
-            svc = TiffService(
-                storage=s3_storage,
-                chunk_size=int(settings.TIFF_CHUNK_SIZE),
-                scan_workers=int(settings.TIFF_SCAN_WORKERS),
-                upload_workers=int(settings.TIFF_UPLOAD_WORKERS),
-                chunk_pause_ms=int(settings.TIFF_CHUNK_PAUSE_MS),
-                upload_pause_ms=int(settings.TIFF_UPLOAD_PAUSE_MS),
-                pipeline_mode=str(getattr(settings, "TIFF_PIPELINE_MODE", "item") or "item"),
+        svc = TiffService(
+            chunk_size=int(settings.TIFF_CHUNK_SIZE),
+            scan_workers=int(settings.TIFF_SCAN_WORKERS),
+            upload_workers=int(settings.TIFF_UPLOAD_WORKERS),
+            chunk_pause_ms=int(settings.TIFF_CHUNK_PAUSE_MS),
+            upload_pause_ms=int(settings.TIFF_UPLOAD_PAUSE_MS),
+            pipeline_mode=str(getattr(settings, "TIFF_PIPELINE_MODE", "item") or "item"),
+        )
+
+        total_items = len(input_items)
+
+        def _emit_chunk_progress(done: int, total: int, chunk_elapsed: float, stage: str) -> None:
+            elapsed = max(0.001, time.perf_counter() - started_at)
+            total_safe = max(1, int(total))
+            done_safe = max(0, min(int(done), total_safe))
+            percent = 15 + int((done_safe / total_safe) * 80)
+            stage_text = CargaRecepcionApplication._humanize_stage(stage)
+            eta_text = "--:--"
+            if done_safe > 0 and done_safe < total_safe:
+                remaining = total_safe - done_safe
+                eta_seconds = (remaining / done_safe) * elapsed
+                eta_text = CargaRecepcionApplication._fmt_duration(eta_seconds)
+
+            msg = (
+                f"{stage_text}"
+                f" | {done_safe}/{total_safe} recetas"
+                f" | ETA {eta_text}"
             )
 
-            total_items = len(input_items)
+            if ctx:
+                ctx.emit_progress(percent, msg)
 
-            def _emit_chunk_progress(done: int, total: int, chunk_elapsed: float, stage: str) -> None:
-                elapsed = max(0.001, time.perf_counter() - started_at)
-                total_safe = max(1, int(total))
-                done_safe = max(0, min(int(done), total_safe))
-                percent = 15 + int((done_safe / total_safe) * 80)
-                stage_text = CargaRecepcionApplication._humanize_stage(stage)
-                eta_text = "--:--"
-                if done_safe > 0 and done_safe < total_safe:
-                    remaining = total_safe - done_safe
-                    eta_seconds = (remaining / done_safe) * elapsed
-                    eta_text = CargaRecepcionApplication._fmt_duration(eta_seconds)
+        resumen = svc.procesar(
+            recepcion_id=recepcion_id,
+            usuario_id=usuario_id,
+            items=input_items,
+            progress_cb=_emit_chunk_progress if total_items else None,
+        )
 
-                msg = (
-                    f"{stage_text}"
-                    f" | {done_safe}/{total_safe} recetas"
-                    f" | ETA {eta_text}"
-                )
-
-                if ctx:
-                    ctx.emit_progress(percent, msg)
-
-            resumen = svc.procesar(
-                s=s,
-                recepcion_id=recepcion_id,
-                usuario_id=usuario_id,
-                items=input_items,
-                progress_cb=_emit_chunk_progress if total_items else None,
-            )
-
-            s.flush()
-
-            HistorialRecetaService.actualizar_historial_recepcion(
-                s=s,
-                recepcion_id=recepcion_id,
-            )
+        resp = httpx.post(
+            f"{settings.API_CAFAPRO.rstrip('/')}/recepciones/{recepcion_id}/actualizar-historial",
+            timeout=30,
+        )
+        resp.raise_for_status()
 
         total_elapsed = max(0.0, time.perf_counter() - started_at)
 
@@ -213,11 +204,9 @@ class CargaRecepcionApplication:
 
     @staticmethod
     def cerrar_recepcion(recepcion_id: int) -> CloseRecepcionOut:
-        with session_scope() as s:
-            RecepcionService.cerrar_recepcion(s, recepcion_id=recepcion_id)
-            return CloseRecepcionOut(recepcion_id=recepcion_id, estado_recepcion_id=2)
+        RecepcionService.cerrar_recepcion(recepcion_id)
+        return CloseRecepcionOut(recepcion_id=recepcion_id, estado_recepcion_id=2)
 
     @staticmethod
     def list_fechas_descargadas(*, recepcion_id: int):
-        with session_scope() as s:
-            return ArchivoService.list_fechas(s, recepcion_id=recepcion_id)
+        return ArchivoService.list_fechas(recepcion_id)

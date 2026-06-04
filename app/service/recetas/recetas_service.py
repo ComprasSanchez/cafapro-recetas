@@ -1,312 +1,116 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date
 
-from sqlalchemy import delete, select
-from sqlalchemy.orm import Session
+import httpx
 
-from app.db.models import Recetas, Asociacion, Troqueles, Archivo, Debitos
-from app.db.session import session_scope
-from app.infra.storage import s3_storage
+from app.config.settings import settings
+
+
+def _url(path: str = "") -> str:
+    return f"{settings.API_CAFAPRO.rstrip('/')}/recetas{path}"
 
 
 class RecetaService:
-    ESTADO_SEGUIMIENTO_PROCESADA = 6
-    ESTADO_RECETA_REVISION = 3
-
-    def get_or_create_receta(
-        self,
-        s: Session,
+    @staticmethod
+    def upsert_receta(
         recepcion_id: int,
+        archivo_id: int,
         nro_receta: str,
         usuario_id: int | None,
         ubicacion_frente: str | None,
         ubicacion_dorso: str | None,
-    ) -> Recetas:
-        receta = (
-            s.execute(
-                select(Recetas)
-                .where(
-                    Recetas.recepcion_id == int(recepcion_id),
-                    Recetas.nro_receta == str(nro_receta),
-                    Recetas.vigente.is_(True),
-                )
-                .limit(1)
-            )
-            .scalars()
-            .first()
-        )
-
-        if not receta:
-            receta = Recetas(
-                recepcion_id=int(recepcion_id),
-                nro_receta=str(nro_receta),
-                ubicacion_frente=ubicacion_frente,
-                ubicacion_dorso=ubicacion_dorso,
-                fecha_prescripcion=None,
-                estado_seguimiento_id=self.ESTADO_SEGUIMIENTO_PROCESADA,
-                observacion=None,
-                usuario_id=usuario_id,  # si tu DB lo permite None, ok
-                vigente=True,
-            )
-            s.add(receta)
-            s.flush()
-        else:
-            # actualizo SOLO la vigente
-            receta.estado_seguimiento_id = self.ESTADO_SEGUIMIENTO_PROCESADA
-            receta.ubicacion_frente = ubicacion_frente
-            receta.ubicacion_dorso = ubicacion_dorso
-
-        return receta
-
-    @staticmethod
-    def ensure_asociacion(s: Session, receta_id: int, archivo_id: int) -> bool:
-        existe = (
-            s.execute(
-                select(Asociacion)
-                .where(
-                    Asociacion.receta_id == int(receta_id),
-                    Asociacion.archivo_id == int(archivo_id),
-                )
-                .limit(1)
-            )
-            .scalars()
-            .first()
-        )
-
-        if existe:
-            return False
-
-        s.add(Asociacion(receta_id=int(receta_id), archivo_id=int(archivo_id), vigente=True))
-        return True
-
-    @staticmethod
-    def add_troqueles(s: Session, receta_id: int, troqueles: list[str]) -> int:
-        """Inserta troqueles. Devuelve cuántos insertó."""
-        inserted = 0
-        for codigo in troqueles:
-            codigo = str(codigo).strip()
-            if not codigo:
-                continue
-            s.add(
-                Troqueles(
-                    receta_id=int(receta_id),
-                    codigo_barra=codigo,
-                    monto=0,       # placeholder por ahora
-                    cantidad=1,    # placeholder
-                    estado="OK",   # placeholder
-                )
-            )
-            inserted += 1
-        return inserted
-
-    @staticmethod
-    def attach_archivo_to_recepcion(archivo: Archivo, recepcion_id: int) -> None:
-        archivo.recepcion_id = int(recepcion_id)
+        troqueles: list[str],
+    ) -> tuple[int, bool]:
+        payload = {
+            "recepcionId": int(recepcion_id),
+            "archivoId": int(archivo_id),
+            "nroReceta": str(nro_receta),
+            "usuarioId": usuario_id,
+            "ubicacionFrente": ubicacion_frente,
+            "ubicacionDorso": ubicacion_dorso,
+            "troqueles": [str(t).strip() for t in troqueles if str(t).strip()],
+        }
+        resp = httpx.post(_url("/upsert"), json=payload, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+        return int(data["recetaId"]), bool(data["created"])
 
     @staticmethod
     def update_auditoria(
-            session: Session,
-            receta_id: int,
-            vendedor_id: int | None,
-            estado_seguimiento_id: int | None,
-            fecha_prescripcion: date | None,
-            fecha_emision: date,
-            fecha_venta: date,
-            estado_receta_id: int = 1,
-            usuario_id: int | None = None,
+        receta_id: int,
+        vendedor_id: int | None,
+        estado_seguimiento_id: int | None,
+        fecha_prescripcion: date | None,
+        fecha_emision: date | None,
+        fecha_venta: date,
+        estado_receta_id: int = 1,
+        usuario_id: int | None = None,
+        debitos: list[dict] | None = None,
     ) -> None:
-        r = session.get(Recetas, int(receta_id))
-        if not r:
+        payload: dict = {"fechaVenta": fecha_venta.isoformat()}
+        if vendedor_id is not None:
+            payload["vendedorId"] = int(vendedor_id)
+        if estado_seguimiento_id is not None:
+            payload["estadoSeguimientoId"] = int(estado_seguimiento_id)
+        if fecha_prescripcion is not None:
+            payload["fechaPrescripcion"] = fecha_prescripcion.isoformat()
+        if fecha_emision is not None:
+            payload["fechaEmision"] = fecha_emision.isoformat()
+        if usuario_id is not None:
+            payload["usuarioId"] = int(usuario_id)
+        if debitos is not None:
+            payload["debitos"] = debitos
+        resp = httpx.patch(_url(f"/{int(receta_id)}/finalizar-auditoria"), json=payload, timeout=15)
+        if resp.status_code == 404:
             raise ValueError(f"Receta {receta_id} no existe")
-
-        r.vendedor_id = vendedor_id
-        r.estado_seguimiento_id = estado_seguimiento_id
-        r.estado_receta_id = int(estado_receta_id)
-
-        # Prescripción: editable pero NO obligatoria
-        r.fecha_prescripcion = fecha_prescripcion
-
-        # Nuevas: obligatorias por validación del dialog
-        r.fecha_emision = fecha_emision
-        r.fecha_venta = fecha_venta
-
-        r.usuario_id = usuario_id
-        r.creado_en = datetime.now()
+        resp.raise_for_status()
 
     @staticmethod
     def update_estado_seguimiento(receta_id: int, estado_seguimiento_id: int | None) -> None:
-        """Actualiza el estado de seguimiento en la receta."""
-        with session_scope() as s:
-            rec = (
-                s.query(Recetas)
-                .filter(Recetas.receta_id == int(receta_id))
-                .one_or_none()
-            )
-            if rec is None:
-                raise ValueError(f"No existe receta_id={receta_id}")
-
-            rec.estado_seguimiento_id = estado_seguimiento_id
-
-    @staticmethod
-    def anular_receta(s: Session, receta_id: int, nro_receta: str):
-
-        receta = s.get(Recetas, receta_id)
-
-        if not receta:
-            raise RuntimeError("Receta no encontrada")
-
-        # actualizar numero receta
-        receta.nro_receta = nro_receta
-
-        # estado ANULADA
-        receta.estado_receta_id = 4
-
-        receta.estado_seguimiento_id = 3
-
-        receta.creado_en = datetime.now()
-
-        # evitar duplicar debito
-        existe = s.execute(
-            select(Debitos.debito_id)
-            .where(
-                Debitos.receta_id == receta_id,
-                Debitos.motivo_debito_id == 24
-            )
-        ).first()
-
-        if not existe:
-            deb = Debitos(
-                receta_id=receta_id,
-                motivo_debito_id=24,
-                detalle="Receta Anulada"
-            )
-            s.add(deb)
-
-    @staticmethod
-    def duplicar_receta(s: Session, receta_id: int, nro_receta: str):
-
-        receta = s.get(Recetas, receta_id)
-
-        if not receta:
-            raise RuntimeError("Receta no encontrada")
-
-        # actualizar numero receta
-        receta.nro_receta = nro_receta
-
-        # estado DUPLICADA
-        receta.estado_receta_id = 5
-
-        receta.estado_seguimiento_id = 3
-
-        receta.creado_en = datetime.now()
-
-        # evitar duplicar debito
-        existe = s.execute(
-            select(Debitos.debito_id)
-            .where(
-                Debitos.receta_id == receta_id,
-                Debitos.motivo_debito_id == 32,
-            )
-        ).first()
-
-        if not existe:
-            deb = Debitos(
-                receta_id=receta_id,
-                motivo_debito_id=32,
-                detalle="RECETA DUPLICADA",
-            )
-            s.add(deb)
-
-    @staticmethod
-    def eliminar_sobrante(
-            s: Session,
-            *,
-            receta_id: int,
-    ) -> None:
-
-        receta = s.get(Recetas, receta_id)
-
-        if not receta:
-            raise RuntimeError("Receta no encontrada")
-
-        if int(getattr(receta, "estado_receta_id", 0) or 0) != RecetaService.ESTADO_RECETA_REVISION:
-            raise RuntimeError("Solo se pueden eliminar recetas en revisión")
-
-        # ---------------------------------
-        # eliminar imágenes S3
-        # ---------------------------------
-
-        if receta.ubicacion_frente:
-            s3_storage.delete_object(receta.ubicacion_frente)
-
-        if receta.ubicacion_dorso:
-            s3_storage.delete_object(receta.ubicacion_dorso)
-
-        # ---------------------------------
-        # eliminar hijos primero (evita FK)
-        # ---------------------------------
-        s.execute(
-            delete(Troqueles).where(Troqueles.receta_id == int(receta_id))
+        resp = httpx.patch(
+            _url(f"/{int(receta_id)}/estado-seguimiento"),
+            json={"estadoSeguimientoId": estado_seguimiento_id},
+            timeout=10,
         )
-        s.execute(
-            delete(Debitos).where(Debitos.receta_id == int(receta_id))
-        )
-        s.execute(
-            delete(Asociacion).where(Asociacion.receta_id == int(receta_id))
-        )
-
-        # ---------------------------------
-        # eliminar receta
-        # ---------------------------------
-
-        s.delete(receta)
-        s.flush()
+        if resp.status_code == 404:
+            raise ValueError(f"No existe receta_id={receta_id}")
+        resp.raise_for_status()
 
     @staticmethod
-    def eliminar_sobrantes_bulk(
-            s: Session,
-            *,
-            receta_ids: list[int],
-    ) -> dict:
-        ids: list[int] = []
-        seen: set[int] = set()
+    def anular_receta(receta_id: int, nro_receta: str) -> None:
+        resp = httpx.patch(
+            _url(f"/{int(receta_id)}/anular"),
+            json={"nroReceta": str(nro_receta)},
+            timeout=10,
+        )
+        if resp.status_code == 404:
+            raise RuntimeError("Receta no encontrada")
+        resp.raise_for_status()
 
-        for raw in receta_ids or []:
-            rid = int(raw or 0)
-            if rid <= 0 or rid in seen:
-                continue
-            seen.add(rid)
-            ids.append(rid)
+    @staticmethod
+    def duplicar_receta(receta_id: int, nro_receta: str) -> None:
+        resp = httpx.patch(
+            _url(f"/{int(receta_id)}/duplicar"),
+            json={"nroReceta": str(nro_receta)},
+            timeout=10,
+        )
+        if resp.status_code == 404:
+            raise RuntimeError("Receta no encontrada")
+        resp.raise_for_status()
 
-        eliminadas = 0
-        omitidas = 0
-        errores: list[dict[str, str | int]] = []
+    @staticmethod
+    def eliminar_sobrante(*, receta_id: int) -> None:
+        resp = httpx.delete(_url(f"/{int(receta_id)}"), timeout=15)
+        if resp.status_code == 404:
+            raise RuntimeError("Receta no encontrada")
+        if resp.status_code == 400:
+            raise RuntimeError(resp.json().get("message", "Solo se pueden eliminar recetas en revisión"))
+        resp.raise_for_status()
 
-        for rid in ids:
-            try:
-                rec = s.get(Recetas, int(rid))
-                if not rec:
-                    omitidas += 1
-                    continue
-
-                estado_id = int(getattr(rec, "estado_receta_id", 0) or 0)
-                if estado_id != RecetaService.ESTADO_RECETA_REVISION:
-                    omitidas += 1
-                    continue
-
-                with s.begin_nested():
-                    RecetaService.eliminar_sobrante(s, receta_id=int(rid))
-                eliminadas += 1
-            except Exception as e:
-                errores.append({"receta_id": int(rid), "error": str(e)})
-
-        return {
-            "total": len(ids),
-            "eliminadas": eliminadas,
-            "omitidas": omitidas,
-            "errores": errores,
-        }
-
-
-
+    @staticmethod
+    def eliminar_sobrantes_bulk(*, receta_ids: list[int]) -> dict:
+        ids = list({int(r) for r in (receta_ids or []) if int(r or 0) > 0})
+        resp = httpx.request("DELETE", _url("/bulk"), json={"recetaIds": ids}, timeout=30)
+        resp.raise_for_status()
+        return resp.json()

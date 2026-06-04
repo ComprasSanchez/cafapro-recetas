@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from app.db.session import session_scope
 from app.service.catalogos.obra_social_service import ObraSocialService
 from app.service.catalogos.periodo_service import PeriodoService
 from app.service.catalogos.plan_service import PlanService
@@ -13,122 +12,92 @@ from app.service.catalogos.vendedores_service import VendedoresService
 class CatalogosApplication:
     @staticmethod
     def list_roles() -> list:
-        with session_scope() as s:
-            return RolesService.list(s)
+        return RolesService.list()
 
     @staticmethod
     def create_user(*, username: str, password: str, rol_id: int) -> None:
-        with session_scope() as s:
-            UsuariosService.create(
-                s,
-                username=username,
-                password=password,
-                rol_id=int(rol_id),
-            )
+        UsuariosService.create(username=username, password=password, rol_id=int(rol_id))
 
     @staticmethod
     def list_usuarios() -> list:
-        with session_scope() as s:
-            return UsuariosService.list(s)
+        return UsuariosService.list()
 
     @staticmethod
-    def delete_usuario(*, usuario_id: int) -> None:
-        with session_scope() as s:
-            UsuariosService.delete(s, int(usuario_id))
+    def set_usuario_activo(*, usuario_id: int, activo: bool) -> None:
+        if activo:
+            UsuariosService.restore(int(usuario_id))
+        else:
+            UsuariosService.delete_logico(int(usuario_id))
 
     @staticmethod
     def list_vendedores(*, solo_activos: bool = False) -> list:
-        with session_scope() as s:
-            return VendedoresService.list(s, solo_activos=solo_activos)
+        return VendedoresService.list(solo_activos=solo_activos)
 
     @staticmethod
     def create_vendedor(*, codigo: str, descripcion: str) -> None:
-        with session_scope() as s:
-            VendedoresService.create(
-                s,
-                codigo=codigo,
-                descripcion=descripcion,
-            )
+        VendedoresService.create(codigo=codigo, descripcion=descripcion)
 
     @staticmethod
     def update_vendedor(*, vendedor_id: int, codigo: str, descripcion: str) -> None:
-        with session_scope() as s:
-            VendedoresService.update(
-                s,
-                vendedor_id=int(vendedor_id),
-                codigo=codigo,
-                descripcion=descripcion,
-            )
+        VendedoresService.update(
+            vendedor_id=int(vendedor_id),
+            codigo=codigo,
+            descripcion=descripcion,
+        )
 
     @staticmethod
     def set_vendedor_activo(*, vendedor_id: int, activo: bool) -> None:
-        with session_scope() as s:
-            if activo:
-                VendedoresService.restore(s, int(vendedor_id))
-            else:
-                VendedoresService.delete_logico(s, int(vendedor_id))
+        if activo:
+            VendedoresService.restore(int(vendedor_id))
+        else:
+            VendedoresService.delete_logico(int(vendedor_id))
 
     @staticmethod
     def list_prestadores(*, solo_activos: bool = False) -> list:
-        with session_scope() as s:
-            return PrestadorService.list(s, solo_activos=solo_activos)
+        return PrestadorService.list(solo_activos=solo_activos)
 
     @staticmethod
     def create_prestador(*, codigo: str, nombre: str, imed: str) -> None:
-        with session_scope() as s:
-            PrestadorService.create(
-                s,
-                codigo=codigo,
-                nombre=nombre,
-                imed=imed,
-            )
+        PrestadorService.create(codigo=codigo, nombre=nombre, imed=imed)
 
     @staticmethod
     def update_prestador(*, prestador_id: int, codigo: str, nombre: str, imed: str) -> None:
-        with session_scope() as s:
-            PrestadorService.update(
-                s,
-                prestador_id=int(prestador_id),
-                codigo=codigo,
-                nombre=nombre,
-                imed=imed,
-            )
+        PrestadorService.update(
+            prestador_id=int(prestador_id),
+            codigo=codigo,
+            nombre=nombre,
+            imed=imed,
+        )
 
     @staticmethod
     def set_prestador_activo(*, prestador_id: int, activo: bool) -> None:
-        with session_scope() as s:
-            if activo:
-                PrestadorService.restore(s, int(prestador_id))
-            else:
-                PrestadorService.delete_logico(s, int(prestador_id))
+        if activo:
+            PrestadorService.restore(int(prestador_id))
+        else:
+            PrestadorService.delete_logico(int(prestador_id))
 
     @staticmethod
     def list_periodos(*, solo_activos: bool = False) -> list:
-        with session_scope() as s:
-            return list(PeriodoService.list(s, solo_activos=solo_activos))
+        return PeriodoService.list(solo_activos=solo_activos)
 
     @staticmethod
     def create_periodo(*, anio: int, mes: int, quincena: int) -> None:
-        with session_scope() as s:
-            PeriodoService.create(
-                s,
-                anio=int(anio),
-                mes=int(mes),
-                quincena=int(quincena),
-            )
+        PeriodoService.create(
+            anio=int(anio),
+            mes=int(mes),
+            quincena=int(quincena),
+        )
 
     @staticmethod
     def set_periodo_activo(*, periodo_id: int, activo: bool) -> None:
-        with session_scope() as s:
-            if activo:
-                PeriodoService.restore(s, int(periodo_id))
-            else:
-                PeriodoService.delete_logico(s, int(periodo_id))
+        if activo:
+            PeriodoService.restore(int(periodo_id))
+        else:
+            PeriodoService.delete_logico(int(periodo_id))
 
     @staticmethod
     def list_obras_sociales(*, solo_activas: bool = False) -> list:
-        with session_scope() as s:
-            return ObraSocialService.list(s, solo_activas=solo_activas)
+        return ObraSocialService.list(solo_activas=solo_activas)
 
     @staticmethod
     def create_obra_social(
@@ -139,15 +108,13 @@ class CatalogosApplication:
         dias_vencimiento: int | str | None,
         codigo_financiador: int | str | None,
     ) -> None:
-        with session_scope() as s:
-            ObraSocialService.create(
-                s,
-                codigo=codigo,
-                nombre=nombre,
-                validador=validador,
-                dias_vencimiento=dias_vencimiento,
-                codigo_financiador=codigo_financiador,
-            )
+        ObraSocialService.create(
+            codigo=codigo,
+            nombre=nombre,
+            validador=validador,
+            dias_vencimiento=dias_vencimiento,
+            codigo_financiador=codigo_financiador,
+        )
 
     @staticmethod
     def update_obra_social(
@@ -159,55 +126,42 @@ class CatalogosApplication:
         dias_vencimiento: int | str | None,
         codigo_financiador: int | str | None,
     ) -> None:
-        with session_scope() as s:
-            ObraSocialService.update(
-                s,
-                obra_social_id=int(obra_social_id),
-                codigo=codigo,
-                nombre=nombre,
-                validador=validador,
-                dias_vencimiento=dias_vencimiento,
-                codigo_financiador=codigo_financiador,
-            )
+        ObraSocialService.update(
+            obra_social_id=int(obra_social_id),
+            codigo=codigo,
+            nombre=nombre,
+            validador=validador,
+            dias_vencimiento=dias_vencimiento,
+            codigo_financiador=codigo_financiador,
+        )
 
     @staticmethod
     def set_obra_social_activa(*, obra_social_id: int, activo: bool) -> None:
-        with session_scope() as s:
-            if activo:
-                ObraSocialService.restore(s, int(obra_social_id))
-            else:
-                ObraSocialService.delete_logico(s, int(obra_social_id))
+        if activo:
+            ObraSocialService.restore(int(obra_social_id))
+        else:
+            ObraSocialService.delete_logico(int(obra_social_id))
 
     @staticmethod
     def list_planes(*, solo_activos: bool = False) -> list:
-        with session_scope() as s:
-            return PlanService.list(s, solo_activos=solo_activos)
+        return PlanService.list(solo_activos=solo_activos)
 
     @staticmethod
     def create_plan(*, obra_social_id: int, codigo: str | None, nombre: str | None) -> None:
-        with session_scope() as s:
-            PlanService.create(
-                s,
-                obra_social_id=int(obra_social_id),
-                codigo=codigo,
-                nombre=nombre,
-            )
+        PlanService.create(obra_social_id=int(obra_social_id), codigo=codigo, nombre=nombre)
 
     @staticmethod
     def update_plan(*, plan_id: int, obra_social_id: int, codigo: str | None, nombre: str | None) -> None:
-        with session_scope() as s:
-            PlanService.update(
-                s,
-                plan_id=int(plan_id),
-                obra_social_id=int(obra_social_id),
-                codigo=codigo,
-                nombre=nombre,
-            )
+        PlanService.update(
+            plan_id=int(plan_id),
+            obra_social_id=int(obra_social_id),
+            codigo=codigo,
+            nombre=nombre,
+        )
 
     @staticmethod
     def set_plan_activo(*, plan_id: int, activo: bool) -> None:
-        with session_scope() as s:
-            if activo:
-                PlanService.restore(s, int(plan_id))
-            else:
-                PlanService.delete_logico(s, int(plan_id))
+        if activo:
+            PlanService.restore(int(plan_id))
+        else:
+            PlanService.delete_logico(int(plan_id))

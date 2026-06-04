@@ -1,54 +1,83 @@
 from __future__ import annotations
 
-from typing import Any, Sequence
+from dataclasses import dataclass
+from typing import Optional
 
-from sqlalchemy import select, Row, RowMapping
-from sqlalchemy.orm import Session
+import httpx
 
-from app.db.view import VwArchivoResumenAuditoria
+from app.config.settings import settings
+
+
+@dataclass(frozen=True)
+class AuditoriaRow:
+    row_id: int
+    archivo_id: Optional[int]
+    asociacion_id: Optional[int]
+    receta_id: Optional[int]
+    recepcion_id: Optional[int]
+    numero_receta: Optional[str]
+    numero_referencia: Optional[str]
+    nro_lote: Optional[int]
+    existe_archivo: bool
+    existe_receta: bool
+    importe_reconocido: object
+    importe_oficial: object
+    estado_receta_id: Optional[int]
+    estado_receta: Optional[str]
+    frente_jpg: Optional[str]
+    flag_debitos: bool
+    tiene_asoc_en_esta_recepcion: bool
+    tiene_asoc_en_otra_recepcion: bool
+
+
+def _base(recepcion_id: int) -> str:
+    return f"{settings.API_CAFAPRO.rstrip('/')}/recepciones/{recepcion_id}"
+
+
+def _to_row(r: dict) -> AuditoriaRow:
+    return AuditoriaRow(
+        row_id=r.get("rowId") or 0,
+        archivo_id=r.get("archivoId"),
+        asociacion_id=r.get("asociacionId"),
+        receta_id=r.get("recetaId"),
+        recepcion_id=r.get("recepcionId"),
+        numero_receta=r.get("numeroReceta"),
+        numero_referencia=r.get("numeroReferencia"),
+        nro_lote=r.get("nroLote"),
+        existe_archivo=bool(r.get("existeArchivo", False)),
+        existe_receta=bool(r.get("existeReceta", False)),
+        importe_reconocido=r.get("importeReconocido") or 0,
+        importe_oficial=r.get("importeOficial") or 0,
+        estado_receta_id=r.get("estadoRecetaId"),
+        estado_receta=r.get("estadoReceta"),
+        frente_jpg=r.get("frenteJpg"),
+        flag_debitos=bool(r.get("flagDebitos", False)),
+        tiene_asoc_en_esta_recepcion=bool(r.get("tieneAsocEnEstaRecepcion", False)),
+        tiene_asoc_en_otra_recepcion=bool(r.get("tieneAsocEnOtraRecepcion", False)),
+    )
 
 
 class ViewAuditoriaService:
     @staticmethod
-    def list(s: Session, recepcion_id: int) -> Sequence[VwArchivoResumenAuditoria]:
-        stmt = (
-            select(VwArchivoResumenAuditoria)
-            .where(VwArchivoResumenAuditoria.recepcion_id == recepcion_id)
-            .order_by(VwArchivoResumenAuditoria.frente_jpg.asc())
-        )
-        return s.execute(stmt).scalars().all()
+    def list(recepcion_id: int) -> list[AuditoriaRow]:
+        resp = httpx.get(f"{_base(recepcion_id)}/auditoria", timeout=30)
+        if resp.status_code == 404:
+            return []
+        resp.raise_for_status()
+        return [_to_row(r) for r in resp.json()]
 
     @staticmethod
-    def list_sin_asociacion(
-            s: Session,
-            recepcion_id: int,
-    ):
-        rows = s.execute(
-            select(VwArchivoResumenAuditoria)
-            .where(
-                VwArchivoResumenAuditoria.recepcion_id == recepcion_id,
-                VwArchivoResumenAuditoria.existe_archivo.is_(True),
-                VwArchivoResumenAuditoria.asociacion_id.is_(None),
-            )
-            .order_by(VwArchivoResumenAuditoria.numero_referencia)
-        ).scalars().all()
-
-        return rows
+    def list_sin_asociacion(recepcion_id: int) -> list[AuditoriaRow]:
+        resp = httpx.get(f"{_base(recepcion_id)}/archivos-sin-asociacion", timeout=15)
+        if resp.status_code == 404:
+            return []
+        resp.raise_for_status()
+        return [_to_row(r) for r in resp.json()]
 
     @staticmethod
-    def list_archivos_reasociables(
-            s: Session,
-            recepcion_id: int,
-    ):
-        rows = s.execute(
-            select(VwArchivoResumenAuditoria)
-            .where(
-                VwArchivoResumenAuditoria.recepcion_id == recepcion_id,
-                VwArchivoResumenAuditoria.asociacion_id.is_not(None),
-                VwArchivoResumenAuditoria.estado_receta_id == 1,
-            )
-            .order_by(VwArchivoResumenAuditoria.numero_referencia)
-        ).scalars().all()
-
-        return rows
-
+    def list_archivos_reasociables(recepcion_id: int) -> list[AuditoriaRow]:
+        resp = httpx.get(f"{_base(recepcion_id)}/archivos-reasociables", timeout=15)
+        if resp.status_code == 404:
+            return []
+        resp.raise_for_status()
+        return [_to_row(r) for r in resp.json()]

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from app.db.session import session_scope
 from app.service.debitos.motivos_debito_service import MotivosDebitosService
 from app.service.debitos.view_debitos import ViewDebitos
 from app.service.recetas.estado_seguimiento_service import EstadoSeguimientoService
@@ -10,28 +9,19 @@ from app.service.recetas.recetas_service import RecetaService
 class DebitosApplication:
     @staticmethod
     def list_motivos() -> list:
-        with session_scope() as s:
-            return MotivosDebitosService.list(s)
+        return MotivosDebitosService.list()
 
     @staticmethod
     def create_motivo(*, descripcion: str, lado: str) -> None:
-        with session_scope() as s:
-            MotivosDebitosService.create(
-                s,
-                descripcion=descripcion,
-                lado=lado,
-            )
+        MotivosDebitosService.create(descripcion=descripcion, lado=lado)
 
     @staticmethod
     def toggle_motivo_activo(*, motivo_id: int) -> None:
-        with session_scope() as s:
-            MotivosDebitosService.toggle_activo(s, int(motivo_id))
+        MotivosDebitosService.toggle_activo(int(motivo_id))
 
     @staticmethod
     def load_estados() -> list[tuple[int, str]]:
-        with session_scope() as s:
-            rows = EstadoSeguimientoService.list(s)
-
+        rows = EstadoSeguimientoService.list()
         return [(int(r.estado_seguimiento_id), str(r.descripcion)) for r in rows]
 
     @staticmethod

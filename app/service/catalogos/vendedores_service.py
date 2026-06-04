@@ -1,16 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
 
-from app.db.models import Vendedores
+import httpx
+
+from app.config.settings import settings
 
 
-# =========================
-# DTO
-# =========================
 @dataclass(frozen=True)
 class VendedorItem:
     vendedor_id: int
@@ -19,149 +15,81 @@ class VendedorItem:
     activo: bool
 
 
-# =========================
-# SERVICE
-# =========================
+def _url(path: str = "") -> str:
+    return f"{settings.API_CAFAPRO.rstrip('/')}/vendedores{path}"
+
+
+def _to_item(v: dict) -> VendedorItem:
+    return VendedorItem(
+        vendedor_id=v["vendedorId"],
+        codigo=v["codigo"] or "",
+        descripcion=v["descripcion"] or "",
+        activo=bool(v["activo"]),
+    )
+
+
 class VendedoresService:
-    # ---------------------
-    # LIST
-    # ---------------------
     @staticmethod
-    def list(session: Session, *, solo_activos: bool = False) -> list[VendedorItem]:
-        stmt = select(
-            Vendedores.vendedor_id,
-            Vendedores.codigo,
-            Vendedores.descripcion,
-            Vendedores.activo,
-        )
-
+    def list(*, solo_activos: bool = False) -> list[VendedorItem]:
+        resp = httpx.get(_url(), timeout=10)
+        resp.raise_for_status()
+        items = [_to_item(v) for v in resp.json()]
         if solo_activos:
-            stmt = stmt.where(Vendedores.activo.is_(True))
+            items = [i for i in items if i.activo]
+        return items
 
-        stmt = stmt.order_by(Vendedores.descripcion.asc())
-
-        rows = session.execute(stmt).all()
-        return [
-            VendedorItem(
-                vendedor_id=r[0],
-                codigo=r[1],
-                descripcion=r[2],
-                activo=bool(r[3]),
-            )
-            for r in rows
-        ]
-
-    # ---------------------
-    # GET
-    # ---------------------
     @staticmethod
-    def get(session: Session, vendedor_id: int) -> Vendedores | None:
-        return session.get(Vendedores, int(vendedor_id))
+    def get(vendedor_id: int) -> VendedorItem | None:
+        resp = httpx.get(_url(f"/{vendedor_id}"), timeout=10)
+        if resp.status_code == 404:
+            return None
+        resp.raise_for_status()
+        return _to_item(resp.json())
 
-    # ---------------------
-    # CREATE
-    # ---------------------
     @staticmethod
-    def create(
-        session: Session,
-        *,
-        codigo: str,
-        descripcion: str,
-    ) -> Vendedores:
+    def create(*, codigo: str, descripcion: str | None = None) -> None:
         codigo = (codigo or "").strip()
-        descripcion = (descripcion or "").strip()
+        descripcion_clean = (descripcion or "").strip() or None
 
         if not codigo:
             raise ValueError("El código es obligatorio.")
-        if not descripcion:
-            raise ValueError("La descripción es obligatoria.")
 
-        existe = session.execute(
-            select(Vendedores.vendedor_id)
-            .where(Vendedores.codigo == codigo)
-            .limit(1)
-        ).scalar_one_or_none()
+        payload: dict = {"codigo": codigo}
+        if descripcion_clean is not None:
+            payload["descripcion"] = descripcion_clean
 
-        if existe:
+        resp = httpx.post(_url(), json=payload, timeout=10)
+        if resp.status_code == 409:
             raise ValueError(f"Ya existe un vendedor con código '{codigo}'.")
+        resp.raise_for_status()
 
-        v = Vendedores(
-            codigo=codigo,
-            descripcion=descripcion,
-            activo=True,
-        )
-        session.add(v)
-
-        try:
-            session.flush()
-            session.refresh(v)
-        except IntegrityError as e:
-            raise ValueError("No se pudo crear el vendedor (código duplicado).") from e
-
-        return v
-
-    # ---------------------
-    # UPDATE
-    # ---------------------
     @staticmethod
-    def update(
-        session: Session,
-        *,
-        vendedor_id: int,
-        codigo: str,
-        descripcion: str,
-    ) -> None:
-        v = session.get(Vendedores, int(vendedor_id))
-        if not v:
-            raise ValueError(f"No existe vendedor_id={vendedor_id}")
-
+    def update(*, vendedor_id: int, codigo: str, descripcion: str | None = None) -> None:
         codigo = (codigo or "").strip()
-        descripcion = (descripcion or "").strip()
+        descripcion_clean = (descripcion or "").strip() or None
 
         if not codigo:
             raise ValueError("El código es obligatorio.")
-        if not descripcion:
-            raise ValueError("La descripción es obligatoria.")
 
-        existe = session.execute(
-            select(Vendedores.vendedor_id)
-            .where(
-                Vendedores.codigo == codigo,
-                Vendedores.vendedor_id != int(vendedor_id),
-            )
-            .limit(1)
-        ).scalar_one_or_none()
+        payload: dict = {"codigo": codigo, "descripcion": descripcion_clean}
 
-        if existe:
+        resp = httpx.patch(_url(f"/{vendedor_id}"), json=payload, timeout=10)
+        if resp.status_code == 404:
+            raise ValueError(f"No existe vendedor_id={vendedor_id}")
+        if resp.status_code == 409:
             raise ValueError(f"Ya existe otro vendedor con código '{codigo}'.")
+        resp.raise_for_status()
 
-        v.codigo = codigo
-        v.descripcion = descripcion
-
-        try:
-            session.flush()
-        except IntegrityError as e:
-            raise ValueError("No se pudo actualizar el vendedor.") from e
-
-    # ---------------------
-    # BAJA LÓGICA
-    # ---------------------
     @staticmethod
-    def delete_logico(session: Session, vendedor_id: int) -> None:
-        v = session.get(Vendedores, int(vendedor_id))
-        if not v:
+    def delete_logico(vendedor_id: int) -> None:
+        resp = httpx.patch(_url(f"/{vendedor_id}"), json={"activo": False}, timeout=10)
+        if resp.status_code == 404:
             raise ValueError(f"No existe vendedor_id={vendedor_id}")
+        resp.raise_for_status()
 
-        v.activo = False
-
-    # ---------------------
-    # RESTORE
-    # ---------------------
     @staticmethod
-    def restore(session: Session, vendedor_id: int) -> None:
-        v = session.get(Vendedores, int(vendedor_id))
-        if not v:
+    def restore(vendedor_id: int) -> None:
+        resp = httpx.patch(_url(f"/{vendedor_id}"), json={"activo": True}, timeout=10)
+        if resp.status_code == 404:
             raise ValueError(f"No existe vendedor_id={vendedor_id}")
-
-        v.activo = True
-
+        resp.raise_for_status()

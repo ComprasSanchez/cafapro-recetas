@@ -185,7 +185,7 @@ class MotivosDebitosWindow(QDialog):
             self.tbl.setRowHeight(i, self.ROW_H)
 
             self._set_item(i, 0, r.descripcion)
-            self._set_item(i, 1, r.lado.value)
+            self._set_item(i, 1, r.lado)
 
             activo_txt = "Sí" if r.activo else "No"
             it_activo = QTableWidgetItem(activo_txt)

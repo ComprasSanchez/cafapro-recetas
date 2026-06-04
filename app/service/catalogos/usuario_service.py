@@ -3,11 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+import httpx
 
-from app.db.models import Usuarios, Roles
-from app.security.password_hasher import hash_password
+from app.config.settings import settings
 
 
 @dataclass(frozen=True)
@@ -19,65 +17,51 @@ class UsuarioListItem:
     ultimo_login_en: Optional[object]
 
 
+def _url(path: str = "") -> str:
+    return f"{settings.API_CAFAPRO.rstrip('/')}/usuarios{path}"
+
+
+def _to_item(u: dict) -> UsuarioListItem:
+    return UsuarioListItem(
+        usuario_id=u["usuarioId"],
+        username=u["username"] or "",
+        rol_descripcion=u.get("rolDescripcion") or "",
+        activo=bool(u["activo"]),
+        ultimo_login_en=u.get("ultimoLoginEn"),
+    )
+
+
 class UsuariosService:
     @staticmethod
-    def list(s: Session) -> list[UsuarioListItem]:
-        rows = s.execute(
-            select(
-                Usuarios.usuario_id,
-                Usuarios.username,
-                Roles.descripcion,
-                Usuarios.activo,
-                Usuarios.ultimo_login_en,
-            )
-            .join(Roles, Roles.rol_id == Usuarios.rol_id)
-            .order_by(Usuarios.usuario_id.desc())
-        ).all()
-
-        return [
-            UsuarioListItem(
-                usuario_id=r[0],
-                username=r[1],
-                rol_descripcion=r[2],
-                activo=r[3],
-                ultimo_login_en=r[4],
-            )
-            for r in rows
-        ]
+    def list() -> list[UsuarioListItem]:
+        resp = httpx.get(_url(), timeout=10)
+        resp.raise_for_status()
+        return [_to_item(u) for u in resp.json()]
 
     @staticmethod
-    def username_exists(s: Session, username: str) -> bool:
-        row = s.execute(
-            select(Usuarios.usuario_id).where(Usuarios.username == username.strip())
-        ).first()
-        return row is not None
-
-    @staticmethod
-    def create(s: Session, username: str, password: str, rol_id: int) -> Usuarios:
+    def create(*, username: str, password: str, rol_id: int) -> None:
         username = username.strip()
-
         if not username:
             raise ValueError("Username es obligatorio.")
         if len(password) < 6:
             raise ValueError("La contraseña debe tener al menos 6 caracteres.")
-        if UsuariosService.username_exists(s, username):
+
+        payload = {"username": username, "password": password, "rolId": int(rol_id)}
+        resp = httpx.post(_url(), json=payload, timeout=10)
+        if resp.status_code == 409:
             raise ValueError("Ya existe un usuario con ese username.")
-
-        user = Usuarios(
-            username=username,
-            hash_contrasena=hash_password(password),
-            rol_id=int(rol_id),
-            activo=True,
-        )
-
-        s.add(user)
-        s.flush()        # obtiene usuario_id
-        s.refresh(user)  # refresca campos server_default
-        return user
+        resp.raise_for_status()
 
     @staticmethod
-    def delete(s: Session, usuario_id: int) -> None:
-        user = s.get(Usuarios, usuario_id)
-        if not user:
+    def delete_logico(usuario_id: int) -> None:
+        resp = httpx.patch(_url(f"/{usuario_id}"), json={"activo": False}, timeout=10)
+        if resp.status_code == 404:
             raise ValueError("El usuario no existe.")
-        s.delete(user)
+        resp.raise_for_status()
+
+    @staticmethod
+    def restore(usuario_id: int) -> None:
+        resp = httpx.patch(_url(f"/{usuario_id}"), json={"activo": True}, timeout=10)
+        if resp.status_code == 404:
+            raise ValueError("El usuario no existe.")
+        resp.raise_for_status()

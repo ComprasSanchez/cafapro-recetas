@@ -8,13 +8,9 @@ from typing import Callable
 
 from core.process_tif import TroquelEstado
 from core.process_tif import TiffProcessor
-from sqlalchemy.orm import Session
-
-from app.db.models import Archivo, ArchivoDetalle
 from app.dto.medicamentos_dto import MedicamentoDTO
-from app.infra.s3_storage import S3Storage
 from app.service.integraciones.medicamento_client import MedicamentoClient
-from app.service.recetas.tif_context import TifRunCache, TifRunContext
+from app.service.recetas.tif_context import ArchivoData, ArchivoDetalleData, TifRunCache, TifRunContext
 from app.service.recetas.tif_logic import (
     archivo_ts,
     build_detalle_context,
@@ -83,7 +79,7 @@ def _normalize_header_token(value: str) -> str:
     return digits or raw
 
 
-def _candidate_archivo_ids(token: str, *, index: dict[str, dict[int, Archivo]]) -> set[int]:
+def _candidate_archivo_ids(token: str, *, index: dict[str, dict[int, ArchivoData]]) -> set[int]:
     ids: set[int] = set()
     for cand in ref_candidates(token):
         for archivo_id in index.get(cand, {}):
@@ -94,7 +90,7 @@ def _candidate_archivo_ids(token: str, *, index: dict[str, dict[int, Archivo]]) 
 def _resolve_unique_from_headers(
     *,
     refs: list[str],
-    index: dict[str, dict[int, Archivo]],
+    index: dict[str, dict[int, ArchivoData]],
 ) -> int | None:
     resolved_ids: set[int] = set()
 
@@ -128,8 +124,8 @@ def _is_ref_matched_to_archivo(
     *,
     ref: str,
     archivo_id: int,
-    ref_index: dict[str, dict[int, Archivo]],
-    receta_index: dict[str, dict[int, Archivo]],
+    ref_index: dict[str, dict[int, ArchivoData]],
+    receta_index: dict[str, dict[int, ArchivoData]],
     only_ref_match: bool,
 ) -> bool:
     ref_ids = _candidate_archivo_ids(ref, index=ref_index)
@@ -148,9 +144,9 @@ def select_work_items(
     scanned: list[_ScannedItem],
     match: _MatchResult,
     only_ref_match: bool,
-    archivo_by_id: dict[int, Archivo],
-    ref_index: dict[str, dict[int, Archivo]],
-    receta_index: dict[str, dict[int, Archivo]],
+    archivo_by_id: dict[int, ArchivoData],
+    ref_index: dict[str, dict[int, ArchivoData]],
+    receta_index: dict[str, dict[int, ArchivoData]],
     receta_vigente_by_archivo_id: dict[int, tuple[int, int | None, int | None]],
     seen_archivo_ids: set[int],
     asociados_vigentes_iniciales: set[int],
@@ -196,7 +192,7 @@ def select_work_items(
             _append_revision_sample(resumen, it=x.it, reason=reason, refs=refs)
             continue
 
-        archivo: Archivo | None = None
+        archivo: ArchivoData | None = None
         archivo_id: int | None = None
         replace_receta_id: int | None = None
 
@@ -338,7 +334,6 @@ class PrecomputeOut:
 @dataclass(frozen=True)
 class ChunkRuntime:
     tif: TiffProcessor
-    storage: S3Storage
     client: MedicamentoClient
     scan_workers: int
     upload_workers: int
@@ -367,8 +362,8 @@ def precompute_render_context(
     work: list[_WorkItem],
     revision_items: list[_ScannedItem],
     headers_render_by_work_id: dict[int, set[str]],
-    archivo_by_id: dict[int, Archivo],
-    detalles_by_archivo: dict[int, list[ArchivoDetalle]],
+    archivo_by_id: dict[int, ArchivoData],
+    detalles_by_archivo: dict[int, list[ArchivoDetalleData]],
     detalle_ctx_by_archivo: dict[int, _DetalleContext] | None,
     revision_reason_by_item_id: dict[int, str],
     fecha_presentacion_dt: datetime,
@@ -480,7 +475,6 @@ def precompute_render_context(
 
 
 def process_scanned_batch(
-    s: Session,
     *,
     scanned: list[_ScannedItem],
     run_ctx: TifRunContext,
@@ -542,13 +536,13 @@ def process_scanned_batch(
         return resumen
 
     db_bundle_started_at = time.perf_counter()
-    archivo_by_id: dict[int, Archivo] = {
+    archivo_by_id: dict[int, ArchivoData] = {
         int(archivo_id): archivo
         for archivo_id in archivo_ids
         for archivo in [run_cache.archivo_by_id.get(int(archivo_id))]
         if archivo is not None
     }
-    detalles_by_archivo: dict[int, list[ArchivoDetalle]] = {
+    detalles_by_archivo: dict[int, list[ArchivoDetalleData]] = {
         int(archivo_id): run_cache.detalles_by_archivo.get(int(archivo_id), [])
         for archivo_id in archivo_ids
         if int(archivo_id) in archivo_by_id
@@ -577,7 +571,6 @@ def process_scanned_batch(
         stage_cb("RENDER+UPLOAD START", 0.0)
     render_upload_started_at = time.perf_counter()
     uploaded, render_elapsed, upload_elapsed = parallel_render_upload(
-        storage=runtime.storage,
         tif=runtime.tif,
         work_items=work + precomputed.revision_work,
         archivo_by_id=archivo_by_id,
@@ -606,7 +599,6 @@ def process_scanned_batch(
         return resumen
 
     resumen.ok += persist_uploaded_chunk(
-        s,
         recepcion_id=run_ctx.recepcion_id,
         usuario_id=int(usuario_id),
         valid_uploaded=valid_uploaded,
@@ -638,7 +630,6 @@ def process_scanned_batch(
 
 
 def process_chunk(
-    s: Session,
     *,
     chunk: list[ProcesarItemIn],
     run_ctx: TifRunContext,
@@ -675,7 +666,6 @@ def process_chunk(
             retried_safe = True
 
     resumen = process_scanned_batch(
-        s,
         scanned=scanned,
         run_ctx=run_ctx,
         run_cache=run_cache,
@@ -740,7 +730,6 @@ def _apply_stats(
 
 
 def process_items_in_chunks(
-    s: Session,
     *,
     items_filtrados: list[ProcesarItemIn],
     run_ctx: TifRunContext,
@@ -769,7 +758,6 @@ def process_items_in_chunks(
     for chunk in _chunks(items_filtrados, int(chunk_size)):
         chunk_started_at = time.perf_counter()
         resumen = process_chunk(
-            s,
             chunk=chunk,
             run_ctx=run_ctx,
             run_cache=run_cache,
@@ -791,7 +779,6 @@ def process_items_in_chunks(
 
         total.merge(resumen)
         processed_items += len(chunk)
-        s.commit()
 
         if on_chunk_processed:
             on_chunk_processed(processed_items, total_items, chunk_elapsed, "CHUNK")
@@ -799,8 +786,6 @@ def process_items_in_chunks(
         pause_ms = max(0, int(chunk_pause_ms))
         if pause_ms > 0 and processed_items < total_items:
             time.sleep(pause_ms / 1000.0)
-
-        s.expunge_all()
 
         del resumen
         del chunk
@@ -820,7 +805,6 @@ def process_items_in_chunks(
 
 
 def process_items_individual_async(
-    s: Session,
     *,
     items_filtrados: list[ProcesarItemIn],
     run_ctx: TifRunContext,
@@ -921,7 +905,6 @@ def process_items_individual_async(
                 _emit_stage("SCAN", scan_elapsed)
 
             resumen_item = process_scanned_batch(
-                s,
                 scanned=scanned_items,
                 run_ctx=run_ctx,
                 run_cache=run_cache,
@@ -946,10 +929,7 @@ def process_items_individual_async(
             total.merge(resumen_item)
             processed_items += 1
 
-            _emit_stage("COMMIT START", 0.0)
-            commit_started_at = time.perf_counter()
-            s.commit()
-            _emit_stage("COMMIT", max(0.0, time.perf_counter() - commit_started_at))
+            _emit_stage("COMMIT", 0.0)
 
             if on_chunk_processed:
                 stage_order = [
@@ -985,8 +965,6 @@ def process_items_individual_async(
             pause_ms = max(0, int(chunk_pause_ms))
             if pause_ms > 0 and processed_items < total_items:
                 time.sleep(pause_ms / 1000.0)
-
-            s.expunge_all()
 
             del resumen_item
             del scanned_items

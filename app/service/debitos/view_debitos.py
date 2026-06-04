@@ -1,15 +1,89 @@
+from __future__ import annotations
+
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import date
+from dataclasses import dataclass
+from datetime import date, datetime
 from pathlib import Path
 import re
-
 import unicodedata
+
+import httpx
 import xlsxwriter
 
-from app.adapters.sqlalchemy.debitos_view_repository import DebitosViewRepository
-from app.db.session import session_scope
-from app.db.view import VwArchivoRecetaDebitos
+from app.config.settings import settings
+
+
+@dataclass
+class DebitoViewRow:
+    receta_id: int
+    recepcion_id: int
+    recepcion_numero: int | None
+    motivo_debito_id: int
+    estado_seguimiento_id: int | None
+    estado_seguimiento: str | None
+    orden_lote: int | None
+    nro_receta: str | None
+    nro_referencia: str | None
+    importe_bruto: str | None
+    importe_cobertura: str | None
+    importe_afiliado: str | None
+    descripcion_debito: str | None
+    detalle: str | None
+    creado_en: datetime | str | None
+    prestador_nombre: str | None
+    obs: str | None
+    vendedor_nombre: str | None
+    auditor_nombre: str | None
+    fecha: str | None
+    hora: str | None
+
+
+def _url_debitos(path: str = "") -> str:
+    return f"{settings.API_CAFAPRO.rstrip('/')}/debitos{path}"
+
+
+def _url_recepciones(path: str = "") -> str:
+    return f"{settings.API_CAFAPRO.rstrip('/')}/recepciones{path}"
+
+
+def _url_recetas(path: str = "") -> str:
+    return f"{settings.API_CAFAPRO.rstrip('/')}/recetas{path}"
+
+
+def _parse_datetime(value: str | None) -> datetime | str | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except Exception:
+        return value
+
+
+def _to_row(d: dict) -> DebitoViewRow:
+    return DebitoViewRow(
+        receta_id=int(d["recetaId"]),
+        recepcion_id=int(d["recepcionId"]),
+        recepcion_numero=d.get("recepcionNumero"),
+        motivo_debito_id=int(d["motivoDebitoId"]),
+        estado_seguimiento_id=d.get("estadoSeguimientoId"),
+        estado_seguimiento=d.get("estadoSeguimiento"),
+        orden_lote=d.get("ordenLote"),
+        nro_receta=d.get("nroReceta"),
+        nro_referencia=d.get("nroReferencia"),
+        importe_bruto=d.get("importeBruto"),
+        importe_cobertura=d.get("importeCobertura"),
+        importe_afiliado=d.get("importeAfiliado"),
+        descripcion_debito=d.get("descripcionDebito"),
+        detalle=d.get("detalle"),
+        creado_en=_parse_datetime(d.get("creadoEn")),
+        prestador_nombre=d.get("prestadorNombre"),
+        obs=d.get("obs"),
+        vendedor_nombre=d.get("vendedorNombre"),
+        auditor_nombre=d.get("auditorNombre"),
+        fecha=d.get("fecha"),
+        hora=d.get("hora"),
+    )
 
 
 class ViewDebitos:
@@ -30,59 +104,61 @@ class ViewDebitos:
 
     @staticmethod
     def list_recepciones() -> list[tuple[int, int]]:
-
-        with session_scope() as s:
-            rows = DebitosViewRepository.list_recepciones(s)
-
+        resp = httpx.get(_url_debitos("/recepciones"), timeout=10)
+        resp.raise_for_status()
         out: list[tuple[int, int]] = []
-
-        for rid, rnum in rows:
-
+        for r in resp.json():
+            rid = r.get("recepcionId")
             if rid is None:
                 continue
-
+            rnum = r.get("recepcionNumero")
             out.append((int(rid), int(rnum) if rnum is not None else 0))
-
         return out
 
     @staticmethod
     def list_debitos(
         recepcion_id: int | None = None,
         fecha_auditoria: date | None = None,
-    ) -> list[VwArchivoRecetaDebitos]:
-
-        with session_scope() as s:
-            return DebitosViewRepository.list_debitos(
-                s,
-                recepcion_id=recepcion_id,
-                fecha_auditoria=fecha_auditoria,
+    ) -> list[DebitoViewRow]:
+        params: dict = {}
+        if recepcion_id is not None:
+            params["recepcionId"] = int(recepcion_id)
+        if fecha_auditoria is not None:
+            params["fechaAuditoria"] = (
+                fecha_auditoria.isoformat()
+                if isinstance(fecha_auditoria, date)
+                else str(fecha_auditoria)
             )
+        resp = httpx.get(_url_debitos(), params=params, timeout=10)
+        resp.raise_for_status()
+        return [_to_row(r) for r in resp.json()]
 
     @staticmethod
     def has_debitos_sin_estado_by_recepcion(*, recepcion_id: int) -> bool:
-        with session_scope() as s:
-            return DebitosViewRepository.has_debitos_sin_estado_by_recepcion(
-                s,
-                recepcion_id=int(recepcion_id),
-            )
+        resp = httpx.get(
+            _url_debitos(f"/recepcion/{int(recepcion_id)}/sin-estado"),
+            timeout=10,
+        )
+        resp.raise_for_status()
+        return bool(resp.json().get("sinEstado", False))
 
     @staticmethod
     def get_periodo_label(recepcion_id: int) -> str:
         if not recepcion_id:
             return "sin-periodo"
-
         try:
-            with session_scope() as s:
-                periodo_parts = DebitosViewRepository.get_periodo_parts(
-                    s,
-                    recepcion_id=int(recepcion_id),
-                )
-
-            if not periodo_parts:
+            resp = httpx.get(
+                _url_recepciones(f"/{int(recepcion_id)}/periodo-parts"),
+                timeout=10,
+            )
+            if resp.status_code == 404:
                 return "sin-periodo"
-
-            anio, mes, quincena = periodo_parts
-            return f"{int(anio):04d}-{int(mes):02d}-q{int(quincena)}"
+            resp.raise_for_status()
+            data = resp.json()
+            anio = int(data["anio"])
+            mes = int(data["mes"])
+            quincena = int(data["quincena"])
+            return f"{anio:04d}-{mes:02d}-q{quincena}"
         except Exception:
             return "sin-periodo"
 
@@ -92,19 +168,19 @@ class ViewDebitos:
         obra_social_id: int,
         anio: int,
         mes: int,
-    ) -> list[VwArchivoRecetaDebitos]:
-        with session_scope() as s:
-            return DebitosViewRepository.list_wrong_debitos_month(
-                s,
-                obra_social_id=int(obra_social_id),
-                anio=int(anio),
-                mes=int(mes),
-            )
+    ) -> list[DebitoViewRow]:
+        resp = httpx.get(
+            _url_debitos("/mal-entrego"),
+            params={"obraSocialId": int(obra_social_id), "anio": int(anio), "mes": int(mes)},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        return [_to_row(r) for r in resp.json()]
 
     @staticmethod
     def export_wrong_debitos_excel(
         *,
-        rows: list[VwArchivoRecetaDebitos],
+        rows: list[DebitoViewRow],
         folder: str,
         obra_social_nombre: str,
         anio: int,
@@ -215,29 +291,38 @@ class ViewDebitos:
         return f"MAL_ENTREGO_{os_slug}_{mes_txt}_{int(anio):04d}.xlsx"
 
     @staticmethod
-    def download_wrong_debitos(rows, folder, s3):
+    def _to_download_url(raw: str) -> str:
+        v = (raw or "").strip()
+        if not v:
+            return ""
+        if v.startswith("http://") or v.startswith("https://"):
+            return v
+        # Normaliza el base igual que _to_cloudfront_url en auditoria_application
+        base = (settings.CLOUDFRONT_BASE_URL or "").strip()
+        base = base.replace("https://", "").replace("http://", "").strip().rstrip("/")
+        if not base:
+            return ""
+        return f"https://{base}/{v.lstrip('/')}"
 
-        receta_ids = {
-            int(r.receta_id)
-            for r in rows
-        }
+    @staticmethod
+    def download_wrong_debitos(rows, folder):
+        receta_ids = {int(r.receta_id) for r in rows}
         rows_by_receta = {r.receta_id: r for r in rows}
 
         if not receta_ids:
             return 0
 
-        with session_scope() as s:
-            recetas = DebitosViewRepository.get_recetas_paths(
-                s,
-                receta_ids=receta_ids,
-            )
+        resp = httpx.post(
+            _url_recetas("/paths"),
+            json={"recetaIds": list(receta_ids)},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        recetas = resp.json()
 
         tasks = []
-
         for r in recetas:
-
-            receta_id = r.receta_id
-
+            receta_id = r["recetaId"]
             row = rows_by_receta.get(receta_id)
             if row is None:
                 continue
@@ -247,67 +332,58 @@ class ViewDebitos:
             nro_receta = getattr(row, "nro_receta", "")
             nro_referencia = getattr(row, "nro_referencia", "")
 
-            if r.ubicacion_frente:
+            if r.get("ubicacionFrente"):
+                url = ViewDebitos._to_download_url(r["ubicacionFrente"])
                 dest = os.path.join(
                     folder,
-                    f"{obs}_{prestador}_{nro_receta}_{nro_referencia}_frente.jpg"
+                    f"{obs}_{prestador}_{nro_receta}_{nro_referencia}_frente.jpg",
                 )
+                if url:
+                    tasks.append((url, dest))
 
-                tasks.append((r.ubicacion_frente, dest))
-
-            if r.ubicacion_dorso:
+            if r.get("ubicacionDorso"):
+                url = ViewDebitos._to_download_url(r["ubicacionDorso"])
                 dest = os.path.join(
                     folder,
-                    f"{obs}_{prestador}_{nro_receta}_{nro_referencia}_dorso.jpg"
+                    f"{obs}_{prestador}_{nro_receta}_{nro_referencia}_dorso.jpg",
                 )
-
-                tasks.append((r.ubicacion_dorso, dest))
+                if url:
+                    tasks.append((url, dest))
 
         total = 0
-
         with ThreadPoolExecutor(max_workers=16) as executor:
-
             futures = [
-                executor.submit(ViewDebitos._download_one, s3, key, dest)
-                for key, dest in tasks
+                executor.submit(ViewDebitos._download_one, url, dest)
+                for url, dest in tasks
             ]
-
             for f in as_completed(futures):
-
                 if f.result():
                     total += 1
 
         return total
 
     @staticmethod
-    def _download_one(s3, key, dest):
-
+    def _download_one(url, dest):
         if os.path.exists(dest):
             return False
-
         try:
-
-            s3.download_file(key, dest)
-
+            resp = httpx.get(url, timeout=30, follow_redirects=True)
+            resp.raise_for_status()
+            with open(dest, "wb") as f:
+                f.write(resp.content)
             return True
-
         except Exception as e:
             print("ERROR DOWNLOAD:", e)
             return False
 
     @staticmethod
     def _sanitize(text: str | None) -> str:
-
         if not text:
             return ""
-
         text = text.lower().strip()
-
         text = unicodedata.normalize("NFD", text)
         text = text.encode("ascii", "ignore").decode("utf-8")
-
         text = text.replace(" ", "_")
-
         return re.sub(r"[^a-z0-9_]", "", text)
 
     @staticmethod
@@ -315,7 +391,6 @@ class ViewDebitos:
         raw = (text or "").strip()
         if not raw:
             return fallback
-
         raw = unicodedata.normalize("NFD", raw)
         raw = raw.encode("ascii", "ignore").decode("utf-8")
         raw = re.sub(r"[^A-Za-z0-9]+", "_", raw).strip("_")

@@ -31,4 +31,9 @@ def fmt_date(value) -> str:
     try:
         return value.strftime("%d/%m/%y")
     except Exception:
+        pass
+    try:
+        from datetime import datetime
+        return datetime.strptime(str(value)[:10], "%Y-%m-%d").strftime("%d/%m/%y")
+    except Exception:
         return ""

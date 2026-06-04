@@ -1,12 +1,12 @@
 from __future__ import annotations
+
 from dataclasses import dataclass
-from datetime import date, timedelta, datetime
+from datetime import date
 from typing import Optional
 
-from sqlalchemy.orm import Session
+import httpx
 
-from app.adapters.sqlalchemy.recepcion_repository import RecepcionRepository
-from app.db.models import Recepcion
+from app.config.settings import settings
 
 
 @dataclass(frozen=True)
@@ -24,6 +24,7 @@ class RecepcionListItem:
     dias_vencimiento: int | None
     codigo_financiador: int | None
 
+
 @dataclass(frozen=True)
 class PrestadorConRecepcionesItem:
     prestador_id: int
@@ -40,157 +41,132 @@ class RecepcionRowItem:
     obra_social: str
     fecha_presentacion: Optional[date]
 
+
+def _url(path: str = "") -> str:
+    return f"{settings.API_CAFAPRO.rstrip('/')}/recepciones{path}"
+
+
+def _to_list_item(r: dict) -> RecepcionListItem:
+    return RecepcionListItem(
+        recepcion_id=r["recepcionId"],
+        numero=int(r["numero"]),
+        obra_social=r.get("obraSocial") or "",
+        periodo=r.get("periodo") or "",
+        prestador=r.get("prestador") or "",
+        estado=r.get("estado") or "",
+        fecha_presentacion=r.get("fechaPresentacion"),
+        creado_en=r.get("creadoEn"),
+        imed=r.get("imed") or "",
+        validador=r.get("validador") or "imed",
+        dias_vencimiento=r.get("diasVencimiento"),
+        codigo_financiador=r.get("codigoFinanciador"),
+    )
+
+
+def _to_row_item(r: dict) -> RecepcionRowItem:
+    return RecepcionRowItem(
+        recepcion_id=r["recepcionId"],
+        numero=int(r["numero"]),
+        obra_social=r.get("obraSocial") or "",
+        fecha_presentacion=r.get("fechaPresentacion"),
+    )
+
+
+def _to_prestador_item(p: dict) -> PrestadorConRecepcionesItem:
+    return PrestadorConRecepcionesItem(
+        prestador_id=p["prestadorId"],
+        nombre=p.get("nombre") or "(sin nombre)",
+        codigo=p.get("codigo") or "",
+        imed=p.get("imed") or "",
+        cantidad_recepciones=int(p.get("cantidadRecepciones") or 0),
+    )
+
+
 class RecepcionService:
     @staticmethod
-    def list_prestadores_con_recepcion(s: Session, *, periodo_id: int) -> list[PrestadorConRecepcionesItem]:
-        rows = RecepcionRepository.list_prestadores_con_recepcion(
-            s,
-            periodo_id=int(periodo_id),
-        )
-
-        out: list[PrestadorConRecepcionesItem] = []
-        for pid, nom, cod, imed, cant in rows:
-            out.append(
-                PrestadorConRecepcionesItem(
-                    prestador_id=pid,
-                    nombre=nom or "(sin nombre)",
-                    codigo=cod or "",
-                    imed=imed or "",
-                    cantidad_recepciones=int(cant or 0),
-                )
-            )
-        return out
+    def list(*, all: bool = True) -> list[RecepcionListItem]:
+        resp = httpx.get(_url(), params={"includeClosed": "true" if all else "false"}, timeout=15)
+        resp.raise_for_status()
+        return [_to_list_item(r) for r in resp.json()]
 
     @staticmethod
-    def list_recepciones(s: Session, *, periodo_id: int, prestador_id: int) -> list[RecepcionRowItem]:
-        rows = RecepcionRepository.list_recepciones_por_periodo_prestador(
-            s,
-            periodo_id=int(periodo_id),
-            prestador_id=int(prestador_id),
-        )
-
-        return [
-            RecepcionRowItem(
-                recepcion_id=r[0],
-                numero=r[1],
-                obra_social=r[2] or "",
-                fecha_presentacion=r[3],
-            )
-            for r in rows
-        ]
+    def get(recepcion_id: int) -> RecepcionListItem | None:
+        resp = httpx.get(_url(f"/{recepcion_id}"), timeout=15)
+        if resp.status_code == 404:
+            return None
+        resp.raise_for_status()
+        return _to_list_item(resp.json())
 
     @staticmethod
-    def list(s: Session, *, all: bool = True) -> list[RecepcionListItem]:
-        rows = RecepcionRepository.list_with_details(s, include_closed=all)
-        out: list[RecepcionListItem] = []
-        for r in rows:
-            (rid, numero, os_nombre, anio, mes, quin, pres_cod, pres_nom,
-             estado, fecha_rec, creado_en, imed, validador, dias_vencimiento, codigo_financiador) = r
-            periodo_txt = f"{anio}-{mes:02d} Q{quin}"
-            prestador_txt = f"{pres_nom or ''}"
-            out.append(
-                RecepcionListItem(
-                    recepcion_id=rid,
-                    numero=numero,
-                    obra_social=os_nombre or "",
-                    periodo=periodo_txt,
-                    prestador=prestador_txt,
-                    estado=estado or "",
-                    fecha_presentacion=fecha_rec,
-                    creado_en=creado_en,
-                    imed=imed or "",
-                    validador=(validador or "imed"),
-                    dias_vencimiento=(int(dias_vencimiento) if dias_vencimiento is not None else None),
-                    codigo_financiador=(int(codigo_financiador) if codigo_financiador is not None else None),
-                )
-            )
-        return out
+    def list_recepciones(*, periodo_id: int, prestador_id: int) -> list[RecepcionRowItem]:
+        resp = httpx.get(
+            _url("/lista"),
+            params={"periodoId": int(periodo_id), "prestadorId": int(prestador_id)},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        return [_to_row_item(r) for r in resp.json()]
+
+    @staticmethod
+    def list_prestadores_con_recepcion(*, periodo_id: int) -> list[PrestadorConRecepcionesItem]:
+        resp = httpx.get(
+            _url("/prestadores-con-recepcion"),
+            params={"periodoId": int(periodo_id)},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        return [_to_prestador_item(p) for p in resp.json()]
+
+    @staticmethod
+    def has_debitos_sin_estado(recepcion_id: int) -> bool:
+        resp = httpx.get(_url(f"/{recepcion_id}/has-debitos-sin-estado"), timeout=15)
+        if resp.status_code == 404:
+            raise ValueError(f"No existe la recepción {recepcion_id}")
+        resp.raise_for_status()
+        return bool(resp.json().get("hasSinEstado", False))
 
     @staticmethod
     def create(
-            s: Session,
-            obra_social_id: int,
-            periodo_id: int,
-            prestador_id: int,
-            estado_recepcion_id: int,
-            fecha_presentacion,
-            observaciones: str | None = None,
-            creado_por_usuario_id: int | None = None,
-    ) -> Recepcion:
-
-        if not estado_recepcion_id:
-            raise ValueError("estado_recepcion es obligatorio.")
-
-        if RecepcionRepository.exists_open_by_obra_prestador(
-            s,
-            obra_social_id=int(obra_social_id),
-            prestador_id=int(prestador_id),
-        ):
-            raise RuntimeError(
-                "Tiene un período anterior sin cerrar."
-            )
-
-        if RecepcionRepository.exists_same_scope(
-            s,
-            obra_social_id=int(obra_social_id),
-            periodo_id=int(periodo_id),
-            prestador_id=int(prestador_id),
-        ):
-            raise RuntimeError(
-                "Ya existe una recepción para esta obra social, período y prestador."
-            )
-
-        return RecepcionRepository.create(
-            s,
-            obra_social_id=int(obra_social_id),
-            periodo_id=int(periodo_id),
-            prestador_id=int(prestador_id),
-            estado_recepcion_id=int(estado_recepcion_id),
-            fecha_presentacion=fecha_presentacion,
-            observaciones=observaciones,
-            creado_por_usuario_id=creado_por_usuario_id,
-        )
+        *,
+        obra_social_id: int,
+        periodo_id: int,
+        prestador_id: int,
+        estado_recepcion_id: int,
+        fecha_presentacion,
+        observaciones: str | None = None,
+        creado_por_usuario_id: int | None = None,
+    ) -> RecepcionListItem:
+        payload = {
+            "obraSocialId": int(obra_social_id),
+            "periodoId": int(periodo_id),
+            "prestadorId": int(prestador_id),
+            "estadoRecepcionId": int(estado_recepcion_id),
+            "fechaPresentacion": (
+                fecha_presentacion.isoformat()
+                if hasattr(fecha_presentacion, "isoformat")
+                else str(fecha_presentacion)
+            ),
+            "observaciones": observaciones,
+            "creadoPorUsuarioId": creado_por_usuario_id,
+        }
+        resp = httpx.post(_url(), json=payload, timeout=15)
+        if resp.status_code == 409:
+            raise RuntimeError(resp.json().get("message", "Conflicto al crear recepción."))
+        if resp.status_code == 404:
+            raise RuntimeError(resp.json().get("message", "Referencia no encontrada."))
+        resp.raise_for_status()
+        return _to_list_item(resp.json())
 
     @staticmethod
-    def delete(s: Session, recepcion_id: int) -> None:
-        rec = RecepcionRepository.get(s, recepcion_id=int(recepcion_id))
-        if not rec:
+    def delete(recepcion_id: int) -> None:
+        resp = httpx.delete(_url(f"/{recepcion_id}"), timeout=15)
+        if resp.status_code == 404:
             raise ValueError("La recepción no existe.")
-        s.delete(rec)
-
+        resp.raise_for_status()
 
     @staticmethod
-    def cerrar_recepcion(s: Session, recepcion_id: int) -> None:
-        row = RecepcionRepository.get_cierre_context(s, recepcion_id=int(recepcion_id))
-        if not row:
+    def cerrar_recepcion(recepcion_id: int) -> None:
+        resp = httpx.patch(_url(f"/{recepcion_id}/cerrar"), timeout=15)
+        if resp.status_code == 404:
             raise RuntimeError(f"No existe la recepción {recepcion_id}")
-
-        rec, dias_vencimiento = row
-        dias_venc = int(dias_vencimiento) if dias_vencimiento is not None else None
-        fecha_presentacion = rec.fecha_presentacion
-        cutoff = None
-        if dias_venc is not None and isinstance(fecha_presentacion, datetime):
-            cutoff = fecha_presentacion - timedelta(days=dias_venc)
-
-        archivos_sin_asoc = RecepcionRepository.list_archivos_sin_asociacion(
-            s,
-            recepcion_id=int(recepcion_id),
-        )
-
-        for a in archivos_sin_asoc:
-            archivo_fecha = a.fecha
-            archivo_hora = a.hora
-            if archivo_fecha is None or archivo_hora is None:
-                continue
-
-            if isinstance(archivo_fecha, datetime):
-                archivo_fecha = archivo_fecha.date()
-            if isinstance(archivo_hora, datetime):
-                archivo_hora = archivo_hora.time()
-
-            archivo_ts = datetime.fromisoformat(f"{archivo_fecha} {archivo_hora}")
-            if cutoff is not None and archivo_ts < cutoff:
-                a.vencido = True
-
-        rec.estado_recepcion_id = 2
-        s.flush()
+        resp.raise_for_status()

@@ -50,7 +50,22 @@ def build_finalizar_payload(
         )
 
     fecha_autorizacion = getattr(getattr(data, "archivo", None), "fecha", None)
-    if fecha_autorizacion and fecha_venta and fecha_autorizacion != fecha_venta:
+    def _to_date(v):
+        if isinstance(v, date):
+            return v
+        if v is None:
+            return None
+        s = str(v).strip()
+        for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d/%m/%y"):
+            try:
+                from datetime import datetime
+                return datetime.strptime(s[:10], fmt).date()
+            except ValueError:
+                continue
+        return None
+    fa = _to_date(fecha_autorizacion)
+    fv = _to_date(fecha_venta)
+    if fa and fv and fa != fv:
         return None, FinalizarValidationError(
             level="warning",
             title="Fechas no coinciden",

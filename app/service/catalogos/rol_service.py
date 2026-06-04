@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from sqlalchemy import select
-from sqlalchemy.orm import Session
 
-from app.db.models import Roles
+import httpx
+
+from app.config.settings import settings
 
 
 @dataclass(frozen=True)
@@ -13,10 +13,20 @@ class RolListItem:
     descripcion: str
 
 
+def _url(path: str = "") -> str:
+    return f"{settings.API_CAFAPRO.rstrip('/')}/roles{path}"
+
+
+def _to_item(r: dict) -> RolListItem:
+    return RolListItem(
+        rol_id=r["rolId"],
+        descripcion=r["descripcion"] or "",
+    )
+
+
 class RolesService:
     @staticmethod
-    def list(s: Session) -> list[RolListItem]:
-        rows = s.execute(
-            select(Roles.rol_id, Roles.descripcion).order_by(Roles.descripcion)
-        ).all()
-        return [RolListItem(rol_id=r[0], descripcion=r[1]) for r in rows]
+    def list() -> list[RolListItem]:
+        resp = httpx.get(_url(), timeout=10)
+        resp.raise_for_status()
+        return [_to_item(r) for r in resp.json()]

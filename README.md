@@ -8,7 +8,7 @@ Sistema de gestión y auditoría de recetas médicas.
 
 **Desktop** - PySide6 - PyInstaller - Inno Setup
 
-**Backend / Datos** - SQLAlchemy - Alembic - PostgreSQL - API de
+**Backend / Datos** - cafapro-updates-api (NestJS) - PostgreSQL - API de
 versionado (NestJS)
 
 **Infraestructura** - AWS S3 - CloudFront - Railway
@@ -76,23 +76,10 @@ Modificar:
 
 ------------------------------------------------------------------------
 
-## 3️⃣ Migraciones de Base de Datos (si corresponde)
+## 3️⃣ Migraciones de Base de Datos
 
-Si hubo cambios en modelos SQLAlchemy:
-
-### Generar migración
-
-    py -m alembic revision --autogenerate -m "descripcion"
-
-### Probar en desarrollo
-
-    alembic -x env=dev upgrade head
-
-### Probar en producción
-
-    alembic -x env=prod upgrade head
-
-⚠ Nunca publicar una versión si las migraciones fallan.
+Los cambios de schema son responsabilidad de **cafapro-updates-api** (NestJS + TypeORM).
+No hay migraciones Alembic desde v4.0.0.
 
 ------------------------------------------------------------------------
 
@@ -169,8 +156,6 @@ El endpoint `/app/version` debe devolver:
 
 -   [ ] Cambiar APP_VERSION
 -   [ ] Cambiar AppVersion en Inno
--   [ ] Generar migraciones (si aplica)
--   [ ] Probar migraciones
 -   [ ] Rebuild PyInstaller
 -   [ ] Generar instalador
 -   [ ] Subir a S3
@@ -195,7 +180,7 @@ El endpoint `/app/version` debe devolver:
 -   No reutilizar números de versión.
 -   No sobrescribir releases anteriores.
 -   Probar actualización real antes de publicar.
--   Validar migraciones antes de publicar.
+-   Validar que cafapro-updates-api esté actualizado antes de publicar.
 
 ------------------------------------------------------------------------
 

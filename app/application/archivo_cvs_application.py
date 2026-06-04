@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any
 
-from app.db.session import session_scope
 from app.service.integraciones.validators_client import ValidatorsClient
 from app.service.recepcion.arrastre_exclusivos_service import ArrastreExcluidosService
 from app.service.recepcion.recepcion_service import RecepcionService
@@ -149,10 +148,7 @@ class ArchivoCvsApplication:
         if ctx:
             ctx.emit_progress(10, "Leyendo recepcion...")
 
-        with session_scope() as s:
-            rows = RecepcionService.list(s)
-
-        rec = next((x for x in rows if x.recepcion_id == recepcion_id), None)
+        rec = RecepcionService.get(recepcion_id)
         if not rec:
             raise ValueError("No se encontro la recepcion seleccionada.")
 
@@ -298,8 +294,7 @@ class ArchivoCvsApplication:
 
     @staticmethod
     def list_fechas_descargadas(*, recepcion_id: int):
-        with session_scope() as s:
-            return ArchivoService.list_fechas(s, recepcion_id=recepcion_id)
+        return ArchivoService.list_fechas(recepcion_id)
 
     @staticmethod
     def subir(
@@ -321,79 +316,36 @@ class ArchivoCvsApplication:
         if ctx:
             ctx.emit_progress(2, "Preparando...")
 
-        moved_prev = 0
+        if ctx:
+            ctx.emit_progress(4, "Chequeando pendientes anteriores...")
 
-        with session_scope() as s:
-            if ctx:
-                ctx.emit_progress(4, "Chequeando pendientes anteriores...")
+        moved_prev = ArrastreExcluidosService.run(recepcion_id=recepcion_id)
 
-            moved_prev = ArrastreExcluidosService.run(s, recepcion_id=recepcion_id)
+        if ctx and moved_prev > 0:
+            ctx.emit_progress(6, f"Pendientes arrastrados: {moved_prev}")
 
-            if ctx and moved_prev > 0:
-                ctx.emit_progress(6, f"Pendientes arrastrados: {moved_prev}")
+        sorted_items: list[tuple] = sorted(
+            ((parse_aut_ts(r), str(ref), r) for ref, r in recetas_por_ref.items()),
+            key=lambda x: (x[0], x[1]),
+        )
 
-            current_orden = ArchivoService.get_start_orden_lote(s, recepcion_id)
+        if ctx:
+            ctx.emit_progress(10, f"Enviando {total} recetas...")
 
-            items: list[tuple] = []
-            for nro_ref, receta in recetas_por_ref.items():
-                ts = parse_aut_ts(receta)
-                items.append((ts, str(nro_ref), receta))
-            items.sort(key=lambda x: (x[0], x[1]))
+        bulk_items = [
+            (receta, detalles_por_ref.get(nro_ref, []), nro_ref)
+            for _ts, nro_ref, receta in sorted_items
+        ]
 
-            refs = [ref for _, ref, _ in items]
-            existing_refs = ArchivoService.list_existing_refs(s, refs)
-
-            chunk = 500
-            progress_every = 50
-
-            for i, (_ts, nro_ref, receta) in enumerate(items, start=1):
-                if ctx and (i % progress_every == 0 or i == total):
-                    pct = int((i / total) * 100)
-                    ctx.emit_progress(pct, f"Subiendo {i}/{total}...")
-
-                if nro_ref in existing_refs:
-                    skipped += 1
-                    continue
-
-                detalles = detalles_por_ref.get(nro_ref, [])
-
-                try:
-                    creado = ArchivoService.create_from_imed(
-                        s,
-                        receta=receta,
-                        detalles=detalles,
-                        recepcion_id=recepcion_id,
-                        nro_referencia=nro_ref,
-                        orden_lote=current_orden,
-                        skip_if_exists=True,
-                        check_scope="ref",
-                        existing_refs=existing_refs,
-                    )
-
-                    if creado:
-                        inserted += 1
-                        current_orden += 1
-                    else:
-                        skipped += 1
-
-                except ValueError as e:
-                    msg = str(e)
-                    if "ya existe" in msg.lower() or "existe" in msg.lower():
-                        skipped += 1
-                    else:
-                        failed += 1
-                        errores.append(f"{nro_ref}: {msg}")
-
-                except Exception as e:
-                    failed += 1
-                    errores.append(f"{nro_ref}: {e}")
-
-                if i % chunk == 0:
-                    s.flush()
-                    s.commit()
-
-            s.flush()
-            s.commit()
+        try:
+            inserted, skipped = ArchivoService.bulk_from_imed(
+                bulk_items,
+                recepcion_id=recepcion_id,
+                check_scope="ref",
+            )
+        except Exception as e:
+            failed = total
+            errores.append(str(e))
 
         if ctx:
             ctx.emit_progress(100, "Subida finalizada")

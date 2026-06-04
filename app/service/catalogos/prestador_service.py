@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
 
-from app.db.models import Prestador
+import httpx
+
+from app.config.settings import settings
 
 
 @dataclass(frozen=True)
@@ -17,149 +16,104 @@ class PrestadorItem:
     activo: bool
 
 
+def _url(path: str = "") -> str:
+    return f"{settings.API_CAFAPRO.rstrip('/')}/prestadores{path}"
+
+
+def _to_item(p: dict) -> PrestadorItem:
+    return PrestadorItem(
+        prestador_id=p["prestadorId"],
+        nombre=p["nombre"] or "(sin nombre)",
+        codigo=p["codigo"] or "",
+        imed=p["imed"] or "",
+        activo=bool(p["activo"]),
+    )
+
+
 class PrestadorService:
-    # ---------------------
-    # LIST
-    # ---------------------
     @staticmethod
-    def list(s: Session, *, solo_activos: bool = False) -> list[PrestadorItem]:
-        stmt = select(
-            Prestador.prestador_id,
-            Prestador.nombre,
-            Prestador.codigo,
-            Prestador.imed,
-            Prestador.activo,
-        )
-
+    def list(*, solo_activos: bool = False) -> list[PrestadorItem]:
+        resp = httpx.get(_url(), timeout=10)
+        resp.raise_for_status()
+        items = [_to_item(p) for p in resp.json()]
         if solo_activos:
-            stmt = stmt.where(Prestador.activo.is_(True))
-
-        stmt = stmt.order_by(Prestador.nombre.nulls_last(), Prestador.codigo)
-
-        rows = s.execute(stmt).all()
-        return [
-            PrestadorItem(
-                prestador_id=r[0],
-                nombre=r[1] or "(sin nombre)",
-                codigo=r[2] or "",
-                imed=r[3] or "",
-                activo=bool(r[4]),
+            items = [i for i in items if i.activo]
+        items.sort(
+            key=lambda p: (
+                p.nombre == "(sin nombre)",
+                p.nombre.casefold(),
+                p.codigo.casefold(),
             )
-            for r in rows
-        ]
+        )
+        return items
 
-    # ---------------------
-    # GET
-    # ---------------------
     @staticmethod
-    def get(s: Session, prestador_id: int) -> Prestador | None:
-        return s.get(Prestador, int(prestador_id))
+    def get(prestador_id: int) -> PrestadorItem | None:
+        resp = httpx.get(_url(f"/{prestador_id}"), timeout=10)
+        if resp.status_code == 404:
+            return None
+        resp.raise_for_status()
+        return _to_item(resp.json())
 
-    # ---------------------
-    # CREATE
-    # ---------------------
     @staticmethod
     def create(
-        s: Session,
         *,
         codigo: str,
         nombre: str | None = None,
         imed: str | None = None,
-    ) -> Prestador:
+    ) -> None:
         codigo = (codigo or "").strip()
-        nombre = (nombre or "").strip() if nombre is not None else None
-        imed = (imed or "").strip() if imed is not None else None
+        nombre_clean = (nombre or "").strip() or None
+        imed_clean = (imed or "").strip() or None
 
         if not codigo:
             raise ValueError("El código es obligatorio.")
 
-        # codigo único
-        existe = s.execute(
-            select(Prestador.prestador_id).where(Prestador.codigo == codigo).limit(1)
-        ).scalar_one_or_none()
-        if existe:
+        payload: dict = {"codigo": codigo}
+        if nombre_clean is not None:
+            payload["nombre"] = nombre_clean
+        if imed_clean is not None:
+            payload["imed"] = imed_clean
+
+        resp = httpx.post(_url(), json=payload, timeout=10)
+        if resp.status_code == 409:
             raise ValueError(f"Ya existe un prestador con código '{codigo}'.")
+        resp.raise_for_status()
 
-        p = Prestador(
-            codigo=codigo,
-            nombre=nombre,
-            imed=imed,
-            activo=True,
-        )
-        s.add(p)
-
-        try:
-            s.flush()
-            s.refresh(p)
-        except IntegrityError as e:
-            raise ValueError("No se pudo crear el prestador (código duplicado).") from e
-
-        return p
-
-    # ---------------------
-    # UPDATE
-    # ---------------------
     @staticmethod
     def update(
-        s: Session,
         *,
         prestador_id: int,
         codigo: str,
         nombre: str | None = None,
         imed: str | None = None,
     ) -> None:
-        p = s.get(Prestador, int(prestador_id))
-        if not p:
-            raise ValueError(f"No existe prestador_id={prestador_id}")
-
         codigo = (codigo or "").strip()
-        nombre = (nombre or "").strip() if nombre is not None else None
-        imed = (imed or "").strip() if imed is not None else None
+        nombre_clean = (nombre or "").strip() or None
+        imed_clean = (imed or "").strip() or None
 
         if not codigo:
             raise ValueError("El código es obligatorio.")
 
-        # validar código único excluyendo el mismo
-        existe = s.execute(
-            select(Prestador.prestador_id)
-            .where(
-                Prestador.codigo == codigo,
-                Prestador.prestador_id != int(prestador_id),
-            )
-            .limit(1)
-        ).scalar_one_or_none()
+        payload: dict = {"codigo": codigo, "nombre": nombre_clean, "imed": imed_clean}
 
-        if existe:
+        resp = httpx.patch(_url(f"/{prestador_id}"), json=payload, timeout=10)
+        if resp.status_code == 404:
+            raise ValueError(f"No existe prestador_id={prestador_id}")
+        if resp.status_code == 409:
             raise ValueError(f"Ya existe otro prestador con código '{codigo}'.")
+        resp.raise_for_status()
 
-        p.codigo = codigo
-        p.nombre = nombre
-        p.imed = imed
-
-        try:
-            s.flush()
-        except IntegrityError as e:
-            raise ValueError("No se pudo actualizar el prestador (código duplicado).") from e
-
-    # ---------------------
-    # BAJA LÓGICA
-    # ---------------------
     @staticmethod
-    def delete_logico(s: Session, prestador_id: int) -> None:
-        p = s.get(Prestador, int(prestador_id))
-        if not p:
+    def delete_logico(prestador_id: int) -> None:
+        resp = httpx.patch(_url(f"/{prestador_id}"), json={"activo": False}, timeout=10)
+        if resp.status_code == 404:
             raise ValueError(f"No existe prestador_id={prestador_id}")
+        resp.raise_for_status()
 
-        p.activo = False
-
-    # ---------------------
-    # RESTORE
-    # ---------------------
     @staticmethod
-    def restore(s: Session, prestador_id: int) -> None:
-        p = s.get(Prestador, int(prestador_id))
-        if not p:
+    def restore(prestador_id: int) -> None:
+        resp = httpx.patch(_url(f"/{prestador_id}"), json={"activo": True}, timeout=10)
+        if resp.status_code == 404:
             raise ValueError(f"No existe prestador_id={prestador_id}")
-
-        p.activo = True
-
+        resp.raise_for_status()
