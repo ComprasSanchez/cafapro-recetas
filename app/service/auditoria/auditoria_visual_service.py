@@ -36,6 +36,7 @@ class ArchivoData:
     archivo_id: int
     nro_referencia: str
     nro_receta: str
+    orden_lote: Optional[int]
     fecha: object
     hora: object
     importe_bruto: object
@@ -160,6 +161,7 @@ class AuditoriaVisualService:
                 archivo_id=ar["archivoId"],
                 nro_referencia=ar.get("nroReferencia") or "",
                 nro_receta=ar.get("nroReceta") or "",
+                orden_lote=ar.get("ordenLote"),
                 fecha=ar.get("fecha"),
                 hora=ar.get("hora"),
                 importe_bruto=ar.get("importeBruto") or 0,
