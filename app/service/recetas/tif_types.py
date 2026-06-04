@@ -4,9 +4,33 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Set
 
+import enum
+
 from core.process_tif import ScanOut
 
-from app.db.models import Archivo, EstadoTroquelEnum
+
+class EstadoTroquelEnum(str, enum.Enum):
+    V = "V"  # Verde: escaneado y encontrado
+    A = "A"  # Amarillo: escaneado y no encontrado
+    R = "R"  # Roja: escaneado pero no machea
+
+
+@dataclass
+class ArchivoData:
+    archivo_id: int
+    nro_referencia: str | None
+    nro_receta: str | None
+    fecha: str | None
+    hora: str | None
+    vencido: bool
+
+
+@dataclass(frozen=True)
+class ArchivoDetalleData:
+    archivo_id: int
+    cod_medic: str | None
+    cantidad: int
+    importe_bruto: str
 
 
 @dataclass(frozen=True)
@@ -88,7 +112,7 @@ class ProcesarStats:
 
 @dataclass(frozen=True)
 class _MatchResult:
-    ref_to_archivo: Dict[str, Optional[Archivo]]
+    ref_to_archivo: Dict[str, Optional[ArchivoData]]
     duplicated_refs: Set[str]
     missing_refs: Set[str]
 

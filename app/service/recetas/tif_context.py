@@ -7,6 +7,7 @@ import httpx
 
 from app.config.settings import settings
 from app.service.recetas.tif_logic import base_from_tif_path, build_detalle_context, norm_str
+from app.service.recetas.tif_types import ArchivoData, ArchivoDetalleData
 from app.service.recetas.tif_types import ProcesarItemIn, _DetalleContext
 
 
@@ -26,23 +27,6 @@ class TifRunContext:
     only_ref_match: bool
     motivo_debito_receta_vencida_id: int = MOTIVO_DEBITO_RECETA_VENCIDA_ID
 
-
-@dataclass
-class ArchivoData:
-    archivo_id: int
-    nro_referencia: str | None
-    nro_receta: str | None
-    fecha: str | None
-    hora: str | None
-    vencido: bool
-
-
-@dataclass(frozen=True)
-class ArchivoDetalleData:
-    archivo_id: int
-    cod_medic: str | None
-    cantidad: int
-    importe_bruto: str
 
 
 @dataclass

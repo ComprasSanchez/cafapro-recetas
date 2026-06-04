@@ -7,10 +7,9 @@ import os
 
 from core.process_tif import TroquelEstado
 
-from app.db.models import Archivo, ArchivoDetalle, EstadoTroquelEnum
 from app.dto.medicamentos_dto import MedicamentoDTO
 from app.service.integraciones.medicamento_client import MedicamentoClient
-from app.service.recetas.tif_types import _DetalleContext, _MatchResult, _TroquelEval
+from app.service.recetas.tif_types import ArchivoData, ArchivoDetalleData, EstadoTroquelEnum, _DetalleContext, _MatchResult, _TroquelEval
 
 
 ZERO_DECIMAL = Decimal("0")
@@ -56,7 +55,7 @@ def ref_candidates(token: str) -> list[str]:
     return out
 
 
-def archivo_ts(a: Archivo) -> datetime:
+def archivo_ts(a: ArchivoData) -> datetime:
     return datetime.fromisoformat(f"{a.fecha} {a.hora}")
 
 
@@ -75,14 +74,14 @@ def match_all_refs_cached(
     *,
     refs: list[str],
     only_referencia: bool,
-    ref_index: dict[str, dict[int, Archivo]],
-    receta_index: dict[str, dict[int, Archivo]],
+    ref_index: dict[str, dict[int, ArchivoData]],
+    receta_index: dict[str, dict[int, ArchivoData]],
 ) -> _MatchResult:
     refs_set = {norm_str(r) for r in refs if norm_str(r)}
     if not refs_set:
         return _MatchResult(ref_to_archivo={}, duplicated_refs=set(), missing_refs=set())
 
-    by_token: dict[str, dict[int, Archivo]] = {}
+    by_token: dict[str, dict[int, ArchivoData]] = {}
     for ref in refs_set:
         bucket = by_token.setdefault(ref, {})
         for cand in ref_candidates(ref):
@@ -95,7 +94,7 @@ def match_all_refs_cached(
     duplicated = {tok for tok, arr in by_token.items() if len(arr) > 1}
     missing = {tok for tok, arr in by_token.items() if not arr}
 
-    ref_to_archivo: dict[str, Archivo | None] = {}
+    ref_to_archivo: dict[str, ArchivoData | None] = {}
     for tok in refs_set:
         if tok in duplicated:
             ref_to_archivo[tok] = None
@@ -169,7 +168,7 @@ def warm_medicamento_cache(
         med_cache[original] = chosen
 
 
-def build_detalle_context(dets: list[ArchivoDetalle]) -> _DetalleContext:
+def build_detalle_context(dets: list[ArchivoDetalleData]) -> _DetalleContext:
     cods_detalle: set[str] = set()
     cant_por_cod: dict[str, int] = {}
     importe_por_cod: dict[str, Decimal] = {}

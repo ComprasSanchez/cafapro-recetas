@@ -33,13 +33,6 @@ class Settings(BaseSettings):
     )
 
     # -----------------------
-    # DB
-    # -----------------------
-    DATABASE_URL: str = Field(
-        default="postgresql+psycopg://postgres:postgres@localhost:5434/cafapro_db"
-    )
-
-    # -----------------------
     # API
     # -----------------------
     API_CAFAPRO: str = Field(default="http://localhost:3000")
@@ -78,9 +71,6 @@ class Settings(BaseSettings):
         Llamalo al inicio de la app para fallar con mensaje claro.
         """
         missing: list[str] = []
-
-        if not self.DATABASE_URL.strip():
-            missing.append("DATABASE_URL")
 
         if not self.API_CAFAPRO.strip():
             missing.append("API_CAFAPRO")

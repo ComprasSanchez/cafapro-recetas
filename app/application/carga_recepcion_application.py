@@ -5,11 +5,11 @@ import re
 import time
 from typing import Any
 
+import httpx
+
 from app.config.settings import settings
-from app.db.session import session_scope
 from app.service.recepcion.recepcion_service import RecepcionService
 from app.service.recetas.archivo_service import ArchivoService
-from app.service.recetas.historial_receta_service import HistorialRecetaService
 from app.service.recetas.tif_service import ProcesarItemIn as TiffProcesarItemIn, TiffService
 from core.image_handler import ImageHandler
 
@@ -183,11 +183,11 @@ class CargaRecepcionApplication:
             progress_cb=_emit_chunk_progress if total_items else None,
         )
 
-        with session_scope() as s:
-            HistorialRecetaService.actualizar_historial_recepcion(
-                s=s,
-                recepcion_id=recepcion_id,
-            )
+        resp = httpx.post(
+            f"{settings.API_CAFAPRO.rstrip('/')}/recepciones/{recepcion_id}/actualizar-historial",
+            timeout=30,
+        )
+        resp.raise_for_status()
 
         total_elapsed = max(0.0, time.perf_counter() - started_at)
 
