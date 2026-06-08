@@ -127,7 +127,7 @@ def _to_motivo(m: dict) -> MotivoData:
 class AuditoriaVisualService:
     @staticmethod
     def load_by_asociacion_id(asociacion_id: int) -> AuditoriaVisualData:
-        resp = httpx.get(_url(int(asociacion_id)), timeout=15)
+        resp = httpx.get(_url(int(asociacion_id)), timeout=600)
         if resp.status_code == 404:
             raise ValueError("No existe asociación")
         resp.raise_for_status()

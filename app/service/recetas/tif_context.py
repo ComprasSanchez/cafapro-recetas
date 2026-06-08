@@ -43,7 +43,7 @@ class TifRunCache:
 
 
 def load_run_context(*, recepcion_id: int) -> TifRunContext:
-    resp = httpx.get(_url(f"/{recepcion_id}/tif-context"), timeout=15)
+    resp = httpx.get(_url(f"/{recepcion_id}/tif-context"), timeout=600)
     if resp.status_code == 404:
         raise RuntimeError(f"No existe la recepcion {recepcion_id}")
     resp.raise_for_status()
@@ -68,7 +68,7 @@ def load_run_context(*, recepcion_id: int) -> TifRunContext:
 
 
 def load_run_cache(*, recepcion_id: int) -> TifRunCache:
-    resp = httpx.get(_url(f"/{recepcion_id}/tif-bundle"), timeout=30)
+    resp = httpx.get(_url(f"/{recepcion_id}/tif-bundle"), timeout=600)
     if resp.status_code == 404:
         raise RuntimeError(f"No existe la recepcion {recepcion_id}")
     resp.raise_for_status()
@@ -155,7 +155,7 @@ def update_archivos_vencido(*, estados_by_archivo_id: dict[int, bool]) -> None:
     resp = httpx.patch(
         f"{settings.API_CAFAPRO.rstrip('/')}/archivos/vencido-bulk",
         json=payload,
-        timeout=15,
+        timeout=600,
     )
     resp.raise_for_status()
 

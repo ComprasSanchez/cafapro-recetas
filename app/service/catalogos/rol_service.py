@@ -27,6 +27,6 @@ def _to_item(r: dict) -> RolListItem:
 class RolesService:
     @staticmethod
     def list() -> list[RolListItem]:
-        resp = httpx.get(_url(), timeout=10)
+        resp = httpx.get(_url(), timeout=600)
         resp.raise_for_status()
         return [_to_item(r) for r in resp.json()]

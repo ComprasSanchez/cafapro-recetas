@@ -221,7 +221,7 @@ class ArchivoService:
                 "actualizarHistorial": actualizar_historial,
                 "recetas": batch,
             }
-            resp = httpx.post(_url("/bulk"), json=payload, timeout=120)
+            resp = httpx.post(_url("/bulk"), json=payload, timeout=600)
             resp.raise_for_status()
             data = resp.json()
             total_insertados += int(data["insertados"])
@@ -231,7 +231,7 @@ class ArchivoService:
     @staticmethod
     def list_fechas(recepcion_id: int) -> list[date]:
         url = f"{settings.API_CAFAPRO.rstrip('/')}/recepciones/{int(recepcion_id)}/fechas"
-        resp = httpx.get(url, timeout=15)
+        resp = httpx.get(url, timeout=600)
         if resp.status_code == 404:
             return []
         resp.raise_for_status()

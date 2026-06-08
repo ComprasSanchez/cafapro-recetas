@@ -37,7 +37,7 @@ def _to_item(o: dict) -> ObraSocialItem:
 class ObraSocialService:
     @staticmethod
     def list(*, solo_activas: bool = False) -> list[ObraSocialItem]:
-        resp = httpx.get(_url(), timeout=10)
+        resp = httpx.get(_url(), timeout=600)
         resp.raise_for_status()
         items = [_to_item(o) for o in resp.json()]
         if solo_activas:
@@ -47,7 +47,7 @@ class ObraSocialService:
 
     @staticmethod
     def get(obra_social_id: int) -> ObraSocialItem | None:
-        resp = httpx.get(_url(f"/{obra_social_id}"), timeout=10)
+        resp = httpx.get(_url(f"/{obra_social_id}"), timeout=600)
         if resp.status_code == 404:
             return None
         resp.raise_for_status()
@@ -74,7 +74,7 @@ class ObraSocialService:
         if codigo_financiador not in (None, ""):
             payload["codigoFinanciador"] = int(codigo_financiador)
 
-        resp = httpx.post(_url(), json=payload, timeout=10)
+        resp = httpx.post(_url(), json=payload, timeout=600)
         if resp.status_code == 409:
             raise ValueError(f"Ya existe una obra social con código '{codigo}'.")
         resp.raise_for_status()
@@ -103,7 +103,7 @@ class ObraSocialService:
             "codigoFinanciador": int(codigo_financiador) if codigo_financiador not in (None, "") else None,
         }
 
-        resp = httpx.patch(_url(f"/{obra_social_id}"), json=payload, timeout=10)
+        resp = httpx.patch(_url(f"/{obra_social_id}"), json=payload, timeout=600)
         if resp.status_code == 404:
             raise ValueError(f"No existe obra_social_id={obra_social_id}")
         if resp.status_code == 409:
@@ -112,14 +112,14 @@ class ObraSocialService:
 
     @staticmethod
     def delete_logico(obra_social_id: int) -> None:
-        resp = httpx.patch(_url(f"/{obra_social_id}"), json={"activo": False}, timeout=10)
+        resp = httpx.patch(_url(f"/{obra_social_id}"), json={"activo": False}, timeout=600)
         if resp.status_code == 404:
             raise ValueError(f"No existe obra_social_id={obra_social_id}")
         resp.raise_for_status()
 
     @staticmethod
     def restore(obra_social_id: int) -> None:
-        resp = httpx.patch(_url(f"/{obra_social_id}"), json={"activo": True}, timeout=10)
+        resp = httpx.patch(_url(f"/{obra_social_id}"), json={"activo": True}, timeout=600)
         if resp.status_code == 404:
             raise ValueError(f"No existe obra_social_id={obra_social_id}")
         resp.raise_for_status()

@@ -35,7 +35,7 @@ class AuthService:
             resp = httpx.post(
                 _url("/login"),
                 json={"username": username, "password": password},
-                timeout=10,
+                timeout=600,
             )
         except httpx.TransportError as e:
             raise AuthError("No se pudo conectar con el servidor.") from e

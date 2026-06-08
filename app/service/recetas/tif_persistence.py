@@ -101,7 +101,7 @@ def persist_uploaded_chunk(
             "recetas": recetas_payload,
             "motivoDebitoVencidaId": int(motivo_debito_receta_vencida_id),
         },
-        timeout=120,
+        timeout=600,
     )
     resp.raise_for_status()
     return int(resp.json().get("persistidos", 0))

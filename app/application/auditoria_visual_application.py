@@ -65,7 +65,7 @@ class AuditoriaVisualApplication:
             ],
         }
 
-        resp = httpx.patch(_recetas_url(int(receta_id)), json=payload, timeout=15)
+        resp = httpx.patch(_recetas_url(int(receta_id)), json=payload, timeout=600)
         if resp.status_code == 404:
             raise ValueError(f"Receta {receta_id} no existe")
         if resp.status_code == 400:

@@ -31,7 +31,7 @@ def _url(path: str = "") -> str:
 class ViewResumenRecepcionService:
     @staticmethod
     def get_resumen_recepcion(*, recepcion_id: int) -> ResumenRecepcionItem | None:
-        resp = httpx.get(_url(f"/{recepcion_id}/resumen"), timeout=15)
+        resp = httpx.get(_url(f"/{recepcion_id}/resumen"), timeout=600)
         if resp.status_code == 404:
             return None
         resp.raise_for_status()
@@ -48,7 +48,7 @@ class ViewResumenRecepcionService:
         resp = httpx.get(
             _url("/totales-por-prestador"),
             params={"periodoId": int(periodo_id)},
-            timeout=15,
+            timeout=600,
         )
         resp.raise_for_status()
         return [

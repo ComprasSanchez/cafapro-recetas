@@ -104,7 +104,7 @@ class ViewDebitos:
 
     @staticmethod
     def list_recepciones() -> list[tuple[int, int]]:
-        resp = httpx.get(_url_debitos("/recepciones"), timeout=10)
+        resp = httpx.get(_url_debitos("/recepciones"), timeout=600)
         resp.raise_for_status()
         out: list[tuple[int, int]] = []
         for r in resp.json():
@@ -129,7 +129,7 @@ class ViewDebitos:
                 if isinstance(fecha_auditoria, date)
                 else str(fecha_auditoria)
             )
-        resp = httpx.get(_url_debitos(), params=params, timeout=10)
+        resp = httpx.get(_url_debitos(), params=params, timeout=600)
         resp.raise_for_status()
         return [_to_row(r) for r in resp.json()]
 
@@ -137,7 +137,7 @@ class ViewDebitos:
     def has_debitos_sin_estado_by_recepcion(*, recepcion_id: int) -> bool:
         resp = httpx.get(
             _url_debitos(f"/recepcion/{int(recepcion_id)}/sin-estado"),
-            timeout=10,
+            timeout=600,
         )
         resp.raise_for_status()
         return bool(resp.json().get("sinEstado", False))
@@ -149,7 +149,7 @@ class ViewDebitos:
         try:
             resp = httpx.get(
                 _url_recepciones(f"/{int(recepcion_id)}/periodo-parts"),
-                timeout=10,
+                timeout=600,
             )
             if resp.status_code == 404:
                 return "sin-periodo"
@@ -172,7 +172,7 @@ class ViewDebitos:
         resp = httpx.get(
             _url_debitos("/mal-entrego"),
             params={"obraSocialId": int(obra_social_id), "anio": int(anio), "mes": int(mes)},
-            timeout=15,
+            timeout=600,
         )
         resp.raise_for_status()
         return [_to_row(r) for r in resp.json()]
@@ -315,7 +315,7 @@ class ViewDebitos:
         resp = httpx.post(
             _url_recetas("/paths"),
             json={"recetaIds": list(receta_ids)},
-            timeout=15,
+            timeout=600,
         )
         resp.raise_for_status()
         recetas = resp.json()
@@ -367,7 +367,7 @@ class ViewDebitos:
         if os.path.exists(dest):
             return False
         try:
-            resp = httpx.get(url, timeout=30, follow_redirects=True)
+            resp = httpx.get(url, timeout=600, follow_redirects=True)
             resp.raise_for_status()
             with open(dest, "wb") as f:
                 f.write(resp.content)

@@ -33,7 +33,7 @@ def _to_item(p: dict) -> PrestadorItem:
 class PrestadorService:
     @staticmethod
     def list(*, solo_activos: bool = False) -> list[PrestadorItem]:
-        resp = httpx.get(_url(), timeout=10)
+        resp = httpx.get(_url(), timeout=600)
         resp.raise_for_status()
         items = [_to_item(p) for p in resp.json()]
         if solo_activos:
@@ -49,7 +49,7 @@ class PrestadorService:
 
     @staticmethod
     def get(prestador_id: int) -> PrestadorItem | None:
-        resp = httpx.get(_url(f"/{prestador_id}"), timeout=10)
+        resp = httpx.get(_url(f"/{prestador_id}"), timeout=600)
         if resp.status_code == 404:
             return None
         resp.raise_for_status()
@@ -75,7 +75,7 @@ class PrestadorService:
         if imed_clean is not None:
             payload["imed"] = imed_clean
 
-        resp = httpx.post(_url(), json=payload, timeout=10)
+        resp = httpx.post(_url(), json=payload, timeout=600)
         if resp.status_code == 409:
             raise ValueError(f"Ya existe un prestador con código '{codigo}'.")
         resp.raise_for_status()
@@ -97,7 +97,7 @@ class PrestadorService:
 
         payload: dict = {"codigo": codigo, "nombre": nombre_clean, "imed": imed_clean}
 
-        resp = httpx.patch(_url(f"/{prestador_id}"), json=payload, timeout=10)
+        resp = httpx.patch(_url(f"/{prestador_id}"), json=payload, timeout=600)
         if resp.status_code == 404:
             raise ValueError(f"No existe prestador_id={prestador_id}")
         if resp.status_code == 409:
@@ -106,14 +106,14 @@ class PrestadorService:
 
     @staticmethod
     def delete_logico(prestador_id: int) -> None:
-        resp = httpx.patch(_url(f"/{prestador_id}"), json={"activo": False}, timeout=10)
+        resp = httpx.patch(_url(f"/{prestador_id}"), json={"activo": False}, timeout=600)
         if resp.status_code == 404:
             raise ValueError(f"No existe prestador_id={prestador_id}")
         resp.raise_for_status()
 
     @staticmethod
     def restore(prestador_id: int) -> None:
-        resp = httpx.patch(_url(f"/{prestador_id}"), json={"activo": True}, timeout=10)
+        resp = httpx.patch(_url(f"/{prestador_id}"), json={"activo": True}, timeout=600)
         if resp.status_code == 404:
             raise ValueError(f"No existe prestador_id={prestador_id}")
         resp.raise_for_status()

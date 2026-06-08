@@ -36,7 +36,7 @@ def _to_item(p: dict) -> PlanItem:
 class PlanService:
     @staticmethod
     def list(*, solo_activos: bool = False) -> list[PlanItem]:
-        resp = httpx.get(_url(), timeout=10)
+        resp = httpx.get(_url(), timeout=600)
         resp.raise_for_status()
         items = [_to_item(p) for p in resp.json()]
         if solo_activos:
@@ -45,7 +45,7 @@ class PlanService:
 
     @staticmethod
     def get(plan_id: int) -> PlanItem | None:
-        resp = httpx.get(_url(f"/{plan_id}"), timeout=10)
+        resp = httpx.get(_url(f"/{plan_id}"), timeout=600)
         if resp.status_code == 404:
             return None
         resp.raise_for_status()
@@ -58,7 +58,7 @@ class PlanService:
             "codigo": (codigo or "").strip() or None,
             "nombre": (nombre or "").strip() or None,
         }
-        resp = httpx.post(_url(), json=payload, timeout=10)
+        resp = httpx.post(_url(), json=payload, timeout=600)
         if resp.status_code == 409:
             raise ValueError("Ya existe un plan con esa Obra Social + Nombre + Código.")
         resp.raise_for_status()
@@ -70,7 +70,7 @@ class PlanService:
             "codigo": (codigo or "").strip() or None,
             "nombre": (nombre or "").strip() or None,
         }
-        resp = httpx.patch(_url(f"/{plan_id}"), json=payload, timeout=10)
+        resp = httpx.patch(_url(f"/{plan_id}"), json=payload, timeout=600)
         if resp.status_code == 404:
             raise ValueError(f"No existe plan_id={plan_id}")
         if resp.status_code == 409:
@@ -79,14 +79,14 @@ class PlanService:
 
     @staticmethod
     def delete_logico(plan_id: int) -> None:
-        resp = httpx.patch(_url(f"/{plan_id}"), json={"activo": False}, timeout=10)
+        resp = httpx.patch(_url(f"/{plan_id}"), json={"activo": False}, timeout=600)
         if resp.status_code == 404:
             raise ValueError(f"No existe plan_id={plan_id}")
         resp.raise_for_status()
 
     @staticmethod
     def restore(plan_id: int) -> None:
-        resp = httpx.patch(_url(f"/{plan_id}"), json={"activo": True}, timeout=10)
+        resp = httpx.patch(_url(f"/{plan_id}"), json={"activo": True}, timeout=600)
         if resp.status_code == 404:
             raise ValueError(f"No existe plan_id={plan_id}")
         resp.raise_for_status()

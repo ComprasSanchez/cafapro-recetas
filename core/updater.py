@@ -37,7 +37,7 @@ def download_file(url: str) -> Path:
     temp_dir = Path(os.getenv("TEMP") or str(Path.cwd()))
     target = temp_dir / "CafaproRecetasUpdate.exe"
 
-    with requests.get(url, stream=True, timeout=30) as r:
+    with requests.get(url, stream=True, timeout=600) as r:
         r.raise_for_status()
         with open(target, "wb") as f:
             for chunk in r.iter_content(chunk_size=8192):
@@ -57,7 +57,7 @@ def get_pending_update() -> UpdateInfo | None:
         return None
 
     try:
-        response = requests.get(UPDATE_API_URL, timeout=5)
+        response = requests.get(UPDATE_API_URL, timeout=600)
         response.raise_for_status()
         data = response.json()
 

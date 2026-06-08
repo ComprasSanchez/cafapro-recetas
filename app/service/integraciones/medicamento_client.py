@@ -12,7 +12,7 @@ class MedicamentoClient:
     def __init__(
         self,
         base_url: Optional[str] = None,
-        timeout_s: float = 15.0,
+        timeout_s: float = 600.0,
         retries: int = 3,
     ):
         self.base_url = (

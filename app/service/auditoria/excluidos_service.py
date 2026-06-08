@@ -26,7 +26,7 @@ def _url(recepcion_id: int) -> str:
 class ExcluidosService:
     @staticmethod
     def list_by_recepcion(recepcion_id: int) -> list[ExcluidoItem]:
-        resp = httpx.get(_url(int(recepcion_id)), timeout=15)
+        resp = httpx.get(_url(int(recepcion_id)), timeout=600)
         if resp.status_code == 404:
             return []
         resp.raise_for_status()

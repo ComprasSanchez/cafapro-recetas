@@ -21,7 +21,7 @@ class ArrastreExcluidosService:
 
     @staticmethod
     def run(*, recepcion_id: int) -> int:
-        resp = httpx.post(_url(int(recepcion_id)), timeout=15)
+        resp = httpx.post(_url(int(recepcion_id)), timeout=600)
         if resp.status_code == 404:
             raise ValueError(f"No existe la recepción {recepcion_id}")
         resp.raise_for_status()

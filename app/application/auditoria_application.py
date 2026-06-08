@@ -185,7 +185,7 @@ class AuditoriaApplication:
 
         if AuditoriaApplication._is_url(src):
             try:
-                r = requests.get(src, timeout=20)
+                r = requests.get(src, timeout=600)
                 r.raise_for_status()
                 data = r.content
             except Exception as e:

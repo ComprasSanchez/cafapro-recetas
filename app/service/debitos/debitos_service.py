@@ -24,7 +24,7 @@ class DebitosService:
             {"motivoDebitoId": int(it.motivo_debito_id), "detalle": it.detalle or None}
             for it in items
         ]
-        resp = httpx.put(_url(f"/receta/{int(receta_id)}"), json=payload, timeout=10)
+        resp = httpx.put(_url(f"/receta/{int(receta_id)}"), json=payload, timeout=600)
         if resp.status_code == 404:
             raise ValueError("Receta no encontrada")
         resp.raise_for_status()

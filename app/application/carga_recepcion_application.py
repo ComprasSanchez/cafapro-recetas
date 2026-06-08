@@ -185,7 +185,7 @@ class CargaRecepcionApplication:
 
         resp = httpx.post(
             f"{settings.API_CAFAPRO.rstrip('/')}/recepciones/{recepcion_id}/actualizar-historial",
-            timeout=30,
+            timeout=600,
         )
         resp.raise_for_status()
 

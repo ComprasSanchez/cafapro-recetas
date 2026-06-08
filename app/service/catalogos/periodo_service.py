@@ -37,7 +37,7 @@ def _to_item(p: dict) -> PeriodoItem:
 class PeriodoService:
     @staticmethod
     def list(*, solo_activos: bool = False) -> list[PeriodoItem]:
-        resp = httpx.get(_url(), timeout=10)
+        resp = httpx.get(_url(), timeout=600)
         resp.raise_for_status()
         items = [_to_item(p) for p in resp.json()]
         if solo_activos:
@@ -46,7 +46,7 @@ class PeriodoService:
 
     @staticmethod
     def get(periodo_id: int) -> PeriodoItem | None:
-        resp = httpx.get(_url(f"/{periodo_id}"), timeout=10)
+        resp = httpx.get(_url(f"/{periodo_id}"), timeout=600)
         if resp.status_code == 404:
             return None
         resp.raise_for_status()
@@ -60,7 +60,7 @@ class PeriodoService:
             raise ValueError("mes debe estar entre 1 y 12")
 
         payload = {"anio": int(anio), "mes": int(mes), "quincena": int(quincena)}
-        resp = httpx.post(_url(), json=payload, timeout=10)
+        resp = httpx.post(_url(), json=payload, timeout=600)
         if resp.status_code == 409:
             raise ValueError("Ya existe un período con ese año/mes/quincena.")
         resp.raise_for_status()
@@ -73,7 +73,7 @@ class PeriodoService:
             raise ValueError("mes debe estar entre 1 y 12")
 
         payload = {"anio": int(anio), "mes": int(mes), "quincena": int(quincena)}
-        resp = httpx.patch(_url(f"/{periodo_id}"), json=payload, timeout=10)
+        resp = httpx.patch(_url(f"/{periodo_id}"), json=payload, timeout=600)
         if resp.status_code == 404:
             raise ValueError(f"No existe periodo_id={periodo_id}")
         if resp.status_code == 409:
@@ -82,14 +82,14 @@ class PeriodoService:
 
     @staticmethod
     def delete_logico(periodo_id: int) -> None:
-        resp = httpx.patch(_url(f"/{periodo_id}"), json={"activo": False}, timeout=10)
+        resp = httpx.patch(_url(f"/{periodo_id}"), json={"activo": False}, timeout=600)
         if resp.status_code == 404:
             raise ValueError(f"No existe periodo_id={periodo_id}")
         resp.raise_for_status()
 
     @staticmethod
     def restore(periodo_id: int) -> None:
-        resp = httpx.patch(_url(f"/{periodo_id}"), json={"activo": True}, timeout=10)
+        resp = httpx.patch(_url(f"/{periodo_id}"), json={"activo": True}, timeout=600)
         if resp.status_code == 404:
             raise ValueError(f"No existe periodo_id={periodo_id}")
         resp.raise_for_status()

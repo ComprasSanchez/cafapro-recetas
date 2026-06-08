@@ -20,7 +20,7 @@ def _url(path: str = "") -> str:
 class EstadoRecepcionService:
     @staticmethod
     def list() -> list[EstadoRecepcionItem]:
-        resp = httpx.get(_url(), timeout=10)
+        resp = httpx.get(_url(), timeout=600)
         resp.raise_for_status()
         return [
             EstadoRecepcionItem(

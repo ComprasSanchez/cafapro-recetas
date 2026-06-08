@@ -28,7 +28,7 @@ class TroquelesService:
             "codigoBarra": str(codigo_barra).strip(),
             "cantidad": int(cantidad),
         }
-        resp = httpx.post(_url(), json=payload, timeout=15)
+        resp = httpx.post(_url(), json=payload, timeout=600)
         if resp.status_code == 404:
             raise ValueError(resp.json().get("message", "Asociacion no existe"))
         if resp.status_code == 400:
@@ -45,14 +45,14 @@ class TroquelesService:
 
     @staticmethod
     def update(troquel_id: int, cantidad: int) -> None:
-        resp = httpx.patch(_url(f"/{int(troquel_id)}"), json={"cantidad": int(cantidad)}, timeout=15)
+        resp = httpx.patch(_url(f"/{int(troquel_id)}"), json={"cantidad": int(cantidad)}, timeout=600)
         if resp.status_code == 404:
             raise ValueError(f"Troquel {troquel_id} no existe")
         resp.raise_for_status()
 
     @staticmethod
     def delete(troquel_id: int) -> None:
-        resp = httpx.delete(_url(f"/{int(troquel_id)}"), timeout=15)
+        resp = httpx.delete(_url(f"/{int(troquel_id)}"), timeout=600)
         if resp.status_code == 404:
             raise ValueError(f"Troquel {troquel_id} no existe")
         resp.raise_for_status()

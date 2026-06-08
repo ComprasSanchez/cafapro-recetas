@@ -32,7 +32,7 @@ class ValidatorsClient:
     def __init__(
         self,
         base_url: str | None = None,
-        timeout_s: float = 180.0,
+        timeout_s: float = 600.0,
         retries: int = 1,
     ) -> None:
         self.base_url = (
@@ -42,10 +42,10 @@ class ValidatorsClient:
         ).rstrip("/")
 
         self.retries = max(0, _env_int("VALIDATORS_RETRIES", retries))
-        self._timeout_connect_s = _env_float("VALIDATORS_TIMEOUT_CONNECT_S", 10.0)
+        self._timeout_connect_s = _env_float("VALIDATORS_TIMEOUT_CONNECT_S", 60.0)
         self._timeout_read_s = _env_float("VALIDATORS_TIMEOUT_READ_S", timeout_s)
-        self._timeout_write_s = _env_float("VALIDATORS_TIMEOUT_WRITE_S", 30.0)
-        self._timeout_pool_s = _env_float("VALIDATORS_TIMEOUT_POOL_S", 30.0)
+        self._timeout_write_s = _env_float("VALIDATORS_TIMEOUT_WRITE_S", 600.0)
+        self._timeout_pool_s = _env_float("VALIDATORS_TIMEOUT_POOL_S", 600.0)
 
         self._client = httpx.Client(
             base_url=self.base_url,
