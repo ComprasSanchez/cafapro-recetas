@@ -41,7 +41,7 @@ def _upload_rendered(
         f"{settings.API_CAFAPRO.rstrip('/')}/imagenes/upload",
         files=files,
         data=data,
-        timeout=600,
+        timeout=60,
     )
     resp.raise_for_status()
 

@@ -41,7 +41,7 @@ class TiffService:
         cpu = os.cpu_count() or 4
         self._chunk_size = max(10, min(40, int(chunk_size)))
         self._scan_workers = max(1, min(3, int(scan_workers or min(cpu, 2))))
-        self._upload_workers = max(1, min(1, int(upload_workers)))
+        self._upload_workers = max(1, min(4, int(upload_workers)))
         self._chunk_pause_ms = max(0, min(250, int(chunk_pause_ms)))
         self._upload_pause_ms = max(0, min(500, int(upload_pause_ms)))
         mode = str(pipeline_mode or "").strip().lower()
