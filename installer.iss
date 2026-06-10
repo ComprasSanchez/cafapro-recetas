@@ -1,6 +1,6 @@
 [Setup]
 AppName=CafaproRecetas
-AppVersion=4.0.1
+AppVersion=4.0.2
 DefaultDirName={pf}\CafaproRecetas
 DefaultGroupName=CafaproRecetas
 OutputDir=output
@@ -15,7 +15,8 @@ WizardSizePercent=130
 WizardResizable=yes
 
 [Files]
-Source: "dist\CafaproRecetas\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
+Source: "dist\CafaproRecetas\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion; Excludes: ".env"
+Source: "dist\CafaproRecetas\.env"; DestDir: "{app}"; Flags: onlyifdoesntexist skipifsourcedoesntexist
 
 [Tasks]
 Name: "desktopicon"; Description: "Crear ícono en el Escritorio"; Flags: unchecked
@@ -190,7 +191,7 @@ var
   Lines: TArrayOfString;
   I: Integer;
   Found: Boolean;
-  Line, Result: string;
+  Line, Content: string;
 begin
   Found := False;
 
@@ -217,11 +218,11 @@ begin
   end;
 
   // Reconstruir y guardar
-  Result := '';
+  Content := '';
   for I := 0 to GetArrayLength(Lines) - 1 do
-    Result := Result + Lines[I] + #13#10;
+    Content := Content + Lines[I] + #13#10;
 
-  SaveStringToFile(FilePath, Result, False);
+  SaveStringToFile(FilePath, Content, False);
 end;
 
 
