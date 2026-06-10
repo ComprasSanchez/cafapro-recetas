@@ -1,13 +1,14 @@
 from pathlib import Path
 import logging
 import sys
+import threading
+import traceback
+from datetime import datetime
 
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from app.config.settings import settings
-# TODO: revisar implementación de logging antes de reactivar
-# from core.crash_logger import setup_crash_logger
 from core.version import APP_VERSION
 from core.updater import apply_update, get_pending_update
 from ui.dialogs.startup_status_dialog import StartupStatusDialog
@@ -18,6 +19,89 @@ from ui.theme.theme_manager import theme_manager
 log = logging.getLogger(__name__)
 
 
+def _setup_logging() -> None:
+    if getattr(sys, "frozen", False):
+        log_dir = Path.home() / "Documents" / "CafaproRecetas" / "logs"
+    else:
+        log_dir = Path(__file__).resolve().parents[1] / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = log_dir / f"cafapro_{datetime.now():%Y%m%d}.log"
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        handlers=[
+            logging.FileHandler(log_file, encoding="utf-8"),
+            logging.StreamHandler(sys.stdout),
+        ],
+        force=True,
+    )
+    logging.getLogger("crash_logger").info(
+        "=== Sesión iniciada — %s | log: %s ===", datetime.now().isoformat(), log_file
+    )
+
+
+def _show_crash_dialog(msg: str) -> bool:
+    """Muestra error con opción de continuar. Retorna True si el usuario elige continuar."""
+    try:
+        if QApplication.instance() is None:
+            return False
+        mb = QMessageBox()
+        mb.setWindowTitle("Error inesperado")
+        mb.setText(
+            "Ocurrió un error inesperado.\n\n"
+            "Podés intentar continuar usando la aplicación o cerrarla."
+        )
+        mb.setDetailedText(msg)
+        mb.setIcon(QMessageBox.Icon.Critical)
+        continuar_btn = mb.addButton("Continuar", QMessageBox.ButtonRole.AcceptRole)
+        mb.addButton("Cerrar aplicación", QMessageBox.ButtonRole.RejectRole)
+        mb.exec()
+        return mb.clickedButton() is continuar_btn
+    except Exception:
+        return False
+
+
+def _install_global_exception_handlers() -> None:
+    def _excepthook(exc_type, exc_value, exc_tb):
+        if issubclass(exc_type, (KeyboardInterrupt, SystemExit)):
+            sys.__excepthook__(exc_type, exc_value, exc_tb)
+            return
+        msg = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+        log.critical("Excepción no capturada (hilo principal):\n%s", msg)
+        if not _show_crash_dialog(msg):
+            sys.exit(1)
+
+    sys.excepthook = _excepthook
+
+    def _thread_excepthook(args: threading.ExceptHookArgs) -> None:
+        if args.exc_type is SystemExit:
+            return
+        msg = "".join(traceback.format_exception(args.exc_type, args.exc_value, args.exc_tb))
+        log.critical(
+            "Excepción no capturada (hilo %r):\n%s",
+            getattr(args.thread, "name", args.thread),
+            msg,
+        )
+
+    threading.excepthook = _thread_excepthook
+
+
+class SafeApplication(QApplication):
+    """QApplication que atrapa excepciones en el event loop de Qt para evitar cierres sorpresivos."""
+
+    def notify(self, receiver, event):
+        try:
+            return super().notify(receiver, event)
+        except Exception:
+            log.critical(
+                "Excepción en Qt notify (receiver=%r, event=%r):",
+                receiver,
+                event,
+                exc_info=True,
+            )
+            return False
+
+
 def app_dir() -> Path:
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
@@ -25,10 +109,11 @@ def app_dir() -> Path:
 
 
 def main() -> int:
-    # setup_crash_logger()
-    # log.info("Arrancando Cafapro Recetas %s", APP_VERSION)
+    _setup_logging()
+    _install_global_exception_handlers()
+    log.info("Arrancando Cafapro Recetas %s", APP_VERSION)
 
-    app = QApplication(sys.argv)
+    app = SafeApplication(sys.argv)
     base = app_dir()
     icon_path = base / "resources" / "logo.ico"
 
