@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-import httpx
+from core.api_client import get_client
 
 from app.config.settings import settings
 
@@ -34,7 +34,7 @@ def _to_item(u: dict) -> UsuarioListItem:
 class UsuariosService:
     @staticmethod
     def list() -> list[UsuarioListItem]:
-        resp = httpx.get(_url(), timeout=600)
+        resp = get_client().get(_url())
         resp.raise_for_status()
         return [_to_item(u) for u in resp.json()]
 
@@ -47,21 +47,21 @@ class UsuariosService:
             raise ValueError("La contraseña debe tener al menos 6 caracteres.")
 
         payload = {"username": username, "password": password, "rolId": int(rol_id)}
-        resp = httpx.post(_url(), json=payload, timeout=600)
+        resp = get_client().post(_url(), json=payload)
         if resp.status_code == 409:
             raise ValueError("Ya existe un usuario con ese username.")
         resp.raise_for_status()
 
     @staticmethod
     def delete_logico(usuario_id: int) -> None:
-        resp = httpx.patch(_url(f"/{usuario_id}"), json={"activo": False}, timeout=600)
+        resp = get_client().patch(_url(f"/{usuario_id}"), json={"activo": False})
         if resp.status_code == 404:
             raise ValueError("El usuario no existe.")
         resp.raise_for_status()
 
     @staticmethod
     def restore(usuario_id: int) -> None:
-        resp = httpx.patch(_url(f"/{usuario_id}"), json={"activo": True}, timeout=600)
+        resp = get_client().patch(_url(f"/{usuario_id}"), json={"activo": True})
         if resp.status_code == 404:
             raise ValueError("El usuario no existe.")
         resp.raise_for_status()

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-import httpx
+from core.api_client import get_client
 
 from app.config.settings import settings
 
@@ -43,19 +43,19 @@ class MotivosDebitosService:
             params["lado"] = lado
         if activo is not None:
             params["activo"] = "true" if activo else "false"
-        resp = httpx.get(_url(), params=params, timeout=600)
+        resp = get_client().get(_url(), params=params)
         resp.raise_for_status()
         return [_to_item(m) for m in resp.json()]
 
     @staticmethod
     def create(descripcion: str, lado: str) -> MotivoDebitoItem:
-        resp = httpx.post(_url(), json={"descripcion": descripcion, "lado": lado}, timeout=600)
+        resp = get_client().post(_url(), json={"descripcion": descripcion, "lado": lado})
         resp.raise_for_status()
         return _to_item(resp.json())
 
     @staticmethod
     def toggle_activo(motivo_id: int) -> None:
-        resp = httpx.patch(_url(f"/{int(motivo_id)}/toggle-activo"), timeout=600)
+        resp = get_client().patch(_url(f"/{int(motivo_id)}/toggle-activo"))
         if resp.status_code == 404:
             raise ValueError("Motivo no encontrado")
         resp.raise_for_status()

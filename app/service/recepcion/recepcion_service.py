@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Optional
 
-import httpx
+from core.api_client import get_client
 
 from app.config.settings import settings
 
@@ -85,13 +85,13 @@ def _to_prestador_item(p: dict) -> PrestadorConRecepcionesItem:
 class RecepcionService:
     @staticmethod
     def list(*, all: bool = True) -> list[RecepcionListItem]:
-        resp = httpx.get(_url(), params={"includeClosed": "true" if all else "false"}, timeout=600)
+        resp = get_client().get(_url(), params={"includeClosed": "true" if all else "false"})
         resp.raise_for_status()
         return [_to_list_item(r) for r in resp.json()]
 
     @staticmethod
     def get(recepcion_id: int) -> RecepcionListItem | None:
-        resp = httpx.get(_url(f"/{recepcion_id}"), timeout=600)
+        resp = get_client().get(_url(f"/{recepcion_id}"))
         if resp.status_code == 404:
             return None
         resp.raise_for_status()
@@ -99,27 +99,25 @@ class RecepcionService:
 
     @staticmethod
     def list_recepciones(*, periodo_id: int, prestador_id: int) -> list[RecepcionRowItem]:
-        resp = httpx.get(
+        resp = get_client().get(
             _url("/lista"),
             params={"periodoId": int(periodo_id), "prestadorId": int(prestador_id)},
-            timeout=600,
         )
         resp.raise_for_status()
         return [_to_row_item(r) for r in resp.json()]
 
     @staticmethod
     def list_prestadores_con_recepcion(*, periodo_id: int) -> list[PrestadorConRecepcionesItem]:
-        resp = httpx.get(
+        resp = get_client().get(
             _url("/prestadores-con-recepcion"),
             params={"periodoId": int(periodo_id)},
-            timeout=600,
         )
         resp.raise_for_status()
         return [_to_prestador_item(p) for p in resp.json()]
 
     @staticmethod
     def has_debitos_sin_estado(recepcion_id: int) -> bool:
-        resp = httpx.get(_url(f"/{recepcion_id}/has-debitos-sin-estado"), timeout=600)
+        resp = get_client().get(_url(f"/{recepcion_id}/has-debitos-sin-estado"))
         if resp.status_code == 404:
             raise ValueError(f"No existe la recepción {recepcion_id}")
         resp.raise_for_status()
@@ -149,7 +147,7 @@ class RecepcionService:
             "observaciones": observaciones,
             "creadoPorUsuarioId": creado_por_usuario_id,
         }
-        resp = httpx.post(_url(), json=payload, timeout=600)
+        resp = get_client().post(_url(), json=payload)
         if resp.status_code == 409:
             raise RuntimeError(resp.json().get("message", "Conflicto al crear recepción."))
         if resp.status_code == 404:
@@ -159,14 +157,14 @@ class RecepcionService:
 
     @staticmethod
     def delete(recepcion_id: int) -> None:
-        resp = httpx.delete(_url(f"/{recepcion_id}"), timeout=600)
+        resp = get_client().delete(_url(f"/{recepcion_id}"))
         if resp.status_code == 404:
             raise ValueError("La recepción no existe.")
         resp.raise_for_status()
 
     @staticmethod
     def cerrar_recepcion(recepcion_id: int) -> None:
-        resp = httpx.patch(_url(f"/{recepcion_id}/cerrar"), timeout=600)
+        resp = get_client().patch(_url(f"/{recepcion_id}/cerrar"))
         if resp.status_code == 404:
             raise RuntimeError(f"No existe la recepción {recepcion_id}")
         resp.raise_for_status()

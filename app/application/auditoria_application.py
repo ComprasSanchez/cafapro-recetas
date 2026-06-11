@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import quote
 
-import requests
+from core.api_client import get_client, TIMEOUT_HEAVY
 from PIL import Image
 
 from app.config.settings import settings
@@ -185,7 +185,7 @@ class AuditoriaApplication:
 
         if AuditoriaApplication._is_url(src):
             try:
-                r = requests.get(src, timeout=600)
+                r = get_client().get(src, timeout=TIMEOUT_HEAVY, follow_redirects=True)
                 r.raise_for_status()
                 data = r.content
             except Exception as e:

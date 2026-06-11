@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-import httpx
+from core.api_client import get_client
 
 from app.config.settings import settings
 
@@ -20,7 +20,7 @@ def _url() -> str:
 class EstadoRecetaService:
     @staticmethod
     def list() -> list[EstadoRecetaItem]:
-        resp = httpx.get(_url(), timeout=600)
+        resp = get_client().get(_url())
         resp.raise_for_status()
         return [
             EstadoRecetaItem(

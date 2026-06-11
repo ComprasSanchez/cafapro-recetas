@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import httpx
+from core.api_client import get_client
 
 from app.config.settings import settings
 
@@ -16,10 +16,9 @@ def _recetas_url(receta_id: int, path: str = "") -> str:
 class AsociacionService:
     @staticmethod
     def ejecutar(*, receta_id: int, archivo_id: int) -> None:
-        resp = httpx.post(
+        resp = get_client().post(
             _asociaciones_url(),
             json={"recetaId": int(receta_id), "archivoId": int(archivo_id)},
-            timeout=600,
         )
         if resp.status_code == 404:
             raise RuntimeError(resp.json().get("message", "Receta o archivo no encontrado"))
@@ -27,10 +26,9 @@ class AsociacionService:
 
     @staticmethod
     def reasociar(*, receta_id: int, archivo_id: int) -> None:
-        resp = httpx.patch(
+        resp = get_client().patch(
             _recetas_url(int(receta_id), "/reasociar"),
             json={"archivoId": int(archivo_id)},
-            timeout=600,
         )
         if resp.status_code == 404:
             raise RuntimeError(resp.json().get("message", "Receta o archivo no encontrado"))
@@ -40,7 +38,7 @@ class AsociacionService:
 
     @staticmethod
     def desasociar(*, receta_id: int) -> None:
-        resp = httpx.patch(_recetas_url(int(receta_id), "/desasociar"), timeout=600)
+        resp = get_client().patch(_recetas_url(int(receta_id), "/desasociar"))
         if resp.status_code == 404:
             raise RuntimeError(resp.json().get("message", "Receta no encontrada"))
         resp.raise_for_status()

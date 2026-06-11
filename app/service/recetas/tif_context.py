@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 
-import httpx
+from core.api_client import get_client, TIMEOUT_HEAVY
 
 from app.config.settings import settings
 from app.service.recetas.tif_logic import base_from_tif_path, build_detalle_context, norm_str
@@ -43,7 +43,7 @@ class TifRunCache:
 
 
 def load_run_context(*, recepcion_id: int) -> TifRunContext:
-    resp = httpx.get(_url(f"/{recepcion_id}/tif-context"), timeout=600)
+    resp = get_client().get(_url(f"/{recepcion_id}/tif-context"), timeout=TIMEOUT_HEAVY)
     if resp.status_code == 404:
         raise RuntimeError(f"No existe la recepcion {recepcion_id}")
     resp.raise_for_status()
@@ -68,7 +68,7 @@ def load_run_context(*, recepcion_id: int) -> TifRunContext:
 
 
 def load_run_cache(*, recepcion_id: int) -> TifRunCache:
-    resp = httpx.get(_url(f"/{recepcion_id}/tif-bundle"), timeout=600)
+    resp = get_client().get(_url(f"/{recepcion_id}/tif-bundle"), timeout=TIMEOUT_HEAVY)
     if resp.status_code == 404:
         raise RuntimeError(f"No existe la recepcion {recepcion_id}")
     resp.raise_for_status()
@@ -152,10 +152,10 @@ def update_archivos_vencido(*, estados_by_archivo_id: dict[int, bool]) -> None:
     if not estados_by_archivo_id:
         return
     payload = [{"archivoId": k, "vencido": v} for k, v in estados_by_archivo_id.items()]
-    resp = httpx.patch(
+    resp = get_client().patch(
         f"{settings.API_CAFAPRO.rstrip('/')}/archivos/vencido-bulk",
         json=payload,
-        timeout=600,
+        timeout=TIMEOUT_HEAVY,
     )
     resp.raise_for_status()
 

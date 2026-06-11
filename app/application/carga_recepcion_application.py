@@ -5,7 +5,7 @@ import re
 import time
 from typing import Any
 
-import httpx
+from core.api_client import get_client, TIMEOUT_HEAVY
 
 from app.config.settings import settings
 from app.service.recepcion.recepcion_service import RecepcionService
@@ -183,9 +183,9 @@ class CargaRecepcionApplication:
             progress_cb=_emit_chunk_progress if total_items else None,
         )
 
-        resp = httpx.post(
+        resp = get_client().post(
             f"{settings.API_CAFAPRO.rstrip('/')}/recepciones/{recepcion_id}/actualizar-historial",
-            timeout=600,
+            timeout=TIMEOUT_HEAVY,
         )
         resp.raise_for_status()
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional, List
 
-import httpx
+from core.api_client import get_client
 
 from app.config.settings import settings
 
@@ -127,7 +127,7 @@ def _to_motivo(m: dict) -> MotivoData:
 class AuditoriaVisualService:
     @staticmethod
     def load_by_asociacion_id(asociacion_id: int) -> AuditoriaVisualData:
-        resp = httpx.get(_url(int(asociacion_id)), timeout=600)
+        resp = get_client().get(_url(int(asociacion_id)))
         if resp.status_code == 404:
             raise ValueError("No existe asociación")
         resp.raise_for_status()

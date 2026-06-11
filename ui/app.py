@@ -9,6 +9,7 @@ from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from app.config.settings import settings
+from core.api_client import close_client
 from core.version import APP_VERSION
 from core.updater import apply_update, get_pending_update
 from ui.dialogs.startup_status_dialog import StartupStatusDialog
@@ -197,6 +198,8 @@ def main() -> int:
     except Exception:
         log.critical("Excepción en el event loop de Qt:", exc_info=True)
         return 1
+    finally:
+        close_client()
 
 
 if __name__ == "__main__":

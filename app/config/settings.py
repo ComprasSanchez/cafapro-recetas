@@ -50,7 +50,7 @@ class Settings(BaseSettings):
     TIFF_UPLOAD_WORKERS: int = Field(default=1)
     TIFF_CHUNK_PAUSE_MS: int = Field(default=0)
     TIFF_UPLOAD_PAUSE_MS: int = Field(default=0)
-    TIFF_PIPELINE_MODE: str = Field(default="item")  # item|chunk
+    TIFF_PIPELINE_MODE: str = Field(default="chunk")  # item|chunk
 
     # -----------------------
     # Helpers

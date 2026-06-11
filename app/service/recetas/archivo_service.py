@@ -4,7 +4,7 @@ from datetime import date as dt_date, time as dt_time, date, datetime
 from decimal import Decimal
 from typing import Any
 
-import httpx
+from core.api_client import get_client, TIMEOUT_HEAVY
 
 from app.config.settings import settings
 
@@ -221,7 +221,7 @@ class ArchivoService:
                 "actualizarHistorial": actualizar_historial,
                 "recetas": batch,
             }
-            resp = httpx.post(_url("/bulk"), json=payload, timeout=600)
+            resp = get_client().post(_url("/bulk"), json=payload, timeout=TIMEOUT_HEAVY)
             resp.raise_for_status()
             data = resp.json()
             total_insertados += int(data["insertados"])
@@ -231,7 +231,7 @@ class ArchivoService:
     @staticmethod
     def list_fechas(recepcion_id: int) -> list[date]:
         url = f"{settings.API_CAFAPRO.rstrip('/')}/recepciones/{int(recepcion_id)}/fechas"
-        resp = httpx.get(url, timeout=600)
+        resp = get_client().get(url)
         if resp.status_code == 404:
             return []
         resp.raise_for_status()

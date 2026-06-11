@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-import httpx
+from core.api_client import get_client
 
 from app.config.settings import settings
 
@@ -57,7 +57,7 @@ class HistorialRecetaService:
     @staticmethod
     def load_current_snapshot(*, archivo_id: int) -> CurrentSnapshotOut:
         url = f"{settings.API_CAFAPRO.rstrip('/')}/archivos/{int(archivo_id)}/historial-snapshot"
-        resp = httpx.get(url, timeout=600)
+        resp = get_client().get(url)
         resp.raise_for_status()
         d = resp.json()
         return CurrentSnapshotOut(
@@ -71,7 +71,7 @@ class HistorialRecetaService:
     @staticmethod
     def list_historial(*, archivo_id: int) -> list[dict]:
         url = f"{settings.API_CAFAPRO.rstrip('/')}/archivos/{int(archivo_id)}/historial"
-        resp = httpx.get(url, timeout=600)
+        resp = get_client().get(url)
         resp.raise_for_status()
         return [
             {
@@ -91,7 +91,7 @@ class HistorialRecetaService:
     @staticmethod
     def list_debitos_for_receta(*, receta_id: int) -> list[dict]:
         url = f"{settings.API_CAFAPRO.rstrip('/')}/recetas/{int(receta_id)}/historial-detail"
-        resp = httpx.get(url, timeout=600)
+        resp = get_client().get(url)
         if resp.status_code == 404:
             return []
         resp.raise_for_status()
@@ -109,7 +109,7 @@ class HistorialRecetaService:
     @staticmethod
     def get_imagenes_por_receta(*, receta_id: int) -> dict:
         url = f"{settings.API_CAFAPRO.rstrip('/')}/recetas/{int(receta_id)}/historial-detail"
-        resp = httpx.get(url, timeout=600)
+        resp = get_client().get(url)
         if resp.status_code == 404:
             return {"frente": None, "dorso": None}
         resp.raise_for_status()
@@ -135,7 +135,7 @@ class HistorialRecetaService:
             params["nroReceta"] = nro_receta
         if nro_referencia:
             params["nroReferencia"] = nro_referencia
-        resp = httpx.get(url, params=params, timeout=600)
+        resp = get_client().get(url, params=params)
         resp.raise_for_status()
         return [
             {

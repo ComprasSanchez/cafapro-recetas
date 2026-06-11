@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-import httpx
+from core.api_client import get_client
 
 from app.config.settings import settings
 
@@ -27,6 +27,6 @@ def _to_item(r: dict) -> RolListItem:
 class RolesService:
     @staticmethod
     def list() -> list[RolListItem]:
-        resp = httpx.get(_url(), timeout=600)
+        resp = get_client().get(_url())
         resp.raise_for_status()
         return [_to_item(r) for r in resp.json()]

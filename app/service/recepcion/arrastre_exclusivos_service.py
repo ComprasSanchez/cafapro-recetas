@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import httpx
+from core.api_client import get_client, TIMEOUT_HEAVY
 
 from app.config.settings import settings
 
@@ -21,7 +21,7 @@ class ArrastreExcluidosService:
 
     @staticmethod
     def run(*, recepcion_id: int) -> int:
-        resp = httpx.post(_url(int(recepcion_id)), timeout=600)
+        resp = get_client().post(_url(int(recepcion_id)), timeout=TIMEOUT_HEAVY)
         if resp.status_code == 404:
             raise ValueError(f"No existe la recepción {recepcion_id}")
         resp.raise_for_status()

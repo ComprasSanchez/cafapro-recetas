@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 
-import httpx
+from core.api_client import get_client
 
 from app.config.settings import settings
 
@@ -31,7 +31,7 @@ class RecetaService:
             "ubicacionDorso": ubicacion_dorso,
             "troqueles": [str(t).strip() for t in troqueles if str(t).strip()],
         }
-        resp = httpx.post(_url("/upsert"), json=payload, timeout=600)
+        resp = get_client().post(_url("/upsert"), json=payload)
         resp.raise_for_status()
         data = resp.json()
         return int(data["recetaId"]), bool(data["created"])
@@ -61,17 +61,16 @@ class RecetaService:
             payload["usuarioId"] = int(usuario_id)
         if debitos is not None:
             payload["debitos"] = debitos
-        resp = httpx.patch(_url(f"/{int(receta_id)}/finalizar-auditoria"), json=payload, timeout=600)
+        resp = get_client().patch(_url(f"/{int(receta_id)}/finalizar-auditoria"), json=payload)
         if resp.status_code == 404:
             raise ValueError(f"Receta {receta_id} no existe")
         resp.raise_for_status()
 
     @staticmethod
     def update_estado_seguimiento(receta_id: int, estado_seguimiento_id: int | None) -> None:
-        resp = httpx.patch(
+        resp = get_client().patch(
             _url(f"/{int(receta_id)}/estado-seguimiento"),
             json={"estadoSeguimientoId": estado_seguimiento_id},
-            timeout=600,
         )
         if resp.status_code == 404:
             raise ValueError(f"No existe receta_id={receta_id}")
@@ -79,10 +78,9 @@ class RecetaService:
 
     @staticmethod
     def anular_receta(receta_id: int, nro_receta: str) -> None:
-        resp = httpx.patch(
+        resp = get_client().patch(
             _url(f"/{int(receta_id)}/anular"),
             json={"nroReceta": str(nro_receta)},
-            timeout=600,
         )
         if resp.status_code == 404:
             raise RuntimeError("Receta no encontrada")
@@ -90,10 +88,9 @@ class RecetaService:
 
     @staticmethod
     def duplicar_receta(receta_id: int, nro_receta: str) -> None:
-        resp = httpx.patch(
+        resp = get_client().patch(
             _url(f"/{int(receta_id)}/duplicar"),
             json={"nroReceta": str(nro_receta)},
-            timeout=600,
         )
         if resp.status_code == 404:
             raise RuntimeError("Receta no encontrada")
@@ -101,7 +98,7 @@ class RecetaService:
 
     @staticmethod
     def eliminar_sobrante(*, receta_id: int) -> None:
-        resp = httpx.delete(_url(f"/{int(receta_id)}"), timeout=600)
+        resp = get_client().delete(_url(f"/{int(receta_id)}"))
         if resp.status_code == 404:
             raise RuntimeError("Receta no encontrada")
         if resp.status_code == 400:
@@ -111,6 +108,6 @@ class RecetaService:
     @staticmethod
     def eliminar_sobrantes_bulk(*, receta_ids: list[int]) -> dict:
         ids = list({int(r) for r in (receta_ids or []) if int(r or 0) > 0})
-        resp = httpx.request("DELETE", _url("/bulk"), json={"recetaIds": ids}, timeout=600)
+        resp = get_client().request("DELETE", _url("/bulk"), json={"recetaIds": ids})
         resp.raise_for_status()
         return resp.json()

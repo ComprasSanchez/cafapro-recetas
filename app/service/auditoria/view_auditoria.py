@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-import httpx
+from core.api_client import get_client
 
 from app.config.settings import settings
 
@@ -60,7 +60,7 @@ def _to_row(r: dict) -> AuditoriaRow:
 class ViewAuditoriaService:
     @staticmethod
     def list(recepcion_id: int) -> list[AuditoriaRow]:
-        resp = httpx.get(f"{_base(recepcion_id)}/auditoria", timeout=600)
+        resp = get_client().get(f"{_base(recepcion_id)}/auditoria")
         if resp.status_code == 404:
             return []
         resp.raise_for_status()
@@ -68,7 +68,7 @@ class ViewAuditoriaService:
 
     @staticmethod
     def list_sin_asociacion(recepcion_id: int) -> list[AuditoriaRow]:
-        resp = httpx.get(f"{_base(recepcion_id)}/archivos-sin-asociacion", timeout=600)
+        resp = get_client().get(f"{_base(recepcion_id)}/archivos-sin-asociacion")
         if resp.status_code == 404:
             return []
         resp.raise_for_status()
@@ -76,7 +76,7 @@ class ViewAuditoriaService:
 
     @staticmethod
     def list_archivos_reasociables(recepcion_id: int) -> list[AuditoriaRow]:
-        resp = httpx.get(f"{_base(recepcion_id)}/archivos-reasociables", timeout=600)
+        resp = get_client().get(f"{_base(recepcion_id)}/archivos-reasociables")
         if resp.status_code == 404:
             return []
         resp.raise_for_status()

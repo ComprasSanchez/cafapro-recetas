@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-import httpx
+from core.api_client import get_client
 
 from app.config.settings import settings
 
@@ -26,7 +26,7 @@ def _url(recepcion_id: int) -> str:
 class ExcluidosService:
     @staticmethod
     def list_by_recepcion(recepcion_id: int) -> list[ExcluidoItem]:
-        resp = httpx.get(_url(int(recepcion_id)), timeout=600)
+        resp = get_client().get(_url(int(recepcion_id)))
         if resp.status_code == 404:
             return []
         resp.raise_for_status()

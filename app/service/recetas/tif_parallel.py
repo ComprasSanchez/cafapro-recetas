@@ -6,7 +6,7 @@ import os
 import time
 from typing import cast
 
-import httpx
+from core.api_client import get_client, TIMEOUT_HEAVY
 
 from core.process_tif import ScanOut, TiffProcessor, TroquelEstado
 from app.config.settings import settings
@@ -37,11 +37,11 @@ def _upload_rendered(
         data["backKey"] = back_key
     if not files:
         return
-    resp = httpx.post(
+    resp = get_client().post(
         f"{settings.API_CAFAPRO.rstrip('/')}/imagenes/upload",
         files=files,
         data=data,
-        timeout=600,
+        timeout=TIMEOUT_HEAVY,
     )
     resp.raise_for_status()
 

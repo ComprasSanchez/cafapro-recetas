@@ -2,7 +2,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable
 
-import httpx
+from core.api_client import get_client
 
 from app.config.settings import settings
 
@@ -24,7 +24,7 @@ class DebitosService:
             {"motivoDebitoId": int(it.motivo_debito_id), "detalle": it.detalle or None}
             for it in items
         ]
-        resp = httpx.put(_url(f"/receta/{int(receta_id)}"), json=payload, timeout=600)
+        resp = get_client().put(_url(f"/receta/{int(receta_id)}"), json=payload)
         if resp.status_code == 404:
             raise ValueError("Receta no encontrada")
         resp.raise_for_status()

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-import httpx
+from core.api_client import get_client
 
 from app.config.settings import settings
 
@@ -31,7 +31,7 @@ def _url(path: str = "") -> str:
 class ViewResumenRecepcionService:
     @staticmethod
     def get_resumen_recepcion(*, recepcion_id: int) -> ResumenRecepcionItem | None:
-        resp = httpx.get(_url(f"/{recepcion_id}/resumen"), timeout=600)
+        resp = get_client().get(_url(f"/{recepcion_id}/resumen"))
         if resp.status_code == 404:
             return None
         resp.raise_for_status()
@@ -45,10 +45,9 @@ class ViewResumenRecepcionService:
 
     @staticmethod
     def list_prestadores_resumen(*, periodo_id: int) -> list[PrestadorResumenItem]:
-        resp = httpx.get(
+        resp = get_client().get(
             _url("/totales-por-prestador"),
             params={"periodoId": int(periodo_id)},
-            timeout=600,
         )
         resp.raise_for_status()
         return [

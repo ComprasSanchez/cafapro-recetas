@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import httpx
+from core.api_client import get_client, TIMEOUT_HEAVY
 
 from app.config.settings import settings
 from app.service.recetas.tif_logic import norm_str
@@ -94,14 +94,14 @@ def persist_uploaded_chunk(
     if not recetas_payload:
         return 0
 
-    resp = httpx.post(
+    resp = get_client().post(
         _url(f"/{recepcion_id}/tif-chunk"),
         json={
             "usuarioId": int(usuario_id),
             "recetas": recetas_payload,
             "motivoDebitoVencidaId": int(motivo_debito_receta_vencida_id),
         },
-        timeout=600,
+        timeout=TIMEOUT_HEAVY,
     )
     resp.raise_for_status()
     return int(resp.json().get("persistidos", 0))

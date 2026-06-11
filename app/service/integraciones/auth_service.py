@@ -4,6 +4,8 @@ from dataclasses import dataclass
 
 import httpx
 
+from core.api_client import get_client
+
 from app.config.settings import settings
 
 
@@ -32,10 +34,9 @@ class AuthService:
             raise AuthError("Usuario y contraseña son obligatorios.")
 
         try:
-            resp = httpx.post(
+            resp = get_client().post(
                 _url("/login"),
                 json={"username": username, "password": password},
-                timeout=600,
             )
         except httpx.TransportError as e:
             raise AuthError("No se pudo conectar con el servidor.") from e

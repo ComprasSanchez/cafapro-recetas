@@ -8,7 +8,7 @@ from pathlib import Path
 import re
 import unicodedata
 
-import httpx
+from core.api_client import get_client, TIMEOUT_HEAVY
 import xlsxwriter
 
 from app.config.settings import settings
@@ -104,7 +104,7 @@ class ViewDebitos:
 
     @staticmethod
     def list_recepciones() -> list[tuple[int, int]]:
-        resp = httpx.get(_url_debitos("/recepciones"), timeout=600)
+        resp = get_client().get(_url_debitos("/recepciones"))
         resp.raise_for_status()
         out: list[tuple[int, int]] = []
         for r in resp.json():
@@ -129,15 +129,14 @@ class ViewDebitos:
                 if isinstance(fecha_auditoria, date)
                 else str(fecha_auditoria)
             )
-        resp = httpx.get(_url_debitos(), params=params, timeout=600)
+        resp = get_client().get(_url_debitos(), params=params)
         resp.raise_for_status()
         return [_to_row(r) for r in resp.json()]
 
     @staticmethod
     def has_debitos_sin_estado_by_recepcion(*, recepcion_id: int) -> bool:
-        resp = httpx.get(
+        resp = get_client().get(
             _url_debitos(f"/recepcion/{int(recepcion_id)}/sin-estado"),
-            timeout=600,
         )
         resp.raise_for_status()
         return bool(resp.json().get("sinEstado", False))
@@ -147,9 +146,8 @@ class ViewDebitos:
         if not recepcion_id:
             return "sin-periodo"
         try:
-            resp = httpx.get(
+            resp = get_client().get(
                 _url_recepciones(f"/{int(recepcion_id)}/periodo-parts"),
-                timeout=600,
             )
             if resp.status_code == 404:
                 return "sin-periodo"
@@ -169,10 +167,9 @@ class ViewDebitos:
         anio: int,
         mes: int,
     ) -> list[DebitoViewRow]:
-        resp = httpx.get(
+        resp = get_client().get(
             _url_debitos("/mal-entrego"),
             params={"obraSocialId": int(obra_social_id), "anio": int(anio), "mes": int(mes)},
-            timeout=600,
         )
         resp.raise_for_status()
         return [_to_row(r) for r in resp.json()]
@@ -312,10 +309,9 @@ class ViewDebitos:
         if not receta_ids:
             return 0
 
-        resp = httpx.post(
+        resp = get_client().post(
             _url_recetas("/paths"),
             json={"recetaIds": list(receta_ids)},
-            timeout=600,
         )
         resp.raise_for_status()
         recetas = resp.json()
@@ -367,7 +363,7 @@ class ViewDebitos:
         if os.path.exists(dest):
             return False
         try:
-            resp = httpx.get(url, timeout=600, follow_redirects=True)
+            resp = get_client().get(url, timeout=TIMEOUT_HEAVY, follow_redirects=True)
             resp.raise_for_status()
             with open(dest, "wb") as f:
                 f.write(resp.content)

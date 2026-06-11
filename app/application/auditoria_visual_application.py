@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 
-import httpx
+from core.api_client import get_client
 
 from app.config.settings import settings
 from app.exceptions.domain_errors import AuditoriaValidationError
@@ -65,7 +65,7 @@ class AuditoriaVisualApplication:
             ],
         }
 
-        resp = httpx.patch(_recetas_url(int(receta_id)), json=payload, timeout=600)
+        resp = get_client().patch(_recetas_url(int(receta_id)), json=payload)
         if resp.status_code == 404:
             raise ValueError(f"Receta {receta_id} no existe")
         if resp.status_code == 400:
